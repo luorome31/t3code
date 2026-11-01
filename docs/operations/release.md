@@ -9,6 +9,17 @@ remain stable and nightly. To ship 0.1.0 Beta, use `channel=stable` and
 `version=0.1.0`. Removing the Beta label later is a branding change independent of
 the version.
 
+## Linux downloads from a fork
+
+In a fork, run **Actions → Fork Linux Release → Run workflow** on the branch to package.
+It uses GitHub's Ubuntu runner and requires no signing or deployment secrets. After building and
+launch-checking the application, it publishes an AppImage, a Deb package, and `SHA256SUMS` to a
+Qoder CN GitHub prerelease. The version includes the build date and workflow run number.
+
+These builds use the public configuration in `.env.example`. They do not publish npm packages,
+deploy a relay or hosted web app, or provide an automatic update feed. The upstream release
+workflow remains restricted to the upstream repository.
+
 ## What the workflow does
 
 - Workflow: `.github/workflows/release.yml`
