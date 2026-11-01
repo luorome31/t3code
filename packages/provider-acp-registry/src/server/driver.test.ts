@@ -6,6 +6,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
+import { parseQoderCnModelOptions, QODER_CN_CONTEXT_OPTION_ID } from "./qoderCn.ts";
 import {
   applyAcpRegistryAvailableCommands,
   applyAcpRegistryLiveConfiguration,
@@ -43,6 +44,97 @@ function catalogWithInspection(
 }
 
 describe("acpRegistrySnapshotReadiness", () => {
+  it("keeps Qoder CN parameter choices scoped to each model after live session updates", () => {
+    const modelOptions = parseQoderCnModelOptions(
+      JSON.stringify({
+        type: "control_response",
+        response: {
+          subtype: "success",
+          request_id: "t3-model-options",
+          response: {
+            models: [
+              { modelId: "auto", availableContextWindows: [200_000] },
+              {
+                modelId: "qmodel",
+                efforts: ["low", "xhigh"],
+                defaultEffort: "low",
+                availableContextWindows: [200_000, 400_000],
+              },
+            ],
+          },
+        },
+      }),
+    );
+    const models = ["auto", "qmodel"].map((id) => ({ id, name: id, description: null }));
+    const provider = buildCheckedAcpRegistrySnapshot({
+      ...identity,
+      settings: decodeSettings({ source: "local", commandPath: "qodercn" }),
+      checkedAt: "2026-11-01T10:00:00.000Z",
+      inspection: { status: "ready", agentId: "", distribution: "local", version: "1.1.73" },
+      probe: {
+        probe: {
+          instanceId: identity.instanceId,
+          ready: true,
+          icon: null,
+          authMethods: [],
+          models,
+          currentModelId: "auto",
+          configOptions: [],
+          sessionManagement: noSessionManagement,
+        },
+        slashCommands: [],
+        skills: [],
+        modelOptions,
+      },
+    });
+    const descriptors = (snapshot: typeof provider, id: string) =>
+      snapshot.models.find((model) => model.slug === id)?.capabilities?.optionDescriptors;
+    expect(descriptors(provider, "auto")?.map((option) => option.id)).toEqual([
+      QODER_CN_CONTEXT_OPTION_ID,
+    ]);
+    expect(descriptors(provider, "qmodel")?.map((option) => option.id)).toEqual([
+      "reasoning_effort",
+      QODER_CN_CONTEXT_OPTION_ID,
+    ]);
+    const qmodel = applyAcpRegistryLiveConfiguration(
+      provider,
+      {
+        models,
+        currentModelId: "qmodel",
+        configOptions: [
+          {
+            id: "reasoning_effort",
+            label: "Reasoning Effort",
+            type: "select",
+            role: "reasoning",
+            currentValue: "xhigh",
+            options: [
+              { id: "xhigh", label: "Extra High" },
+              { id: "low", label: "Low" },
+            ],
+          },
+        ],
+      },
+      [],
+      true,
+    );
+    expect(descriptors(qmodel, "auto")).toEqual(descriptors(provider, "auto"));
+    expect(descriptors(qmodel, "qmodel")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "reasoning_effort", currentValue: "xhigh" }),
+        expect.objectContaining({ id: QODER_CN_CONTEXT_OPTION_ID }),
+      ]),
+    );
+    const auto = applyAcpRegistryLiveConfiguration(
+      qmodel,
+      { models, currentModelId: "auto", configOptions: [] },
+      [],
+      true,
+    );
+    expect(descriptors(auto, "qmodel")).toEqual(descriptors(qmodel, "qmodel"));
+    expect(descriptors(auto, "auto")).toEqual(descriptors(provider, "auto"));
+  });
+
   it("treats a live empty command advertisement as an authoritative replacement", () => {
     const provider = buildCheckedAcpRegistrySnapshot({
       ...identity,

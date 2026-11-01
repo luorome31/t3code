@@ -56,6 +56,7 @@ import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
 import * as AcpRegistryRuntimeCoordinator from "./AcpRegistryRuntimeCoordinator.ts";
 import * as AcpRegistryAuth from "./auth.ts";
 import * as AcpRegistryAuthenticationState from "./authenticationState.ts";
+import { isQoderCn, QODER_CN_CONTEXT_OPTION_ID, type QoderCnModelOptions } from "./qoderCn.ts";
 
 const DRIVER_KIND = ProviderDriverKind.make("acpRegistry");
 const decodeSettings = Schema.decodeSync(AcpRegistrySettings);
@@ -89,6 +90,7 @@ function modelsFromDiscovery(
     | Pick<AcpRegistryLiveConfiguration, "models" | "currentModelId" | "configOptions">
     | undefined,
   customModels: ReadonlyArray<string>,
+  modelOptions?: QoderCnModelOptions,
 ): ReadonlyArray<ServerProviderModel> {
   const discovered = discovery?.models ?? [];
   const capabilities =
@@ -111,7 +113,23 @@ function modelsFromDiscovery(
           name: model.name,
           isCustom: false,
           ...(model.id === discovery?.currentModelId ? { isDefault: true } : {}),
-          capabilities,
+          capabilities:
+            modelOptions === undefined
+              ? capabilities
+              : createModelCapabilities({
+                  optionDescriptors: [
+                    ...(discovery?.configOptions ?? []).filter(
+                      (option) => option.id !== "reasoning_effort",
+                    ),
+                    ...(modelOptions[model.id] ?? []).filter(
+                      (option) =>
+                        model.id !== discovery?.currentModelId || option.id !== "reasoning_effort",
+                    ),
+                    ...(model.id === discovery?.currentModelId
+                      ? discovery.configOptions.filter((option) => option.id === "reasoning_effort")
+                      : []),
+                  ],
+                }),
         }));
   return providerModelsFromSettings(builtInModels, customModels, capabilities);
 }
@@ -225,7 +243,11 @@ function baseSnapshot(
             : input.settings.agentId.length > 0),
     },
     ...(input.message ? { message: input.message } : {}),
-    models: modelsFromDiscovery(input.probe?.probe, input.settings.customModels),
+    models: modelsFromDiscovery(
+      input.probe?.probe,
+      input.settings.customModels,
+      input.probe?.modelOptions,
+    ),
     ...(input.probe === undefined
       ? {}
       : {
@@ -256,6 +278,7 @@ export function applyAcpRegistryLiveConfiguration(
   provider: ServerProvider,
   configuration: AcpRegistryLiveConfiguration,
   customModels: ReadonlyArray<string>,
+  perModelOptions = false,
 ): ServerProvider {
   const { message: _staleProbeMessage, ...snapshot } = provider;
   // session/load may omit models (Kimi returns `{}`); keep the probed list
@@ -273,13 +296,34 @@ export function applyAcpRegistryLiveConfiguration(
           })),
           currentModelId: probedModels.find((model) => model.isDefault)?.slug ?? null,
         };
+  const modelOptions = perModelOptions
+    ? Object.fromEntries(
+        probedModels.map((model) => {
+          const previous = (model.capabilities?.optionDescriptors ?? []).filter(
+            (option) =>
+              option.id === "reasoning_effort" || option.id === QODER_CN_CONTEXT_OPTION_ID,
+          );
+          return [
+            model.slug,
+            model.slug === configuration.currentModelId
+              ? [
+                  ...previous.filter((option) => option.id !== "reasoning_effort"),
+                  ...configuration.configOptions.filter(
+                    (option) => option.id === "reasoning_effort",
+                  ),
+                ]
+              : previous,
+          ];
+        }),
+      )
+    : undefined;
   return {
     ...snapshot,
     status: provider.enabled ? "ready" : provider.status,
     models:
       configuration.models.length === 0 && configuration.configOptions.length === 0
         ? provider.models
-        : modelsFromDiscovery(discovery, customModels),
+        : modelsFromDiscovery(discovery, customModels, modelOptions),
   };
 }
 
@@ -572,6 +616,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
                     withCommands,
                     liveConfiguration,
                     effectiveConfig.customModels,
+                    isQoderCn(effectiveConfig),
                   ),
               });
               return applyAcpRegistryUrlAuthAction(withConfiguration, authAction);
@@ -707,6 +752,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
                       current,
                       configuration,
                       effectiveConfig.customModels,
+                      isQoderCn(effectiveConfig),
                     ),
                   ),
                 ),

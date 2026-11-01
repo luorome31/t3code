@@ -15,6 +15,12 @@ import {
   isCopilotLostSessionError,
   makeCopilotSubagentRouting,
 } from "./copilotAcp.ts";
+import {
+  isQoderCn,
+  QODER_CN_CONTEXT_OPTION_ID,
+  qoderCnRuntimeConfigurationKey,
+  qoderCnSpawnArgs,
+} from "./qoderCn.ts";
 import { defaultInstanceIdForDriver, ProviderDriverKind } from "@t3tools/contracts";
 import { readCustomModelEntries } from "@t3tools/shared/model";
 import { AcpRegistrySettings } from "../settings.ts";
@@ -142,7 +148,7 @@ function makeAcpRegistryRuntime(
     ChildProcessSpawner.ChildProcessSpawner | Crypto.Crypto | Scope.Scope
   > =>
     Effect.gen(function* () {
-      const { processEnvironment, ...runtimeInput } = input;
+      const { processEnvironment, modelSelection, ...runtimeInput } = input;
       const resolved = yield* catalog
         .resolve(options.settings, input.cwd, options.environment)
         .pipe(
@@ -154,15 +160,18 @@ function makeAcpRegistryRuntime(
               }),
           ),
         );
+      const spawn = isQoderCn(options.settings)
+        ? { ...resolved.spawn, args: yield* qoderCnSpawnArgs(resolved.spawn, modelSelection) }
+        : resolved.spawn;
       const context = yield* Layer.build(
         AcpSessionRuntime.layer({
           ...runtimeInput,
           spawn:
             processEnvironment === undefined
-              ? resolved.spawn
+              ? spawn
               : {
-                  ...resolved.spawn,
-                  env: { ...resolved.spawn.env, ...processEnvironment },
+                  ...spawn,
+                  env: { ...spawn.env, ...processEnvironment },
                 },
           ...(options.settings.authMethodId ? { authMethodId: options.settings.authMethodId } : {}),
           customModels: readCustomModelEntries(options.settings.customModels).map(
@@ -211,6 +220,12 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
   const copilotRouting = isCopilot ? makeCopilotSubagentRouting() : undefined;
   const flavor: AcpAdapterV2Flavor = {
     driver: ACP_REGISTRY_PROVIDER,
+    ...(isQoderCn(options.settings)
+      ? {
+          runtimeConfigurationKey: qoderCnRuntimeConfigurationKey,
+          startupConfigOptionIds: [QODER_CN_CONTEXT_OPTION_ID],
+        }
+      : {}),
     // Cancelling a Copilot prompt also kills the background agents it started.
     capabilities: isCopilot
       ? {

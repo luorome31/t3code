@@ -51,6 +51,11 @@ CLI's credentials and configuration. For token authentication, add `QODERCN_PERS
 to the instance's environment variables. Once configured, the same instance is available to web,
 desktop, and mobile clients connected to that server.
 
+In a thread's model picker, choose a model to see its supported **Reasoning Effort** and
+**Context window** options. Available values come from your Qoder CN account; Auto may offer
+fewer controls than a specific model. Changes apply on the next turn. Changing the context window
+preserves the conversation, and **Default** restores the selected model's default window.
+
 ## Where agents run
 
 Registry agents always run on the machine that hosts your T3 Code server. That stays true when you

@@ -1244,6 +1244,136 @@ describe("AcpRegistryAdapterV2", () => {
     }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
 
+  it.live(
+    "restores a Qoder CN session when startup options change and applies reasoning without restarting",
+    () =>
+      Effect.gen(function* () {
+        const contextId = "contextWindow";
+        const launches: Array<ModelSelection> = [];
+        const requests: Array<AcpSessionRuntime.AcpSessionRequestLogEvent> = [];
+        const script = yield* (yield* Path.Path).fromFileUrl(
+          new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+        );
+        const instanceId = ProviderInstanceId.make("qoder-cn-parameters");
+        const threadId = ThreadId.make("thread-qoder-cn-parameters");
+        const adapter = yield* makeAcpRegistryAdapterV2({
+          selfInvocation: yield* resolveSelfInvocation(),
+          instanceId,
+          settings: yield* decodeAcpRegistryAdapterSettings({
+            source: "local",
+            commandPath: "qodercn",
+          }),
+          environment: {},
+          nativeLogging: () => ({
+            requestLogger: (event) =>
+              Effect.sync(() => {
+                if (event.status === "started") requests.push(event);
+              }),
+          }),
+          makeRuntime: (input) =>
+            Effect.gen(function* () {
+              launches.push(input.modelSelection);
+              const context = yield* Layer.build(
+                AcpSessionRuntime.layer({
+                  ...input,
+                  clientCapabilities: {
+                    ...input.clientCapabilities,
+                    _meta: { parameterizedModelPicker: true },
+                  },
+                  spawn: {
+                    command: process.execPath,
+                    args: [script],
+                    env: { T3_ACP_SESSION_LIFECYCLE: "1", T3_ACP_EMIT_LOAD_REPLAY: "1" },
+                  },
+                }),
+              );
+              return yield* AcpSessionRuntime.AcpSessionRuntime.pipe(Effect.provide(context));
+            }),
+        }).pipe(Effect.provide(layerInjectedRuntimeCatalog));
+        const pick = (context: string, reasoning = "high"): ModelSelection => ({
+          instanceId,
+          model: "gpt-5.4",
+          options: [
+            { id: contextId, value: context },
+            { id: "reasoning", value: reasoning },
+          ],
+        });
+        const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          cwd: process.cwd(),
+        });
+        const first = pick("400000");
+        const runtime = yield* adapter.openSession({
+          threadId,
+          providerSessionId: ProviderSessionId.make("session-qoder-cn-parameters"),
+          modelSelection: first,
+          runtimePolicy,
+        });
+        const providerThread = yield* runtime.ensureThread({
+          threadId,
+          modelSelection: first,
+          runtimePolicy,
+        });
+        yield* runtime.resumeThread({
+          providerThread,
+          modelSelection: pick("1000000"),
+          runtimePolicy,
+        });
+        assert.equal(launches.length, 2);
+        const now = yield* DateTime.now;
+        for (const [index, target] of [
+          pick("1000000"),
+          pick("1000000", "low"),
+          pick("default"),
+        ].entries()) {
+          yield* runtime.startTurn(
+            makeTurnInput({
+              threadId,
+              providerThread,
+              instanceId,
+              runtimePolicy,
+              now,
+              ordinal: index + 1,
+              modelSelection: target,
+            }),
+          );
+          yield* runtime.events.pipe(
+            Stream.takeUntil((event) => event.type === "turn.terminal"),
+            Stream.runForEach((event) =>
+              Effect.sync(() => {
+                if (event.type === "turn.terminal")
+                  assert.equal(event.status, "completed", event.failure?.message);
+              }),
+            ),
+          );
+          assert.equal(launches.length, index === 2 ? 3 : 2);
+        }
+        assert.deepEqual(
+          launches.map(
+            (selection) => selection.options?.find((option) => option.id === contextId)?.value,
+          ),
+          ["400000", "1000000", "default"],
+        );
+        const loads = requests.filter((request) => request.method === "session/load");
+        assert.equal(loads.length, 2);
+        for (const load of loads) assert.propertyVal(load.payload, "sessionId", "mock-session-1");
+        const configWrites = requests
+          .filter((request) => request.method === "session/set_config_option")
+          .map((request) => request.payload);
+        assert.isTrue(
+          configWrites.some(
+            (payload) =>
+              Reflect.get(payload as object, "configId") === "reasoning" &&
+              Reflect.get(payload as object, "value") === "low",
+          ),
+        );
+        assert.isFalse(
+          configWrites.some((payload) => Reflect.get(payload as object, "configId") === contextId),
+        );
+      }).pipe(Effect.provide(layerTest), Effect.scoped),
+  );
+
   it.effect.each(["before", "after"] as const)(
     "reconciles a full prompt echo %s acknowledgment",
     (ordering) =>

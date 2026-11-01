@@ -88,6 +88,76 @@ function Column() {
   );
 }
 
+const qoderModels: ReadonlyArray<ServerProviderModel> = [
+  {
+    slug: "qmodel_38max",
+    name: "Qwen3.8-Max",
+    isCustom: false,
+    capabilities: createModelCapabilities({
+      optionDescriptors: [
+        {
+          id: "reasoning_effort",
+          label: "Reasoning Effort",
+          type: "select",
+          role: "reasoning",
+          currentValue: "medium",
+          options: [
+            { id: "xhigh", label: "Extra High" },
+            { id: "low", label: "Low" },
+            { id: "medium", label: "Medium" },
+            { id: "none", label: "None" },
+          ],
+        },
+        {
+          id: "contextWindow",
+          label: "Context window",
+          type: "select",
+          currentValue: "default",
+          options: [
+            { id: "default", label: "Default" },
+            { id: "200000", label: "200K", isDefault: true },
+            { id: "400000", label: "400K" },
+            { id: "1000000", label: "1M" },
+          ],
+        },
+      ],
+    }),
+  },
+];
+
+function QoderColumn() {
+  const [options, setOptions] = useState<ReadonlyArray<ProviderOptionSelection>>([]);
+  const traits = {
+    ...traitsInput(options, (next) => setOptions(next ?? [])),
+    instanceId: ProviderInstanceId.make("qoder-cn"),
+    models: qoderModels,
+    model: "qmodel_38max",
+  };
+  return (
+    <>
+      <div data-model-picker-effort>
+        <ComposerEffortColumn traits={traits} />
+      </div>
+      <p role="status">{describeComposerEffort(traits, "label", "sm").suffix}</p>
+    </>
+  );
+}
+
+it("selects Qoder CN reasoning and context independently and restores the default window", async () => {
+  await using screen = await render(<QoderColumn />, { router: false }); // no routes involved
+  await expect
+    .element(screen.getByRole("radio", { name: "Medium" }))
+    .toHaveAttribute("aria-checked", "true");
+  await screen.getByRole("button", { name: "Context window: Default" }).click();
+  await page.getByRole("menuitemradio", { name: "400K" }).click();
+  await expect.element(screen.getByRole("status")).toHaveTextContent("Medium400K");
+  await screen.getByRole("radio", { name: "Low" }).click();
+  await expect.element(screen.getByRole("status")).toHaveTextContent("Low400K");
+  await screen.getByRole("button", { name: "Context window: 400K" }).click();
+  await page.getByRole("menuitemradio", { name: "Default" }).click();
+  await expect.element(screen.getByRole("status")).toHaveTextContent("LowDefault");
+});
+
 it("draws an agent's reasoning as bars and keeps its mode out of the levels", async () => {
   await using screen = await render(<Column />, { router: false }); // no routes involved
   const status = screen.getByRole("status");

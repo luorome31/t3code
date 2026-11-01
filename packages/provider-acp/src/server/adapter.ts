@@ -144,6 +144,7 @@ const ACP_TEXT_FLUSH_INTERVAL: Duration.Input = "50 millis";
 
 export interface AcpAdapterV2RuntimeInput {
   readonly cwd: string;
+  readonly modelSelection: ModelSelection;
   readonly runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
   readonly mcpServers: ReadonlyArray<EffectAcpSchema.McpServer>;
   readonly acpMcpServers?: ReadonlyArray<EffectAcpSchema.McpServer>;
@@ -316,6 +317,8 @@ export interface AcpAdapterV2Flavor {
     ChildProcessSpawner.ChildProcessSpawner | Crypto.Crypto | Scope.Scope
   >;
   readonly customModels?: ReadonlyArray<string>;
+  readonly runtimeConfigurationKey?: (selection: ModelSelection) => string;
+  readonly startupConfigOptionIds?: ReadonlyArray<string>;
   readonly resolveModelId?: (selection: ModelSelection) => string | undefined;
   readonly getModelContextWindow?: (
     selection: ModelSelection,
@@ -1679,6 +1682,8 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           yield* Ref.set(activeSessionSetup, setup);
         });
         const activeSelection = yield* Ref.make<ModelSelection | null>(null);
+        let runtimeModelSelection = input.modelSelection;
+        let runtimeConfigurationKey = flavor.runtimeConfigurationKey?.(runtimeModelSelection);
         const activeInteractionMode = yield* Ref.make<ProviderInteractionMode | null>(null);
         const promptInstructionStates = yield* Ref.make(new Map<string, T3AcpInstructionState>());
         // Unique markers keep delayed prompt completions from clearing later compactions.
@@ -2069,6 +2074,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
         ): AcpAdapterV2RuntimeInput => {
           return {
             cwd: input.runtimePolicy.cwd ?? process.cwd(),
+            modelSelection: runtimeModelSelection,
             runtimePolicy: input.runtimePolicy,
             mcpServers: mcpContext.servers,
             acpMcpServers: mcpContext.acpServers,
@@ -6491,6 +6497,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               Effect.provideService(AgentScope, agentScope),
               Effect.provideService(AgentScopeThreadId, threadId ?? undefined),
             );
+          runtimeConfigurationKey = flavor.runtimeConfigurationKey?.(runtimeModelSelection);
         });
 
         const startAcpRuntime = Effect.fnUntraced(function* (
@@ -6876,9 +6883,11 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               };
             });
           }
-          const optionSelections = (modelSelection.options ?? []).map((selection) =>
-            selection.value === ACP_EMPTY_OPTION_VALUE ? { ...selection, value: "" } : selection,
-          );
+          const optionSelections = (modelSelection.options ?? [])
+            .filter((selection) => !flavor.startupConfigOptionIds?.includes(selection.id))
+            .map((selection) =>
+              selection.value === ACP_EMPTY_OPTION_VALUE ? { ...selection, value: "" } : selection,
+            );
           const configOptions = yield* runtime.getConfigOptions;
           const availableConfigIds = new Set(configOptions.map((option) => option.id));
           const hasNativeConfigWithSyntheticModeId = availableConfigIds.has(
@@ -7465,6 +7474,34 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           return true;
         });
 
+        const prepareRuntimeModelSelection = Effect.fn("AcpAdapterV2.prepareRuntimeModelSelection")(
+          function* (selection: ModelSelection) {
+            const changed = flavor.runtimeConfigurationKey?.(selection) !== runtimeConfigurationKey;
+            if (changed) {
+              if (
+                (yield* Ref.get(activeTurn)) !== null ||
+                (yield* sessionRuntime.hasPendingBackgroundWork ?? Effect.succeed(false))
+              ) {
+                return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+                  driver,
+                  detail: "Cannot change ACP startup configuration while background work is active",
+                });
+              }
+              yield* runtimeCallbackPermit.withPermit(
+                Effect.gen(function* () {
+                  yield* awaitAdmittedNativeResponses;
+                  yield* quarantineNativeTransportAtGeneration(
+                    yield* Ref.get(runtimeCallbackGeneration),
+                  );
+                  yield* advanceRuntimeCallbackGeneration;
+                  yield* Ref.set(runtimeRestartRequired, true);
+                }),
+              );
+            }
+            runtimeModelSelection = selection;
+          },
+        );
+
         const startTurnUnlocked = Effect.fn("AcpAdapterV2.startTurn")(
           function* (turnInput: ProviderAdapter.ProviderAdapterV2TurnInput) {
             yield* awaitRuntimeTeardown();
@@ -7480,6 +7517,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             // load/resume can invoke client methods; install the incoming policy before activation.
             latestRuntimePolicy = turnInput.runtimePolicy;
             const requestedSessionId = yield* nativeThreadId(driver, turnInput.providerThread);
+            yield* prepareRuntimeModelSelection(turnInput.modelSelection);
             const restartAfterInterrupt = yield* restartRuntimeAfterTeardownIfRequired(
               turnInput.threadId,
             );
@@ -8088,6 +8126,9 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                   const restorePreviousItemIdentity = Effect.sync(() => {
                     itemIdentityVersion = previousItemIdentityVersion;
                   });
+                  yield* prepareRuntimeModelSelection(
+                    threadInput.modelSelection ?? input.modelSelection,
+                  );
                   const restartAfterInterrupt = yield* restartRuntimeAfterTeardownIfRequired(
                     threadInput.providerThread.appThreadId,
                   ).pipe(Effect.tapError(() => restorePreviousItemIdentity));

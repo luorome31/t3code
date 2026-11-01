@@ -35,6 +35,7 @@ import {
 } from "@t3tools/provider-acp/server/sessionConfig";
 import * as AcpRegistryRuntimeCoordinator from "./AcpRegistryRuntimeCoordinator.ts";
 import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
+import { isQoderCn, readQoderCnModelOptions, type QoderCnModelOptions } from "./qoderCn.ts";
 
 const MAX_AUTH_METHODS = 32;
 const MAX_MODELS = 256;
@@ -308,6 +309,7 @@ export interface AcpRegistryConfigurationProbeResult {
   readonly probe: AcpRegistryProbeResult;
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
   readonly skills: ReadonlyArray<ServerProviderSkill>;
+  readonly modelOptions?: QoderCnModelOptions;
 }
 
 export type AcpRegistryConfigurationProbe<Requirements = never> = (
@@ -424,7 +426,10 @@ export const probeAcpRegistryConfiguration = Effect.fn("AcpRegistryProbe.probeCo
       yield* Deferred.await(commandsAdvertised).pipe(
         Effect.timeoutOption(COMMAND_ADVERTISEMENT_GRACE),
       );
-      return { resolved, started, commands: yield* Ref.get(commandsRef) };
+      const modelOptions = isQoderCn(input.settings)
+        ? yield* readQoderCnModelOptions(resolved.spawn)
+        : undefined;
+      return { resolved, started, commands: yield* Ref.get(commandsRef), modelOptions };
     }).pipe(
       Effect.scoped,
       Effect.timeoutOrElse({
@@ -453,6 +458,7 @@ export const probeAcpRegistryConfiguration = Effect.fn("AcpRegistryProbe.probeCo
       ),
       slashCommands: result.commands.slashCommands,
       skills: result.commands.skills,
+      ...(result.modelOptions === undefined ? {} : { modelOptions: result.modelOptions }),
     };
   },
 );
