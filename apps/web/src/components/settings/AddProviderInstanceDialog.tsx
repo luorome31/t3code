@@ -343,17 +343,20 @@ export function AddProviderInstanceDialog({
     setHasAttemptedSubmit(false);
   };
 
-  const handleLocalAcpConfiguration = () => {
+  const handleLocalAcpConfiguration = (
+    label = "Local ACP",
+    command: { commandPath?: string; commandArgs: string[] } = { commandArgs: [] },
+  ) => {
     setDriver(ACP_REGISTRY_DRIVER_KIND);
     setSelectedAcp(null);
     setIsManualAcpConfiguration(true);
     setConfigByDriver((existing) => ({
       ...existing,
-      [ACP_REGISTRY_DRIVER_KIND]: { source: "local", commandArgs: [] },
+      [ACP_REGISTRY_DRIVER_KIND]: { source: "local", ...command },
     }));
     setIdentityByDriver((existing) =>
       updateProviderIdentityDraft(existing, ACP_REGISTRY_DRIVER_KIND, {
-        label: "Local ACP",
+        label,
         instanceIdOverride: null,
       }),
     );
@@ -497,6 +500,21 @@ export function AddProviderInstanceDialog({
                         onValueChange={selectDriver}
                         aria-label="More providers"
                       />
+                      <div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={isPreparingRegistryAgent}
+                          onClick={() =>
+                            handleLocalAcpConfiguration("Qoder CN", {
+                              commandPath: "qodercn",
+                              commandArgs: ["--acp"],
+                            })
+                          }
+                        >
+                          Qoder CN
+                        </Button>
+                      </div>
                       <div className="flex items-center gap-3 text-xs text-muted-foreground">
                         <div aria-hidden className="flex-1 border-t border-border/70" />
                         <span>Or choose from ACP Registry</span>
@@ -555,7 +573,7 @@ export function AddProviderInstanceDialog({
                             providerInstances={settings.providerInstances}
                             onPrepared={handleAcpPrepared}
                             onManualConfiguration={handleManualAcpConfiguration}
-                            onLocalConfiguration={handleLocalAcpConfiguration}
+                            onLocalConfiguration={() => handleLocalAcpConfiguration()}
                           />
                           {isAcpRegistry && hasAttemptedSubmit && acpSelectionError ? (
                             <p className="mt-2 text-2xs text-destructive">{acpSelectionError}</p>

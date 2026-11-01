@@ -666,6 +666,11 @@ export function ProviderSettingsForm({
   const isLocalAcp =
     definition.driverKind === "acpRegistry" &&
     readProviderConfigString(value, "source") === "local";
+  const isQoderCn =
+    isLocalAcp &&
+    /^qodercn(?:\.exe)?$/i.test(
+      readProviderConfigString(value, "commandPath").split(/[\\/]/).pop() ?? "",
+    );
 
   if (fields.length === 0) {
     return null;
@@ -685,6 +690,27 @@ export function ProviderSettingsForm({
         />
       ))}
       {isLocalAcp ? <ProviderCommandArguments value={value} onChange={onChange} /> : null}
+      {isQoderCn ? (
+        <SettingsRow
+          title="Qoder CN setup"
+          description={
+            <>
+              Install Qoder CN and run <code>qodercn login</code> on this environment before
+              starting a thread. You can also set <code>QODERCN_PERSONAL_ACCESS_TOKEN</code> in this
+              instance's environment variables.
+            </>
+          }
+          control={
+            <Button
+              size="sm"
+              variant="outline"
+              render={<a href="https://docs.qoder.cn/cli/acp" target="_blank" rel="noreferrer" />}
+            >
+              Open Qoder CN docs
+            </Button>
+          }
+        />
+      ) : null}
     </>
   );
 }

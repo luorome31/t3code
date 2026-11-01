@@ -1,5 +1,5 @@
 import { EnvironmentId, ProviderDriverKind, type AcpRegistrySearchAgent } from "@t3tools/contracts";
-import { userEvent } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { act, render } from "../../../test/render";
@@ -248,6 +248,8 @@ describe("AddProviderInstanceDialog environment routing", () => {
     setup();
     await using _screen = await render(dialog());
     await click("Show more");
+    await click("Qoder CN");
+    await click("Search registry");
     await click("Use local command");
     await click("Next");
     expect(document.body.textContent).toContain("Executable is required.");
@@ -285,6 +287,50 @@ describe("AddProviderInstanceDialog environment routing", () => {
         environment: [
           expect.objectContaining({ name: "DSH_PROFILE", value: "work", sensitive: false }),
         ],
+      },
+    });
+    expect(actions.onOpenChange).toHaveBeenCalledWith(false);
+    expect(signInStep()).toBeNull();
+  });
+
+  it("adds the Qoder CN preset alongside Qoder and existing CN instances on the selected environment", async () => {
+    setup();
+    settingsHooks.read.mockReturnValue({
+      providerInstances: {
+        acpRegistry_qoder: { driver: "acpRegistry", config: { agentId: "qoder" } },
+        acpRegistry_qoder_cn: {
+          driver: "acpRegistry",
+          config: { source: "local", commandPath: "qodercn", commandArgs: ["--acp"] },
+        },
+      },
+    });
+    await using _screen = await render(dialog());
+    await click("Show more");
+    await click("Qoder CN");
+    await expect
+      .element(page.getByRole("textbox", { name: "Executable", exact: true }))
+      .toHaveValue("qodercn");
+    await expect.element(page.getByRole("textbox", { name: "Argument 1" })).toHaveValue("--acp");
+    await type("#add-provider-acpRegistry-manual-commandPath", "/opt/qoder-cn/qodercn");
+    await click("Next");
+    await expect
+      .element(page.getByRole("textbox", { name: "Label", exact: true }))
+      .toHaveValue("Qoder CN");
+    await click("Add instance");
+
+    expect(settingsHooks.useMutation).toHaveBeenCalledWith(remoteEnvironmentId);
+    expect(settingsHooks.mutate).toHaveBeenCalledWith({
+      operation: "create",
+      instanceId: "acpRegistry_qoder_cn_2",
+      instance: {
+        driver: "acpRegistry",
+        enabled: true,
+        displayName: "Qoder CN",
+        config: {
+          source: "local",
+          commandPath: "/opt/qoder-cn/qodercn",
+          commandArgs: ["--acp"],
+        },
       },
     });
     expect(actions.onOpenChange).toHaveBeenCalledWith(false);

@@ -39,6 +39,18 @@ credentials and skills remain managed by the installed agent or its wrapper. Mod
 options come from ACP, including model IDs that contain JSON. T3 Code launches the executable directly
 without expanding shell expressions.
 
+### Qoder CN
+
+Install [Qoder CN CLI](https://docs.qoder.cn/cli/installation) on the machine hosting your T3 Code
+server, then run `qodercn login` there. In **Settings → Providers → Add provider → Show more**, select
+**Qoder CN**. The preset fills in `qodercn` with the `--acp` argument; change the executable path if
+it is not on the server's `PATH`.
+
+Qoder CN is a separate instance from the international Qoder agent in the Registry. It uses the CN
+CLI's credentials and configuration. For token authentication, add `QODERCN_PERSONAL_ACCESS_TOKEN`
+to the instance's environment variables. Once configured, the same instance is available to web,
+desktop, and mobile clients connected to that server.
+
 ## Where agents run
 
 Registry agents always run on the machine that hosts your T3 Code server. That stays true when you
