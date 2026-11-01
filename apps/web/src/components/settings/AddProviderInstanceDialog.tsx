@@ -80,7 +80,20 @@ const DRIVER_OPTIONS = providerClients.definitions.filter(
   (option) => option.driverKind !== ACP_REGISTRY_DRIVER_KIND,
 );
 const FEATURED_DRIVER_OPTIONS = DRIVER_OPTIONS.filter((option) => option.featured !== false);
-const MORE_DRIVER_OPTIONS = DRIVER_OPTIONS.filter((option) => option.featured === false);
+type ProviderOption = Pick<ProviderClientDefinition, "driverKind" | "label" | "badgeLabel"> & {
+  readonly value?: string;
+  readonly acpRegistryAgentId?: string;
+};
+const QODER_CN_OPTION = {
+  value: "qoder-cn",
+  driverKind: ACP_REGISTRY_DRIVER_KIND,
+  label: "Qoder CN",
+  acpRegistryAgentId: "qoder",
+} satisfies ProviderOption;
+const MORE_DRIVER_OPTIONS = [
+  ...DRIVER_OPTIONS.filter((option) => option.featured === false),
+  QODER_CN_OPTION,
+];
 const EMPTY_CONFIG_DRAFT: Record<string, unknown> = {};
 function validateInstanceId(id: string, existing: ReadonlySet<string>): string | null {
   if (id.length === 0) return "Instance ID is required.";
@@ -99,8 +112,8 @@ function ProviderOptionGrid({
   onValueChange,
   ...labelProps
 }: {
-  readonly options: ReadonlyArray<ProviderClientDefinition>;
-  readonly value: ProviderDriverKind;
+  readonly options: ReadonlyArray<ProviderOption>;
+  readonly value: string;
   readonly disabled: boolean;
   readonly onValueChange: (value: string) => void;
   readonly "aria-label"?: string;
@@ -116,13 +129,14 @@ function ProviderOptionGrid({
     >
       {options.map((option) => (
         <RadioPrimitive.Root
-          key={option.driverKind}
-          value={option.driverKind}
+          key={option.value ?? option.driverKind}
+          value={option.value ?? option.driverKind}
           className="relative flex cursor-pointer items-center gap-3 rounded-lg bg-card px-3 py-3 text-left text-muted-foreground outline-none ring-1 ring-black/5 hover:bg-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-checked:bg-primary/8 data-checked:text-foreground data-checked:ring-2 data-checked:ring-inset data-checked:ring-primary data-checked:hover:bg-primary/8 dark:bg-white/3 dark:ring-white/5 dark:hover:bg-white/5 dark:data-checked:bg-primary/15 dark:data-checked:ring-primary dark:data-checked:hover:bg-primary/15"
         >
           <ProviderInstanceIcon
             driverKind={option.driverKind}
             displayName={option.label}
+            acpRegistryAgentId={option.acpRegistryAgentId}
             iconClassName="size-4"
           />
           <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
@@ -167,7 +181,11 @@ export function AddProviderInstanceDialog({
 
   const [wizardStep, setWizardStep] = useState(0);
   const [addingChatGptAccount, setAddingChatGptAccount] = useState(false);
-  const [driver, setDriver] = useState<ProviderDriverKind>(DEFAULT_DRIVER_KIND);
+  const [providerChoice, setProviderChoice] = useState<string>(DEFAULT_DRIVER_KIND);
+  const driver =
+    providerChoice === QODER_CN_OPTION.value
+      ? ACP_REGISTRY_DRIVER_KIND
+      : ProviderDriverKind.make(providerChoice);
   const [identityByDriver, setIdentityByDriver] = useState<Record<string, ProviderIdentityDraft>>(
     {},
   );
@@ -244,6 +262,9 @@ export function AddProviderInstanceDialog({
       ] as const)
     : ([driverOption.label, previewLabel, null] as const);
   const setConfigDraft = (config: Record<string, unknown> | undefined) => {
+    if (providerChoice === QODER_CN_OPTION.value && config?.source !== "local") {
+      setProviderChoice(ACP_REGISTRY_DRIVER_KIND);
+    }
     setConfigByDriver((existing) => {
       const next = { ...existing };
       if (config === undefined || Object.keys(config).length === 0) {
@@ -255,7 +276,15 @@ export function AddProviderInstanceDialog({
     });
   };
   const selectDriver = (value: string) => {
-    setDriver(ProviderDriverKind.make(value));
+    if (value === QODER_CN_OPTION.value) {
+      handleLocalAcpConfiguration(
+        QODER_CN_OPTION.label,
+        { commandPath: "qodercn", commandArgs: ["--acp"] },
+        QODER_CN_OPTION.value,
+      );
+      return;
+    }
+    setProviderChoice(value);
     setIsManualAcpConfiguration(false);
     setHasAttemptedSubmit(false);
   };
@@ -297,7 +326,7 @@ export function AddProviderInstanceDialog({
   };
 
   const handleAcpPrepared = (agent: AcpRegistrySearchAgent) => {
-    setDriver(ACP_REGISTRY_DRIVER_KIND);
+    setProviderChoice(ACP_REGISTRY_DRIVER_KIND);
     const nextLabel = agent.name;
     const registryIconUrl = resolveOfficialAcpRegistryIconUrl(agent.icon);
     const nextInstanceId = deriveAvailableInstanceId(
@@ -326,7 +355,7 @@ export function AddProviderInstanceDialog({
   };
 
   const handleManualAcpConfiguration = () => {
-    setDriver(ACP_REGISTRY_DRIVER_KIND);
+    setProviderChoice(ACP_REGISTRY_DRIVER_KIND);
     setSelectedAcp(null);
     setIsManualAcpConfiguration(true);
     setConfigByDriver((existing) => {
@@ -346,8 +375,9 @@ export function AddProviderInstanceDialog({
   const handleLocalAcpConfiguration = (
     label = "Local ACP",
     command: { commandPath?: string; commandArgs: string[] } = { commandArgs: [] },
+    choice: string = ACP_REGISTRY_DRIVER_KIND,
   ) => {
-    setDriver(ACP_REGISTRY_DRIVER_KIND);
+    setProviderChoice(choice);
     setSelectedAcp(null);
     setIsManualAcpConfiguration(true);
     setConfigByDriver((existing) => ({
@@ -471,7 +501,7 @@ export function AddProviderInstanceDialog({
                 </div>
                 <ProviderOptionGrid
                   options={FEATURED_DRIVER_OPTIONS}
-                  value={driver}
+                  value={providerChoice}
                   disabled={isPreparingRegistryAgent}
                   onValueChange={selectDriver}
                   aria-labelledby="add-instance-driver-label"
@@ -495,26 +525,11 @@ export function AddProviderInstanceDialog({
                     <div className="space-y-4 pt-4">
                       <ProviderOptionGrid
                         options={MORE_DRIVER_OPTIONS}
-                        value={driver}
+                        value={providerChoice}
                         disabled={isPreparingRegistryAgent}
                         onValueChange={selectDriver}
                         aria-label="More providers"
                       />
-                      <div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={isPreparingRegistryAgent}
-                          onClick={() =>
-                            handleLocalAcpConfiguration("Qoder CN", {
-                              commandPath: "qodercn",
-                              commandArgs: ["--acp"],
-                            })
-                          }
-                        >
-                          Qoder CN
-                        </Button>
-                      </div>
                       <div className="flex items-center gap-3 text-xs text-muted-foreground">
                         <div aria-hidden className="flex-1 border-t border-border/70" />
                         <span>Or choose from ACP Registry</span>
@@ -535,6 +550,7 @@ export function AddProviderInstanceDialog({
                             </div>
                             <Button
                               onClick={() => {
+                                setProviderChoice(ACP_REGISTRY_DRIVER_KIND);
                                 setIsManualAcpConfiguration(false);
                                 setHasAttemptedSubmit(false);
                               }}

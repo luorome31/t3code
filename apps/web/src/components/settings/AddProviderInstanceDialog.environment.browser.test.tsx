@@ -248,7 +248,7 @@ describe("AddProviderInstanceDialog environment routing", () => {
     setup();
     await using _screen = await render(dialog());
     await click("Show more");
-    await click("Qoder CN");
+    await act(async () => radio("Qoder CN")!.click());
     await click("Search registry");
     await click("Use local command");
     await click("Next");
@@ -306,7 +306,13 @@ describe("AddProviderInstanceDialog environment routing", () => {
     });
     await using _screen = await render(dialog());
     await click("Show more");
-    await click("Qoder CN");
+    await act(async () => radio("Qoder CN")!.click());
+    await expect.element(page.getByRole("radio", { name: "Qoder CN" })).toBeChecked();
+    await expect.element(page.getByRole("radio", { name: "Codex", exact: true })).not.toBeChecked();
+    await act(async () => radio("fx")!.click());
+    await expect.element(page.getByRole("radio", { name: "fx", exact: true })).toBeChecked();
+    await act(async () => radio("Qoder CN")!.click());
+    await expect.element(page.getByRole("radio", { name: "Qoder CN" })).toBeChecked();
     await expect
       .element(page.getByRole("textbox", { name: "Executable", exact: true }))
       .toHaveValue("qodercn");
