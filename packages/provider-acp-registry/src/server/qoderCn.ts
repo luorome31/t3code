@@ -1,7 +1,9 @@
 import type { ModelSelection, ProviderOptionDescriptor } from "@t3tools/contracts";
 import { collectUint8StreamText } from "@t3tools/provider-core/server/collectStreamText";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as ChildProcess from "effect/process/ChildProcess";
@@ -121,6 +123,87 @@ type Spawn = {
   readonly shell?: boolean;
 };
 
+const decodeDaemonResponse = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Struct({
+      type: Schema.Literal("control_response"),
+      response: Schema.Struct({
+        subtype: Schema.String,
+        request_id: Schema.String,
+      }),
+    }),
+  ),
+);
+
+const readDaemonModelOptions = Effect.fn("QoderCn.readDaemonModelOptions")(function* (
+  spawn: Spawn,
+) {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const outgoing = yield* Queue.make<Uint8Array>();
+  const requests = [
+    {
+      id: "t3-initialize",
+      body: {
+        subtype: "daemon.initialize",
+        daemon_protocol_version: 2,
+        sdk_version: "t3-code",
+        capabilities: ["multi_session_v2"],
+        auth: { type: "qodercli" },
+      },
+    },
+    { id: "t3-authenticate", body: { subtype: "daemon.authenticate" } },
+    {
+      id: "t3-model-options",
+      body: { subtype: "daemon.get_models", fetchStrategy: "live" },
+    },
+  ];
+  const responses = yield* Effect.forEach(requests, () => Deferred.make<string, Error>());
+  const child = yield* spawner.spawn(
+    ChildProcess.make(spawn.command, [...spawn.args.filter((arg) => arg !== "--acp"), "--sdk"], {
+      cwd: spawn.cwd,
+      env: spawn.env,
+      shell: spawn.shell ?? false,
+      stdin: Stream.fromQueue(outgoing),
+    }),
+  );
+  yield* child.stderr.pipe(Stream.runDrain, Effect.forkScoped);
+  yield* child.stdout.pipe(
+    Stream.decodeText(),
+    Stream.splitLines,
+    Stream.take(32),
+    Stream.runForEach((line) => {
+      if (line.length > 2 * 1024 * 1024) return Effect.void;
+      const decoded = decodeDaemonResponse(line);
+      if (Option.isNone(decoded)) return Effect.void;
+      const index = requests.findIndex(
+        (request) => request.id === decoded.value.response.request_id,
+      );
+      const response = responses[index];
+      if (response === undefined) return Effect.void;
+      return decoded.value.response.subtype === "success"
+        ? Deferred.succeed(response, line)
+        : Deferred.fail(response, new Error("Qoder CN SDK metadata request failed"));
+    }),
+    Effect.ensuring(
+      Effect.forEach(responses, (response) =>
+        Deferred.fail(response, new Error("Qoder CN SDK metadata stream closed")),
+      ),
+    ),
+    Effect.forkScoped,
+  );
+  let output = "";
+  for (const [index, request] of requests.entries()) {
+    yield* Queue.offer(
+      outgoing,
+      new TextEncoder().encode(
+        `${encodeJson({ type: "control_request", request_id: request.id, request: request.body })}\n`,
+      ),
+    );
+    output = yield* Deferred.await(responses[index]!);
+  }
+  return parseQoderCnModelOptions(output);
+}, Effect.scoped);
+
 export const readQoderCnModelOptions = Effect.fn("QoderCn.readModelOptions")(
   function* (spawn: Spawn) {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -157,9 +240,10 @@ export const readQoderCnModelOptions = Effect.fn("QoderCn.readModelOptions")(
       ],
       { concurrency: "unbounded" },
     );
-    return Number(exitCode) === 0 && !stdout.truncated && !stdout.invalidUtf8
-      ? parseQoderCnModelOptions(stdout.text)
-      : {};
+    if (Number(exitCode) !== 0 || stdout.truncated || stdout.invalidUtf8) return {};
+    const models = parseQoderCnModelOptions(stdout.text);
+    // CLI 1.1.81 moved account queries from print mode to the SDK daemon protocol.
+    return Object.keys(models).length > 0 ? models : yield* readDaemonModelOptions(spawn);
   },
   Effect.scoped,
   Effect.timeout("15 seconds"),

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderInstanceId, type ModelSelection } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -72,6 +73,48 @@ const spawner = (output = catalog, code = 0) =>
   });
 
 describe("Qoder CN model options", () => {
+  it.live(
+    "discovers options through the 1.1.81 SDK daemon when the legacy query returns no output",
+    () =>
+      Effect.gen(function* () {
+        for (const outcome of ["success", "error", "closed"]) {
+          const script = `
+        if (!process.argv.includes('--sdk')) process.exit(0);
+        const readline = require('node:readline');
+        let stage = 0;
+        readline.createInterface({ input: process.stdin }).on('line', (line) => {
+          const message = JSON.parse(line);
+          const request = message.request;
+          const expected = ['daemon.initialize', 'daemon.authenticate', 'daemon.get_models'][stage++];
+          if (request.subtype !== expected) process.exit(2);
+          if (expected === 'daemon.authenticate' && ${JSON.stringify(outcome)} !== 'success') {
+            if (${JSON.stringify(outcome)} === 'error') console.log(JSON.stringify({
+              type: 'control_response', response: { subtype: 'error', request_id: message.request_id }
+            }));
+            process.exit(0);
+          }
+          if (expected === 'daemon.initialize' && (
+            request.daemon_protocol_version !== 2 ||
+            !request.capabilities.includes('multi_session_v2') ||
+            request.auth.type !== 'qodercli'
+          )) process.exit(3);
+          const response = expected === 'daemon.get_models'
+            ? ${JSON.stringify(JSON.parse(catalog).response.response)}
+            : {};
+          console.log(JSON.stringify({ type: 'control_response', response: {
+            subtype: 'success', request_id: message.request_id, response
+          }}));
+        });
+      `;
+          const models = yield* readQoderCnModelOptions({
+            command: process.execPath,
+            args: ["-e", script, "--", "--acp"],
+          });
+          expect(models).toEqual(outcome === "success" ? parseQoderCnModelOptions(catalog) : {});
+        }
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it("identifies CN launchers without changing global Qoder instances", () => {
     const settings = Schema.decodeSync(AcpRegistrySettings);
     for (const commandPath of ["qodercn", "/opt/qoderclicn", "C:\\Qoder\\qoder-cn.exe"]) {
