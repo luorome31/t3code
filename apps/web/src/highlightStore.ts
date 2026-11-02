@@ -247,3 +247,7 @@ export function useThreadHighlightCount(ref: ScopedThreadRef | null): number {
     ref === null ? 0 : (state.byThreadKey[scopedThreadKey(ref)]?.length ?? 0),
   );
 }
+
+export function useDefaultHighlightColor(): HighlightColor {
+  return useHighlightStore((state) => state.defaultColor);
+}
