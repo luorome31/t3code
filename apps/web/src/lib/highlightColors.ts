@@ -5,15 +5,16 @@ export type HighlightColor = (typeof HIGHLIGHT_COLOR_IDS)[number];
 export interface HighlightColorDefinition {
   readonly id: HighlightColor;
   readonly label: string;
+  readonly cssVariable: `--highlight-${HighlightColor}`;
 }
 
 export const HIGHLIGHT_COLORS: readonly HighlightColorDefinition[] = [
-  { id: "amber", label: "Amber" },
-  { id: "red", label: "Red" },
-  { id: "green", label: "Green" },
-  { id: "blue", label: "Blue" },
-  { id: "purple", label: "Purple" },
-  { id: "slate", label: "Slate" },
+  { id: "amber", label: "Amber", cssVariable: "--highlight-amber" },
+  { id: "red", label: "Red", cssVariable: "--highlight-red" },
+  { id: "green", label: "Green", cssVariable: "--highlight-green" },
+  { id: "blue", label: "Blue", cssVariable: "--highlight-blue" },
+  { id: "purple", label: "Purple", cssVariable: "--highlight-purple" },
+  { id: "slate", label: "Slate", cssVariable: "--highlight-slate" },
 ];
 
 export const DEFAULT_HIGHLIGHT_COLOR: HighlightColor = "amber";

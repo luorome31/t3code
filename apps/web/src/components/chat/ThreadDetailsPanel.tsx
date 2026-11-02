@@ -32,7 +32,8 @@ import { ThreadDetailsItemsMenuItems } from "./ThreadDetailsItemsMenu";
 import { resolveThreadDetailsVisibility, THREAD_DETAILS_ITEMS } from "./threadDetailsItems";
 import { useClientSettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
-import { SlidersHorizontalIcon } from "lucide-react";
+import { HighlighterIcon, SlidersHorizontalIcon } from "lucide-react";
+import { useThreadHighlightCount } from "~/highlightStore";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import {
   THREAD_DETAILS_PANEL_ICON_CLASS,
@@ -76,6 +77,7 @@ interface ThreadDetailsPanelProps extends Pick<
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest: () => void;
   onOpenChanges?: () => void;
+  onOpenHighlights?: () => void;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<ProjectScriptActionResult>;
   onUpdateProjectScript: (
@@ -88,6 +90,10 @@ interface ThreadDetailsPanelProps extends Pick<
 
 export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
   const visible = useClientSettings(resolveThreadDetailsVisibility);
+  const highlightCount = useThreadHighlightCount({
+    environmentId: props.environmentId,
+    threadId: props.threadId,
+  });
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const fileScripts = useT3ProjectFileScripts(
     props.environmentId,
@@ -234,6 +240,34 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                         {...(props.onOpenChanges ? { onOpenChanges: props.onOpenChanges } : {})}
                       />
                     ) : null}
+                  </div>
+                </ThreadDetailsSection>
+              ) : null}
+
+              {visible.highlights && props.isServerThread && !props.draftId ? (
+                <ThreadDetailsSection
+                  headingId="thread-details-highlights-heading"
+                  title="Highlights"
+                  showHeading={false}
+                  separated={density === "full"}
+                >
+                  <div className="flex flex-col">
+                    <ThreadDetailsControl
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      part="row"
+                      disabled={!props.onOpenHighlights}
+                      onClick={props.onOpenHighlights}
+                    >
+                      <HighlighterIcon aria-hidden className={THREAD_DETAILS_PANEL_ICON_CLASS} />
+                      <span className={cn("flex-1 text-left", THREAD_DETAILS_PANEL_LABEL_CLASS)}>
+                        Highlights
+                      </span>
+                      <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                        {highlightCount}
+                      </span>
+                    </ThreadDetailsControl>
                   </div>
                 </ThreadDetailsSection>
               ) : null}
