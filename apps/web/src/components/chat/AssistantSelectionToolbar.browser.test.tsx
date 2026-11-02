@@ -22,12 +22,18 @@ const threadRef: ScopedThreadRef = scopeThreadRef(
   ThreadId.make("thread-1"),
 );
 
-function Harness({ onCite }: { onCite: (citation: AssistantCitation) => boolean }) {
+function Harness({
+  onCite,
+  text = "highlight me",
+}: {
+  onCite: (citation: AssistantCitation) => boolean;
+  text?: string;
+}) {
   const [viewport, setViewport] = useState<HTMLDivElement | null>(null);
   return (
     <div ref={setViewport} style={{ width: 480, height: 200 }}>
       <div data-assistant-citation-source={MessageId.make("message-1")}>
-        <p>highlight me</p>
+        <p>{text}</p>
       </div>
       <AssistantSelectionToolbar
         viewport={viewport}
@@ -97,7 +103,7 @@ describe("AssistantSelectionToolbar", () => {
 
   it("leaves the cite action available for selections too long to highlight", async () => {
     setup();
-    const onCite = vi.fn(() => true);
+    const onCite = vi.fn((_citation: AssistantCitation) => true);
     await using screen = await render(<Harness onCite={onCite} />);
     const longText = "x".repeat(4_001);
     const source = screen.container.querySelector<HTMLElement>("[data-assistant-citation-source]");
@@ -113,6 +119,27 @@ describe("AssistantSelectionToolbar", () => {
     await expect
       .element(page.getByRole("button", { name: /Selection is too long to highlight/ }))
       .toBeDisabled();
-    expect(onCite).not.toHaveBeenCalled();
+
+    await userEvent.click(page.getByRole("button", { name: "Cite selection in composer" }));
+
+    expect(onCite).toHaveBeenCalledOnce();
+    expect(onCite.mock.calls[0]?.[0].text).toHaveLength(4_001);
+  });
+
+  it("toggles a selection that ends inside a whitespace run", async () => {
+    setup();
+    await using screen = await render(<Harness onCite={() => true} text="alpha beta   gamma" />);
+    const paragraph = screen.getByText(/alpha beta/).element() as HTMLElement;
+    const selectionEnd = "alpha beta ".length;
+
+    selectText(paragraph, 0, selectionEnd);
+    await expect.element(page.getByRole("button", { name: "Highlight selection" })).toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: "Highlight selection" }));
+
+    selectText(paragraph, 0, selectionEnd);
+    await expect.element(page.getByRole("button", { name: "Remove highlight" })).toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: "Remove highlight" }));
+
+    expect(readThreadHighlights(threadRef)).toHaveLength(0);
   });
 });

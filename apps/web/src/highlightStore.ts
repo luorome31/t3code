@@ -12,9 +12,10 @@ import {
 import { resolveStorage } from "./lib/storage";
 import { randomUUID } from "./lib/utils";
 
-const HIGHLIGHT_STORAGE_KEY = "t3code:thread-highlights:v1";
+export const HIGHLIGHT_STORAGE_KEY = "t3code:thread-highlights:v1";
 export const MAX_HIGHLIGHTS_PER_THREAD = 500;
 export const MAX_HIGHLIGHT_TEXT_LENGTH = 4000;
+const MAX_TOTAL_HIGHLIGHT_TEXT_LENGTH = 2_000_000;
 
 export interface ThreadHighlight {
   readonly id: string;
@@ -42,12 +43,14 @@ interface HighlightStoreState {
   recolorHighlight: (ref: ScopedThreadRef, id: string, color: HighlightColor) => void;
   setDefaultColor: (color: HighlightColor) => void;
   clearThread: (ref: ScopedThreadRef) => void;
-  pruneThreads: (validThreadKeys: ReadonlySet<string>) => void;
 }
 
 const EMPTY_HIGHLIGHTS: readonly ThreadHighlight[] = [];
 
-function sameSelector(left: AssistantTextSelector, right: AssistantTextSelector): boolean {
+export function sameHighlightSelector(
+  left: AssistantTextSelector,
+  right: AssistantTextSelector,
+): boolean {
   return left.text === right.text && left.start === right.start && left.end === right.end;
 }
 
@@ -56,8 +59,13 @@ function isSelector(value: unknown): value is AssistantTextSelector {
   const selector = value as Partial<AssistantTextSelector>;
   return (
     typeof selector.text === "string" &&
+    selector.text.length <= MAX_HIGHLIGHT_TEXT_LENGTH &&
     typeof selector.start === "number" &&
     typeof selector.end === "number" &&
+    Number.isSafeInteger(selector.start) &&
+    Number.isSafeInteger(selector.end) &&
+    selector.start >= 0 &&
+    selector.end >= selector.start &&
     typeof selector.prefix === "string" &&
     typeof selector.suffix === "string"
   );
@@ -80,10 +88,29 @@ function sanitizeThreadHighlights(value: unknown): Record<string, ThreadHighligh
   const sanitized: Record<string, ThreadHighlight[]> = {};
   for (const [threadKey, entries] of Object.entries(value)) {
     if (!Array.isArray(entries)) continue;
-    const highlights = entries.filter(isThreadHighlight);
-    if (highlights.length > 0) sanitized[threadKey] = highlights;
+    const seen = new Set<string>();
+    const highlights = entries.filter((entry): entry is ThreadHighlight => {
+      if (!isThreadHighlight(entry) || seen.has(entry.id)) return false;
+      seen.add(entry.id);
+      return true;
+    });
+    if (highlights.length > 0) {
+      sanitized[threadKey] = highlights.slice(0, MAX_HIGHLIGHTS_PER_THREAD);
+    }
   }
   return sanitized;
+}
+
+function totalHighlightTextLength(byThreadKey: Record<string, ThreadHighlight[]>): number {
+  return Object.values(byThreadKey).reduce(
+    (total, highlights) =>
+      total +
+      highlights.reduce(
+        (threadTotal, highlight) => threadTotal + highlight.selector.text.length,
+        0,
+      ),
+    0,
+  );
 }
 
 export const useHighlightStore = create<HighlightStoreState>()(
@@ -101,10 +128,16 @@ export const useHighlightStore = create<HighlightStoreState>()(
           return { ok: false, reason: "limit" };
         }
         if (
+          totalHighlightTextLength(get().byThreadKey) + input.selector.text.length >
+          MAX_TOTAL_HIGHLIGHT_TEXT_LENGTH
+        ) {
+          return { ok: false, reason: "limit" };
+        }
+        if (
           highlights.some(
             (highlight) =>
               highlight.messageId === input.messageId &&
-              sameSelector(highlight.selector, input.selector),
+              sameHighlightSelector(highlight.selector, input.selector),
           )
         ) {
           return { ok: false, reason: "duplicate" };
@@ -113,7 +146,10 @@ export const useHighlightStore = create<HighlightStoreState>()(
           id: randomUUID(),
           messageId: input.messageId,
           selector: input.selector,
-          color: input.color ?? get().defaultColor,
+          color:
+            input.color !== undefined && isHighlightColor(input.color)
+              ? input.color
+              : get().defaultColor,
           createdAt: new Date().toISOString(),
         };
         set((state) => ({
@@ -167,14 +203,6 @@ export const useHighlightStore = create<HighlightStoreState>()(
           return { byThreadKey };
         });
       },
-      pruneThreads: (validThreadKeys) => {
-        const byThreadKey = get().byThreadKey;
-        const next = Object.fromEntries(
-          Object.entries(byThreadKey).filter(([threadKey]) => validThreadKeys.has(threadKey)),
-        );
-        if (Object.keys(next).length === Object.keys(byThreadKey).length) return;
-        set({ byThreadKey: next });
-      },
     }),
     {
       name: HIGHLIGHT_STORAGE_KEY,
@@ -186,6 +214,7 @@ export const useHighlightStore = create<HighlightStoreState>()(
         byThreadKey: state.byThreadKey,
         defaultColor: state.defaultColor,
       }),
+      migrate: (persistedState) => persistedState as HighlightStoreState,
       merge: (persisted, current) => {
         const value =
           persisted && typeof persisted === "object"

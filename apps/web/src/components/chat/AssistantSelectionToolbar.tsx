@@ -4,12 +4,12 @@ import {
   type AssistantCitation,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { EraserIcon, HighlighterIcon, QuoteIcon } from "lucide-react";
 import { use, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   captureAssistantTextSelection,
-  resolveAssistantCitationRange,
   type AssistantCitationSourceAnchor,
 } from "~/lib/assistantTextSelection";
 import {
@@ -19,20 +19,15 @@ import {
   type SelectionActionPoint,
 } from "~/lib/selectionActions";
 import {
+  MAX_HIGHLIGHTS_PER_THREAD,
   MAX_HIGHLIGHT_TEXT_LENGTH,
   readThreadHighlights,
+  sameHighlightSelector,
   useHighlightStore,
 } from "~/highlightStore";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { BackgroundThreadContext } from "./backgroundThread";
-
-function rangesEqual(left: Range, right: Range): boolean {
-  return (
-    left.compareBoundaryPoints(Range.START_TO_START, right) === 0 &&
-    left.compareBoundaryPoints(Range.END_TO_END, right) === 0
-  );
-}
 
 export function AssistantSelectionToolbar({
   viewport,
@@ -52,6 +47,8 @@ export function AssistantSelectionToolbar({
   const toolbarRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<ReturnType<typeof observeSelectionActions> | null>(null);
   const backgroundThread = use(BackgroundThreadContext);
+  const { environmentId, threadId } = threadRef;
+  const threadKey = scopedThreadKey(threadRef);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the toolbar DOM node and clamps its position inside the window before paint
   useLayoutEffect(() => {
@@ -127,11 +124,11 @@ export function AssistantSelectionToolbar({
         return;
       }
       const existingHighlightId =
-        readThreadHighlights(threadRef).find((highlight) => {
-          if (highlight.messageId !== messageId) return false;
-          const highlightRange = resolveAssistantCitationRange(captured.source, highlight.selector);
-          return highlightRange !== null && rangesEqual(highlightRange, captured.range);
-        })?.id ?? null;
+        readThreadHighlights({ environmentId, threadId }).find(
+          (highlight) =>
+            highlight.messageId === messageId &&
+            sameHighlightSelector(highlight.selector, captured.selector),
+        )?.id ?? null;
       const rects = captured.range.getClientRects();
       const pointerOnText =
         pointer !== null &&
@@ -146,7 +143,8 @@ export function AssistantSelectionToolbar({
         sourceAnchor: { source: captured.source, range: captured.range, viewport },
         citation: {
           version: 1,
-          ...threadRef,
+          environmentId,
+          threadId,
           messageId: MessageId.make(messageId),
           ...captured.selector,
         },
@@ -197,7 +195,7 @@ export function AssistantSelectionToolbar({
       actions.dispose();
       actionsRef.current = null;
     };
-  }, [backgroundThread, threadRef, viewport]);
+  }, [backgroundThread, environmentId, threadId, viewport]);
 
   if (!selection) return null;
   const citeTooLong = selection.citation.text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH;
@@ -218,12 +216,19 @@ export function AssistantSelectionToolbar({
   };
   const toggleHighlight = () => {
     if (highlightTooLong) return;
+    const selectionThreadRef: ScopedThreadRef = {
+      environmentId: selection.citation.environmentId,
+      threadId: selection.citation.threadId,
+    };
+    if (scopedThreadKey(selectionThreadRef) !== threadKey) return;
     if (selection.existingHighlightId) {
-      useHighlightStore.getState().removeHighlights(threadRef, [selection.existingHighlightId]);
+      useHighlightStore
+        .getState()
+        .removeHighlights(selectionThreadRef, [selection.existingHighlightId]);
       clearSelection();
       return;
     }
-    const result = useHighlightStore.getState().addHighlight(threadRef, {
+    const result = useHighlightStore.getState().addHighlight(selectionThreadRef, {
       messageId: selection.citation.messageId,
       selector: {
         text: selection.citation.text,
@@ -240,7 +245,7 @@ export function AssistantSelectionToolbar({
           result.reason === "too_long"
             ? "Selection is too long to highlight"
             : result.reason === "limit"
-              ? "This thread has reached its highlight limit"
+              ? `Highlight limit reached (${MAX_HIGHLIGHTS_PER_THREAD} per thread). Remove a highlight to add another.`
               : "This text is already highlighted",
       });
       return;
@@ -250,7 +255,7 @@ export function AssistantSelectionToolbar({
   return createPortal(
     <div
       ref={toolbarRef}
-      role="toolbar"
+      role="group"
       aria-label="Selection actions"
       className="fixed z-50 flex max-w-[calc(100vw-1rem)] items-center gap-1"
       style={{ left: selection.position.x, top: selection.position.y }}
@@ -293,7 +298,7 @@ export function AssistantSelectionToolbar({
         ) : (
           <HighlighterIcon aria-hidden="true" className="size-3.5" />
         )}
-        {hasExistingHighlight ? "Remove highlight" : "Highlight"}
+        {hasExistingHighlight ? "Remove highlight" : highlightTooLong ? "Too long" : "Highlight"}
       </Button>
     </div>,
     document.body,

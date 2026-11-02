@@ -15,6 +15,10 @@ const otherThreadRef = scopeThreadRef(
   EnvironmentId.make("environment-1"),
   ThreadId.make("thread-2"),
 );
+const otherEnvironmentThreadRef = scopeThreadRef(
+  EnvironmentId.make("environment-2"),
+  ThreadId.make("thread-1"),
+);
 
 function selector(text = "highlight me", start = 0): AssistantTextSelector {
   return {
@@ -64,6 +68,10 @@ describe("highlightStore", () => {
     });
 
     expect(result.ok).toBe(true);
+  });
+
+  it("accepts a selection exactly at the text limit", () => {
+    expect(add("x".repeat(MAX_HIGHLIGHT_TEXT_LENGTH)).ok).toBe(true);
   });
 
   it("rejects a selection longer than the text limit", () => {
@@ -120,6 +128,18 @@ describe("highlightStore", () => {
     expect(useHighlightStore.getState().byThreadKey["environment-1:thread-2"]).toHaveLength(1);
   });
 
+  it("isolates the same thread id in another environment", () => {
+    expect(add().ok).toBe(true);
+    const other = useHighlightStore.getState().addHighlight(otherEnvironmentThreadRef, {
+      messageId: MessageId.make("message-1"),
+      selector: selector(),
+    });
+
+    expect(other.ok).toBe(true);
+    expect(useHighlightStore.getState().byThreadKey["environment-1:thread-1"]).toHaveLength(1);
+    expect(useHighlightStore.getState().byThreadKey["environment-2:thread-1"]).toHaveLength(1);
+  });
+
   it("stops at the per-thread limit", () => {
     for (let index = 0; index < MAX_HIGHLIGHTS_PER_THREAD; index += 1) {
       const result = add("highlight", index * 10);
@@ -132,10 +152,16 @@ describe("highlightStore", () => {
     });
   });
 
-  it("prunes thread keys that no longer exist", () => {
+  it("clears one thread without touching another", () => {
     expect(add().ok).toBe(true);
-    useHighlightStore.getState().pruneThreads(new Set(["environment-1:thread-2"]));
+    useHighlightStore.getState().addHighlight(otherThreadRef, {
+      messageId: MessageId.make("message-1"),
+      selector: selector(),
+    });
+
+    useHighlightStore.getState().clearThread(threadRef);
 
     expect(useHighlightStore.getState().byThreadKey["environment-1:thread-1"]).toBeUndefined();
+    expect(useHighlightStore.getState().byThreadKey["environment-1:thread-2"]).toHaveLength(1);
   });
 });
