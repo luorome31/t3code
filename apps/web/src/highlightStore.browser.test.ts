@@ -1,7 +1,12 @@
 import { EnvironmentId, MessageId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { HIGHLIGHT_STORAGE_KEY, useHighlightStore, type ThreadHighlight } from "./highlightStore";
+import {
+  HIGHLIGHT_COLOR_STORAGE_KEY,
+  HIGHLIGHT_STORAGE_KEY,
+  useHighlightStore,
+  type ThreadHighlight,
+} from "./highlightStore";
 import { DEFAULT_HIGHLIGHT_COLOR } from "./lib/highlightColors";
 
 const threadKey = `${EnvironmentId.make("environment-1")}:${ThreadId.make("thread-1")}`;
@@ -42,13 +47,34 @@ describe("highlightStore persistence", () => {
           version: 1,
         }),
       );
+      localStorage.setItem(HIGHLIGHT_COLOR_STORAGE_KEY, "blue");
 
       await useHighlightStore.persist.rehydrate();
 
       const state = useHighlightStore.getState();
       expect(state.byThreadKey[threadKey]).toHaveLength(1);
       expect(state.byThreadKey[threadKey]?.[0]?.id).toBe("highlight-1");
-      expect(state.defaultColor).toBe(DEFAULT_HIGHLIGHT_COLOR);
+      expect(state.defaultColor).toBe("blue");
+    } finally {
+      resetStore();
+    }
+  });
+
+  it("does not rewrite the highlight blob when the default color changes", () => {
+    resetStore();
+    try {
+      useHighlightStore.setState({
+        byThreadKey: { [threadKey]: [validHighlight] },
+        defaultColor: DEFAULT_HIGHLIGHT_COLOR,
+      });
+      const before = localStorage.getItem(HIGHLIGHT_STORAGE_KEY);
+      expect(before).not.toBeNull();
+
+      useHighlightStore.getState().setDefaultColor("green");
+
+      expect(localStorage.getItem(HIGHLIGHT_STORAGE_KEY)).toBe(before);
+      expect(localStorage.getItem(HIGHLIGHT_COLOR_STORAGE_KEY)).toBe("green");
+      expect(JSON.parse(before ?? "{}").state.defaultColor).toBeUndefined();
     } finally {
       resetStore();
     }

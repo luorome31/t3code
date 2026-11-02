@@ -22,12 +22,11 @@ import { useCustomThemes } from "../../hooks/useCustomThemes";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { useTheme } from "../../hooks/useTheme";
 import { useDefaultHighlightColor, useHighlightStore } from "~/highlightStore";
-import { DEFAULT_HIGHLIGHT_COLOR, HIGHLIGHT_COLORS } from "~/lib/highlightColors";
-import { cn } from "~/lib/utils";
+import { DEFAULT_HIGHLIGHT_COLOR } from "~/lib/highlightColors";
+import { HighlightColorPicker } from "./HighlightColorPicker";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ThemeLibrary } from "./ThemeSettings";
 import {
   SettingResetButton,
@@ -298,7 +297,7 @@ export function AppearanceSettingsPanel() {
         <ThreadDetailsItemsRow />
         <SettingsRow
           {...searchableSetting("highlight-color")}
-          description="Used for new highlights. Existing highlights keep their color."
+          description="Used for new highlights in this browser. Existing highlights keep their color."
           resetAction={
             defaultHighlightColor !== DEFAULT_HIGHLIGHT_COLOR ? (
               <SettingResetButton
@@ -308,30 +307,10 @@ export function AppearanceSettingsPanel() {
             ) : null
           }
           control={
-            <div className="flex items-center gap-1.5" role="group" aria-label="Highlight color">
-              {HIGHLIGHT_COLORS.map((color) => (
-                <Tooltip key={color.id}>
-                  <TooltipTrigger
-                    render={
-                      <button
-                        type="button"
-                        aria-label={color.label}
-                        aria-pressed={defaultHighlightColor === color.id}
-                        onClick={() => setDefaultHighlightColor(color.id)}
-                        className={cn(
-                          "size-6 cursor-pointer rounded-full border-2 outline-none transition-[box-shadow,scale] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                          defaultHighlightColor === color.id
-                            ? "border-foreground/70"
-                            : "border-transparent hover:scale-105",
-                        )}
-                        style={{ backgroundColor: `var(${color.cssVariable})` }}
-                      />
-                    }
-                  />
-                  <TooltipPopup>{color.label}</TooltipPopup>
-                </Tooltip>
-              ))}
-            </div>
+            <HighlightColorPicker
+              value={defaultHighlightColor}
+              onChange={setDefaultHighlightColor}
+            />
           }
         />
         <SettingsRow

@@ -13,6 +13,7 @@ import { resolveStorage } from "./lib/storage";
 import { randomUUID } from "./lib/utils";
 
 export const HIGHLIGHT_STORAGE_KEY = "t3code:thread-highlights:v1";
+export const HIGHLIGHT_COLOR_STORAGE_KEY = "t3code:highlight-color:v1";
 export const MAX_HIGHLIGHTS_PER_THREAD = 500;
 export const MAX_HIGHLIGHT_TEXT_LENGTH = 4000;
 const MAX_TOTAL_HIGHLIGHT_TEXT_LENGTH = 2_000_000;
@@ -46,6 +47,23 @@ interface HighlightStoreState {
 }
 
 const EMPTY_HIGHLIGHTS: readonly ThreadHighlight[] = [];
+
+function readPersistedDefaultColor(): HighlightColor {
+  if (typeof window === "undefined") return DEFAULT_HIGHLIGHT_COLOR;
+  try {
+    const value = window.localStorage.getItem(HIGHLIGHT_COLOR_STORAGE_KEY);
+    return isHighlightColor(value) ? value : DEFAULT_HIGHLIGHT_COLOR;
+  } catch {
+    return DEFAULT_HIGHLIGHT_COLOR;
+  }
+}
+
+function persistDefaultColor(color: HighlightColor): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(HIGHLIGHT_COLOR_STORAGE_KEY, color);
+  } catch {}
+}
 
 export function sameHighlightSelector(
   left: AssistantTextSelector,
@@ -117,7 +135,7 @@ export const useHighlightStore = create<HighlightStoreState>()(
   persist(
     (set, get) => ({
       byThreadKey: {},
-      defaultColor: DEFAULT_HIGHLIGHT_COLOR,
+      defaultColor: readPersistedDefaultColor(),
       addHighlight: (ref, input) => {
         const threadKey = scopedThreadKey(ref);
         const highlights = get().byThreadKey[threadKey] ?? [];
@@ -193,6 +211,7 @@ export const useHighlightStore = create<HighlightStoreState>()(
       setDefaultColor: (color) => {
         if (!isHighlightColor(color) || get().defaultColor === color) return;
         set({ defaultColor: color });
+        persistDefaultColor(color);
       },
       clearThread: (ref) => {
         const threadKey = scopedThreadKey(ref);
@@ -210,22 +229,17 @@ export const useHighlightStore = create<HighlightStoreState>()(
       storage: createJSONStorage(() =>
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
-      partialize: (state) => ({
-        byThreadKey: state.byThreadKey,
-        defaultColor: state.defaultColor,
-      }),
+      partialize: (state) => ({ byThreadKey: state.byThreadKey }),
       migrate: (persistedState) => persistedState as HighlightStoreState,
       merge: (persisted, current) => {
         const value =
           persisted && typeof persisted === "object"
-            ? (persisted as { byThreadKey?: unknown; defaultColor?: unknown })
+            ? (persisted as { byThreadKey?: unknown })
             : {};
         return {
           ...current,
           byThreadKey: sanitizeThreadHighlights(value.byThreadKey),
-          defaultColor: isHighlightColor(value.defaultColor)
-            ? value.defaultColor
-            : DEFAULT_HIGHLIGHT_COLOR,
+          defaultColor: readPersistedDefaultColor(),
         };
       },
     },
