@@ -264,12 +264,11 @@ function rawTextOffset(text: string, normalizedOffset: number): number {
   return text.length;
 }
 
-export function resolveAssistantCitationRange(
+function rangeForSelector(
   root: HTMLElement,
+  stream: ReturnType<typeof readAssistantText>,
   selector: AssistantTextSelector,
 ): Range | null {
-  if (excludedAncestor(root) !== null) return null;
-  const stream = readAssistantText(root);
   const match = findAssistantCitationText(stream.text, selector);
   if (match === null) return null;
 
@@ -286,4 +285,20 @@ export function resolveAssistantCitationRange(
   if (isText(last.node)) range.setEnd(last.node, Math.min(last.node.length, end - last.start));
   else range.setEndAfter(last.node);
   return isUsableRange(root, range) ? range : null;
+}
+
+export function resolveAssistantCitationRanges(
+  root: HTMLElement,
+  selectors: readonly AssistantTextSelector[],
+): (Range | null)[] {
+  if (excludedAncestor(root) !== null) return selectors.map(() => null);
+  const stream = readAssistantText(root);
+  return selectors.map((selector) => rangeForSelector(root, stream, selector));
+}
+
+export function resolveAssistantCitationRange(
+  root: HTMLElement,
+  selector: AssistantTextSelector,
+): Range | null {
+  return resolveAssistantCitationRanges(root, [selector])[0] ?? null;
 }

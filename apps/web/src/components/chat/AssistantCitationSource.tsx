@@ -7,6 +7,7 @@ import {
 } from "~/lib/assistantTextSelection";
 import { toastManager } from "../ui/toast";
 import { observeResize } from "~/lib/observeResize";
+import { setHighlightPriority } from "~/lib/cssHighlights";
 
 const CITATION_PULSE_DURATION_MS = 650;
 const CITATION_HIGHLIGHT_HOLD_MS = 1575;
@@ -76,6 +77,7 @@ export function observeAssistantCitationCommentSource({
   if (typeof Highlight !== "undefined" && registry) {
     const existing = registry.get(COMMENT_HIGHLIGHT_NAME);
     highlight = existing ?? new Highlight();
+    setHighlightPriority(highlight, 30);
     highlight.add(range);
     if (!existing) registry.set(COMMENT_HIGHLIGHT_NAME, highlight);
   }
@@ -218,6 +220,7 @@ function observeAssistantCitationSource({
     }
     if (typeof Highlight !== "undefined" && typeof CSS !== "undefined" && CSS.highlights) {
       highlighted = new Highlight(range);
+      setHighlightPriority(highlighted, 40);
       CSS.highlights.set("t3-assistant-citation", highlighted);
       ownedRange = range;
       root.dataset.citationHighlighted = "true";

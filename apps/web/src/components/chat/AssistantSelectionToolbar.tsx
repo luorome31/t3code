@@ -200,6 +200,8 @@ export function AssistantSelectionToolbar({
   if (!selection) return null;
   const citeTooLong = selection.citation.text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH;
   const highlightTooLong = selection.citation.text.length > MAX_HIGHLIGHT_TEXT_LENGTH;
+  const highlightSupported =
+    typeof CSS !== "undefined" && Boolean(CSS.highlights) && typeof Highlight !== "undefined";
   const hasExistingHighlight = selection.existingHighlightId !== null;
   const dismiss = () => {
     actionsRef.current?.cancel();
@@ -283,13 +285,15 @@ export function AssistantSelectionToolbar({
         type="button"
         size="xs"
         variant="glass"
-        disabled={highlightTooLong}
+        disabled={highlightTooLong || !highlightSupported}
         aria-label={
-          highlightTooLong
-            ? `Selection is too long to highlight (maximum ${MAX_HIGHLIGHT_TEXT_LENGTH} characters)`
-            : hasExistingHighlight
-              ? "Remove highlight"
-              : "Highlight selection"
+          !highlightSupported
+            ? "Highlights are not supported in this browser"
+            : highlightTooLong
+              ? `Selection is too long to highlight (maximum ${MAX_HIGHLIGHT_TEXT_LENGTH} characters)`
+              : hasExistingHighlight
+                ? "Remove highlight"
+                : "Highlight selection"
         }
         onClick={toggleHighlight}
       >
@@ -298,7 +302,13 @@ export function AssistantSelectionToolbar({
         ) : (
           <HighlighterIcon aria-hidden="true" className="size-3.5" />
         )}
-        {hasExistingHighlight ? "Remove highlight" : highlightTooLong ? "Too long" : "Highlight"}
+        {!highlightSupported
+          ? "Unavailable"
+          : hasExistingHighlight
+            ? "Remove highlight"
+            : highlightTooLong
+              ? "Too long"
+              : "Highlight"}
       </Button>
     </div>,
     document.body,
