@@ -70,6 +70,7 @@ import {
   type RememberedTimelinePosition,
   rememberTimelinePosition,
 } from "./timelineScrollAnchoring";
+import { AssistantHighlightPainter } from "./AssistantHighlightPainter";
 import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
 import { type AssistantCitationRequest } from "./AssistantCitationSource";
@@ -1310,6 +1311,10 @@ const ConversationTimeline = memo(function ConversationTimeline({
             className="relative h-full min-h-0"
             data-assistant-citation-viewport="true"
           >
+            <AssistantHighlightPainter
+              container={timelineViewportElement}
+              threadRef={citationThreadRef}
+            />
             {onCiteAssistantText && citationThreadRef ? (
               <AssistantSelectionToolbar
                 key={routeThreadKey}

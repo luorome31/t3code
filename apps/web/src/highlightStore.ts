@@ -235,3 +235,9 @@ export const useHighlightStore = create<HighlightStoreState>()(
 export function readThreadHighlights(ref: ScopedThreadRef): readonly ThreadHighlight[] {
   return useHighlightStore.getState().byThreadKey[scopedThreadKey(ref)] ?? EMPTY_HIGHLIGHTS;
 }
+
+export function useThreadHighlights(ref: ScopedThreadRef | null): readonly ThreadHighlight[] {
+  return useHighlightStore((state) =>
+    ref === null ? EMPTY_HIGHLIGHTS : (state.byThreadKey[scopedThreadKey(ref)] ?? EMPTY_HIGHLIGHTS),
+  );
+}
