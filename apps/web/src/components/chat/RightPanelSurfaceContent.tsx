@@ -174,6 +174,7 @@ export function RightPanelSurfaceContent(props: {
     case "highlights":
       return (
         <ThreadHighlightsPanel
+          key={scopedThreadKey(threadRef)}
           threadRef={threadRef}
           onInsertHighlights={props.onInsertHighlights}
         />

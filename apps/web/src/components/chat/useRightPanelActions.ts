@@ -148,7 +148,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
   };
   const addFilesSurfaceStable = useStableCallback(addFilesSurface);
   const addHighlightsSurface = () => {
-    if (!activeThreadRef) return;
+    if (!activeThreadRef || !isServerThread) return;
     useRightPanelStore.getState().open(activeThreadRef, "highlights");
   };
   const addHighlightsSurfaceStable = useStableCallback(addHighlightsSurface);

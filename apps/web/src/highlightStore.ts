@@ -243,5 +243,7 @@ export function useThreadHighlights(ref: ScopedThreadRef | null): readonly Threa
 }
 
 export function useThreadHighlightCount(ref: ScopedThreadRef | null): number {
-  return useThreadHighlights(ref).length;
+  return useHighlightStore((state) =>
+    ref === null ? 0 : (state.byThreadKey[scopedThreadKey(ref)]?.length ?? 0),
+  );
 }

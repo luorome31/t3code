@@ -1,6 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { AssistantCitation, ScopedThreadRef } from "@t3tools/contracts";
-import { CheckIcon, HighlighterIcon, MoreHorizontalIcon, Trash2Icon } from "lucide-react";
+import { HighlighterIcon, MoreHorizontalIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
 import { assistantCitationNavigation } from "~/lib/assistantCitationNavigation";
@@ -16,7 +16,15 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import {
+  Menu,
+  MenuItem,
+  MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuRadioItemIndicator,
+  MenuTrigger,
+} from "../ui/menu";
 
 function citationOf(threadRef: ScopedThreadRef, highlight: ThreadHighlight): AssistantCitation {
   return {
@@ -50,21 +58,25 @@ export function ThreadHighlightsPanel({
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   const exists = new Set(highlights.map((highlight) => highlight.id));
-  const selected = highlights.filter((highlight) => selectedIds.has(highlight.id));
-  const allSelected = highlights.length > 0 && selected.length === highlights.length;
-  const someSelected = selected.length > 0 && !allSelected;
-
-  const groups: { messageId: string; highlights: ThreadHighlight[] }[] = [];
+  const groupsByMessage = new Map<string, ThreadHighlight[]>();
   for (const highlight of [...highlights].sort((left, right) =>
     left.createdAt.localeCompare(right.createdAt),
   )) {
-    const group = groups.at(-1);
-    if (group?.messageId === highlight.messageId) group.highlights.push(highlight);
-    else groups.push({ messageId: highlight.messageId, highlights: [highlight] });
+    const group = groupsByMessage.get(highlight.messageId);
+    if (group) group.push(highlight);
+    else groupsByMessage.set(highlight.messageId, [highlight]);
   }
-  for (const group of groups) {
-    group.highlights.sort((left, right) => left.selector.start - right.selector.start);
-  }
+  const groups = [...groupsByMessage].map(([messageId, group]) => ({
+    messageId,
+    highlights: group.sort((left, right) => left.selector.start - right.selector.start),
+  }));
+  const orderedHighlights = groups.flatMap((group) => group.highlights);
+  const positionById = new Map(
+    orderedHighlights.map((highlight, index) => [highlight.id, index + 1]),
+  );
+  const selected = orderedHighlights.filter((highlight) => selectedIds.has(highlight.id));
+  const allSelected = highlights.length > 0 && selected.length === highlights.length;
+  const someSelected = selected.length > 0 && !allSelected;
 
   const setSelected = (id: string, checked: boolean) => {
     setSelectedIds((current) => {
@@ -75,7 +87,9 @@ export function ThreadHighlightsPanel({
     });
   };
   const setAllSelected = (checked: boolean) => {
-    setSelectedIds(checked ? new Set(highlights.map((highlight) => highlight.id)) : new Set());
+    setSelectedIds(
+      checked ? new Set(orderedHighlights.map((highlight) => highlight.id)) : new Set(),
+    );
   };
   const jumpTo = (highlight: ThreadHighlight) => {
     void navigate(assistantCitationNavigation(citationOf(threadRef, highlight)));
@@ -150,67 +164,76 @@ export function ThreadHighlightsPanel({
               <div className="px-2 py-1 text-2xs font-medium text-muted-foreground">
                 Assistant message
               </div>
-              {group.highlights.map((highlight) => (
-                <div
-                  key={highlight.id}
-                  className="group flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-accent/40"
-                >
-                  <Checkbox
-                    aria-label={`Select highlight: ${highlight.selector.text.slice(0, 60)}`}
-                    checked={selectedIds.has(highlight.id) && exists.has(highlight.id)}
-                    className="mt-0.5"
-                    onCheckedChange={(checked) => setSelected(highlight.id, checked === true)}
-                  />
-                  <button
-                    type="button"
-                    className="min-w-0 flex-1 cursor-pointer text-left"
-                    onClick={() => jumpTo(highlight)}
+              {group.highlights.map((highlight) => {
+                const position = positionById.get(highlight.id) ?? 0;
+                return (
+                  <div
+                    key={highlight.id}
+                    className="group flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-accent/40"
                   >
-                    <span className="flex items-start gap-2">
-                      <span className="mt-1">
-                        <ColorDot
-                          color={
-                            HIGHLIGHT_COLORS.find((color) => color.id === highlight.color) ??
-                            HIGHLIGHT_COLORS[0]!
-                          }
-                        />
-                      </span>
-                      <span className="line-clamp-3 text-sm text-foreground">
-                        {highlight.selector.text}
-                      </span>
-                    </span>
-                  </button>
-                  <Menu>
-                    <MenuTrigger
-                      render={
-                        <Button
-                          aria-label="Highlight actions"
-                          size="icon-xs"
-                          variant="ghost"
-                          type="button"
-                        />
-                      }
+                    <Checkbox
+                      aria-label={`Select highlight ${position}: ${highlight.selector.text.slice(0, 60)}`}
+                      checked={selectedIds.has(highlight.id) && exists.has(highlight.id)}
+                      className="mt-0.5"
+                      onCheckedChange={(checked) => setSelected(highlight.id, checked === true)}
+                    />
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 cursor-pointer text-left"
+                      onClick={() => jumpTo(highlight)}
                     >
-                      <MoreHorizontalIcon className="size-3.5" />
-                    </MenuTrigger>
-                    <MenuPopup align="end" sideOffset={4}>
-                      {HIGHLIGHT_COLORS.map((color) => (
-                        <MenuItem key={color.id} onClick={() => recolor(highlight, color)}>
-                          <ColorDot color={color} />
-                          <span className="flex-1">{color.label}</span>
-                          {highlight.color === color.id ? (
-                            <CheckIcon aria-hidden className="size-3.5" />
-                          ) : null}
+                      <span className="flex items-start gap-2">
+                        <span className="mt-1">
+                          <ColorDot
+                            color={
+                              HIGHLIGHT_COLORS.find((color) => color.id === highlight.color) ??
+                              HIGHLIGHT_COLORS[0]!
+                            }
+                          />
+                        </span>
+                        <span className="line-clamp-3 text-sm text-foreground">
+                          {highlight.selector.text}
+                        </span>
+                      </span>
+                    </button>
+                    <Menu>
+                      <MenuTrigger
+                        render={
+                          <Button
+                            aria-label={`Highlight actions for highlight ${position}`}
+                            size="icon-xs"
+                            variant="ghost"
+                            type="button"
+                          />
+                        }
+                      >
+                        <MoreHorizontalIcon className="size-3.5" />
+                      </MenuTrigger>
+                      <MenuPopup align="end" sideOffset={4}>
+                        <MenuRadioGroup
+                          value={highlight.color}
+                          onValueChange={(value) => {
+                            const color = HIGHLIGHT_COLORS.find((entry) => entry.id === value);
+                            if (color) recolor(highlight, color);
+                          }}
+                        >
+                          {HIGHLIGHT_COLORS.map((color) => (
+                            <MenuRadioItem key={color.id} value={color.id}>
+                              <ColorDot color={color} />
+                              <span className="flex-1">{color.label}</span>
+                              <MenuRadioItemIndicator />
+                            </MenuRadioItem>
+                          ))}
+                        </MenuRadioGroup>
+                        <MenuItem onClick={() => removeOne(highlight)}>
+                          <Trash2Icon aria-hidden className="size-3.5" />
+                          Delete
                         </MenuItem>
-                      ))}
-                      <MenuItem onClick={() => removeOne(highlight)}>
-                        <Trash2Icon aria-hidden className="size-3.5" />
-                        Delete
-                      </MenuItem>
-                    </MenuPopup>
-                  </Menu>
-                </div>
-              ))}
+                      </MenuPopup>
+                    </Menu>
+                  </div>
+                );
+              })}
             </div>
           ))}
         </div>
