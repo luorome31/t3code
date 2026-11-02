@@ -32,8 +32,9 @@ import { ThreadDetailsItemsMenuItems } from "./ThreadDetailsItemsMenu";
 import { resolveThreadDetailsVisibility, THREAD_DETAILS_ITEMS } from "./threadDetailsItems";
 import { useClientSettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
-import { HighlighterIcon, SlidersHorizontalIcon } from "lucide-react";
+import { SlidersHorizontalIcon } from "lucide-react";
 import { useThreadHighlightCount } from "~/highlightStore";
+import { ThreadHighlightsRow } from "./ThreadHighlightsRow";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import {
   THREAD_DETAILS_PANEL_ICON_CLASS,
@@ -245,31 +246,11 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               ) : null}
 
               {visible.highlights && props.isServerThread && !props.draftId ? (
-                <ThreadDetailsSection
-                  headingId="thread-details-highlights-heading"
-                  title="Highlights"
-                  showHeading={false}
+                <ThreadHighlightsRow
+                  count={highlightCount}
                   separated={density === "full"}
-                >
-                  <div className="flex flex-col">
-                    <ThreadDetailsControl
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      part="row"
-                      disabled={!props.onOpenHighlights}
-                      onClick={props.onOpenHighlights}
-                    >
-                      <HighlighterIcon aria-hidden className={THREAD_DETAILS_PANEL_ICON_CLASS} />
-                      <span className={cn("flex-1 text-left", THREAD_DETAILS_PANEL_LABEL_CLASS)}>
-                        Highlights
-                      </span>
-                      <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                        {highlightCount}
-                      </span>
-                    </ThreadDetailsControl>
-                  </div>
-                </ThreadDetailsSection>
+                  {...(props.onOpenHighlights ? { onOpen: props.onOpenHighlights } : {})}
+                />
               ) : null}
 
               {density === "full" && !props.draftId && visible.servers ? (
