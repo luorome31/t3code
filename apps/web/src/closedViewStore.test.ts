@@ -73,6 +73,26 @@ describe("closedViewStore", () => {
     expect(() => useClosedViewStore.getState().remember(diff(refB))).not.toThrow();
   });
 
+  it("keeps a saved highlights tab through rehydration", async () => {
+    const surface = { kind: "highlights", id: "highlights" } as const;
+    const id = useClosedViewStore.getState().remember({
+      kind: "panel-tab",
+      threadRef: refA,
+      surface,
+    });
+    const { storage, name } = useClosedViewStore.persist.getOptions();
+    await storage!.setItem(name!, {
+      state: {
+        entries: [{ kind: "panel-tab", threadRef: refA, surface, id }],
+      },
+      version: 1,
+    });
+    await useClosedViewStore.persist.rehydrate();
+    expect(useClosedViewStore.getState().entries).toEqual([
+      { kind: "panel-tab", threadRef: refA, surface, id },
+    ]);
+  });
+
   it("keeps private tabs available in memory without saving their metadata", async () => {
     const store = useClosedViewStore.getState();
     const publicId = store.remember(diff(refA));

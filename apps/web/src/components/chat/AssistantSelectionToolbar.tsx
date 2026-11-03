@@ -4,7 +4,8 @@ import {
   type AssistantCitation,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
-import { QuoteIcon } from "lucide-react";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { EraserIcon, HighlighterIcon, QuoteIcon } from "lucide-react";
 import { use, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -17,7 +18,15 @@ import {
   resolveSelectionActionPosition,
   type SelectionActionPoint,
 } from "~/lib/selectionActions";
+import {
+  MAX_HIGHLIGHTS_PER_THREAD,
+  MAX_HIGHLIGHT_TEXT_LENGTH,
+  readThreadHighlights,
+  sameHighlightSelector,
+  useHighlightStore,
+} from "~/highlightStore";
 import { Button } from "../ui/button";
+import { toastManager } from "../ui/toast";
 import { BackgroundThreadContext } from "./backgroundThread";
 
 export function AssistantSelectionToolbar({
@@ -33,10 +42,13 @@ export function AssistantSelectionToolbar({
     citation: AssistantCitation;
     position: SelectionActionPoint;
     sourceAnchor: AssistantCitationSourceAnchor;
+    existingHighlightId: string | null;
   } | null>(null);
-  const toolbarRef = useRef<HTMLButtonElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<ReturnType<typeof observeSelectionActions> | null>(null);
   const backgroundThread = use(BackgroundThreadContext);
+  const { environmentId, threadId } = threadRef;
+  const threadKey = scopedThreadKey(threadRef);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the toolbar DOM node and clamps its position inside the window before paint
   useLayoutEffect(() => {
@@ -111,6 +123,12 @@ export function AssistantSelectionToolbar({
         clear();
         return;
       }
+      const existingHighlightId =
+        readThreadHighlights({ environmentId, threadId }).find(
+          (highlight) =>
+            highlight.messageId === messageId &&
+            sameHighlightSelector(highlight.selector, captured.selector),
+        )?.id ?? null;
       const rects = captured.range.getClientRects();
       const pointerOnText =
         pointer !== null &&
@@ -125,10 +143,12 @@ export function AssistantSelectionToolbar({
         sourceAnchor: { source: captured.source, range: captured.range, viewport },
         citation: {
           version: 1,
-          ...threadRef,
+          environmentId,
+          threadId,
           messageId: MessageId.make(messageId),
           ...captured.selector,
         },
+        existingHighlightId,
         position: resolveSelectionActionPosition({
           bounds: viewportRect,
           selectionRect: rects.item(rects.length - 1) ?? rect,
@@ -160,10 +180,11 @@ export function AssistantSelectionToolbar({
       ) {
         return;
       }
-      if (toolbar.disabled) return;
+      const firstAction = toolbar.querySelector<HTMLButtonElement>("button:not(:disabled)");
+      if (!firstAction) return;
       event.preventDefault();
       event.stopPropagation();
-      toolbar.focus({ preventScroll: true });
+      firstAction.focus({ preventScroll: true });
     };
     // Tab belongs to the foreground chat; a background timeline only follows its selection.
     if (!backgroundThread) document.addEventListener("keydown", focusActions, true);
@@ -174,32 +195,73 @@ export function AssistantSelectionToolbar({
       actions.dispose();
       actionsRef.current = null;
     };
-  }, [backgroundThread, threadRef, viewport]);
+  }, [backgroundThread, environmentId, threadId, viewport]);
 
   if (!selection) return null;
-  const tooLong = selection.citation.text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH;
+  const citeTooLong = selection.citation.text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH;
+  const highlightTooLong = selection.citation.text.length > MAX_HIGHLIGHT_TEXT_LENGTH;
+  const highlightSupported =
+    typeof CSS !== "undefined" && Boolean(CSS.highlights) && typeof Highlight !== "undefined";
+  const hasExistingHighlight = selection.existingHighlightId !== null;
   const dismiss = () => {
     actionsRef.current?.cancel();
     setSelection(null);
   };
-  const cite = () => {
-    if (tooLong || !onCite(selection.citation, selection.sourceAnchor)) return false;
+  const clearSelection = () => {
     window.getSelection()?.removeAllRanges();
     dismiss();
+  };
+  const cite = () => {
+    if (citeTooLong || !onCite(selection.citation, selection.sourceAnchor)) return false;
+    clearSelection();
     return true;
   };
+  const toggleHighlight = () => {
+    if (highlightTooLong) return;
+    const selectionThreadRef: ScopedThreadRef = {
+      environmentId: selection.citation.environmentId,
+      threadId: selection.citation.threadId,
+    };
+    if (scopedThreadKey(selectionThreadRef) !== threadKey) return;
+    if (selection.existingHighlightId) {
+      useHighlightStore
+        .getState()
+        .removeHighlights(selectionThreadRef, [selection.existingHighlightId]);
+      clearSelection();
+      return;
+    }
+    const result = useHighlightStore.getState().addHighlight(selectionThreadRef, {
+      messageId: selection.citation.messageId,
+      selector: {
+        text: selection.citation.text,
+        start: selection.citation.start,
+        end: selection.citation.end,
+        prefix: selection.citation.prefix,
+        suffix: selection.citation.suffix,
+      },
+    });
+    if (!result.ok) {
+      toastManager.add({
+        type: "warning",
+        title:
+          result.reason === "too_long"
+            ? "Selection is too long to highlight"
+            : result.reason === "limit"
+              ? `Highlight limit reached (${MAX_HIGHLIGHTS_PER_THREAD} per thread). Remove a highlight to add another.`
+              : "This text is already highlighted",
+      });
+      return;
+    }
+    clearSelection();
+  };
   return createPortal(
-    <Button
+    <div
       ref={toolbarRef}
-      type="button"
-      size="xs"
-      variant="glass"
-      disabled={tooLong}
-      aria-label={tooLong ? "Selection is too long to cite" : "Cite selection in composer"}
-      className="fixed z-50 max-w-[calc(100vw-1rem)]"
+      role="group"
+      aria-label="Selection actions"
+      className="fixed z-50 flex max-w-[calc(100vw-1rem)] items-center gap-1"
       style={{ left: selection.position.x, top: selection.position.y }}
       onPointerDown={(event) => event.preventDefault()}
-      onClick={cite}
       onKeyDown={(event) => {
         event.stopPropagation();
         if (event.key === "Escape" && !event.nativeEvent.isComposing) {
@@ -208,9 +270,47 @@ export function AssistantSelectionToolbar({
         }
       }}
     >
-      <QuoteIcon aria-hidden="true" className="size-3.5" />
-      {tooLong ? "Shorten selection" : "Cite"}
-    </Button>,
+      <Button
+        type="button"
+        size="xs"
+        variant="glass"
+        disabled={citeTooLong}
+        aria-label={citeTooLong ? "Selection is too long to cite" : "Cite selection in composer"}
+        onClick={cite}
+      >
+        <QuoteIcon aria-hidden="true" className="size-3.5" />
+        {citeTooLong ? "Shorten selection" : "Cite"}
+      </Button>
+      <Button
+        type="button"
+        size="xs"
+        variant="glass"
+        disabled={highlightTooLong || !highlightSupported}
+        aria-label={
+          !highlightSupported
+            ? "Highlights are not supported in this browser"
+            : highlightTooLong
+              ? `Selection is too long to highlight (maximum ${MAX_HIGHLIGHT_TEXT_LENGTH} characters)`
+              : hasExistingHighlight
+                ? "Remove highlight"
+                : "Highlight selection"
+        }
+        onClick={toggleHighlight}
+      >
+        {hasExistingHighlight ? (
+          <EraserIcon aria-hidden="true" className="size-3.5" />
+        ) : (
+          <HighlighterIcon aria-hidden="true" className="size-3.5" />
+        )}
+        {!highlightSupported
+          ? "Unavailable"
+          : hasExistingHighlight
+            ? "Remove highlight"
+            : highlightTooLong
+              ? "Too long"
+              : "Highlight"}
+      </Button>
+    </div>,
     document.body,
   );
 }

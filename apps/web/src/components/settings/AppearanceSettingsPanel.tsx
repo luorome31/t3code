@@ -21,6 +21,9 @@ import {
 import { useCustomThemes } from "../../hooks/useCustomThemes";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { useTheme } from "../../hooks/useTheme";
+import { useDefaultHighlightColor, useHighlightStore } from "~/highlightStore";
+import { DEFAULT_HIGHLIGHT_COLOR } from "~/lib/highlightColors";
+import { HighlightColorPicker } from "./HighlightColorPicker";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
@@ -99,6 +102,8 @@ export function AppearanceSettingsPanel() {
   const [isImportThemeOpen, setIsImportThemeOpen] = useState(false);
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
+  const defaultHighlightColor = useDefaultHighlightColor();
+  const setDefaultHighlightColor = useHighlightStore((state) => state.setDefaultColor);
   const environmentStageLabel = useEnvironmentStageLabel();
   const environmentStageVariant = resolveSidebarStageBackdropVariant(environmentStageLabel);
   const environmentIdentificationOptionList =
@@ -290,6 +295,24 @@ export function AppearanceSettingsPanel() {
           }
         />
         <ThreadDetailsItemsRow />
+        <SettingsRow
+          {...searchableSetting("highlight-color")}
+          description="Used for new highlights in this browser. Existing highlights keep their color."
+          resetAction={
+            defaultHighlightColor !== DEFAULT_HIGHLIGHT_COLOR ? (
+              <SettingResetButton
+                label="highlight color"
+                onClick={() => setDefaultHighlightColor(DEFAULT_HIGHLIGHT_COLOR)}
+              />
+            ) : null
+          }
+          control={
+            <HighlightColorPicker
+              value={defaultHighlightColor}
+              onChange={setDefaultHighlightColor}
+            />
+          }
+        />
         <SettingsRow
           {...searchableSetting("effort-display")}
           description="Show reasoning effort in the composer as its name, such as High, or as bars."

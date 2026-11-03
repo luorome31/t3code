@@ -1,6 +1,7 @@
 import { findThreadSearchOccurrences } from "@t3tools/shared/threadSearch";
 import { useEffect, useEffectEvent, useRef } from "react";
 import { THREAD_FIND_BLOCK_TAGS } from "@t3tools/shared/threadFindText";
+import { setHighlightPriority } from "~/lib/cssHighlights";
 
 const THREAD_FIND_HIGHLIGHT_NAME = "t3-thread-find";
 const THREAD_FIND_ACTIVE_HIGHLIGHT_NAME = "t3-thread-find-active";
@@ -224,6 +225,8 @@ function makeThreadFindHighlightPainter(container: HTMLElement) {
   const rangesByRow = new Map<string, Range[]>();
   const inactive = new Highlight();
   const active = new Highlight();
+  setHighlightPriority(inactive, 10);
+  setHighlightPriority(active, 20);
   let previousActive: Range | null = null;
   CSS.highlights.set(THREAD_FIND_HIGHLIGHT_NAME, inactive);
   CSS.highlights.set(THREAD_FIND_ACTIVE_HIGHLIGHT_NAME, active);

@@ -303,6 +303,7 @@ export interface ChatComposerHandle {
     citation: AssistantCitation,
     sourceAnchor: AssistantCitationSourceAnchor,
   ) => boolean;
+  insertAssistantCitations: (citations: readonly AssistantCitation[]) => boolean;
   openModelPicker: () => void;
   stepReasoningEffort: (direction: 1 | -1) => void;
   toggleModelPicker: () => void;
@@ -2819,6 +2820,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           "cursor",
           { ensureLeadingBoundary: true, citationCommentAnchor: sourceAnchor },
         ),
+      insertAssistantCitations: (citations) => {
+        if (citations.length === 0) return false;
+        return insertComposerTextStable(
+          citations.map((citation) => formatAssistantCitationForComposer(citation)).join("\n\n"),
+          "end",
+          { ensureLeadingBoundary: true },
+        );
+      },
       openModelPicker: openModelPickerStable,
       stepReasoningEffort: (direction) => {
         if (noProviderAvailable || pendingUserInputs.length > 0 || isEditingQueuedMessage) {

@@ -43,6 +43,7 @@ import {
   FileDiff,
   Files,
   Globe2,
+  HighlighterIcon,
   MessagesSquare,
   Plus,
   TerminalSquare,
@@ -141,6 +142,7 @@ export interface RightPanelTabsProps {
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
   onAddDevice: () => void;
+  onAddHighlights: () => void;
   /** Absent where side chats are not offered. */
   onAddSideChat?: (() => void) | undefined;
   browserAvailable: boolean;
@@ -150,6 +152,7 @@ export interface RightPanelTabsProps {
   pullRequestAvailable: boolean;
   pullRequestsAvailable: boolean;
   deviceAvailable: boolean;
+  highlightsAvailable: boolean;
   sideChatAvailable?: boolean;
   /** Overrides the default reason while side chats are available but cannot start. */
   sideChatDisabledReason?: string | null;
@@ -179,6 +182,7 @@ const SURFACE_DISABLED_REASONS = {
   pullRequest: "This thread's branch has no pull request yet.",
   pullRequests: "No linked pull requests are available for this thread.",
   device: "Devices are only available from a thread.",
+  highlights: "Highlights are only available from a thread.",
   sideChat: "Side chats start after the first message.",
 } as const;
 
@@ -204,6 +208,7 @@ const SURFACE_UNAVAILABLE_HINTS = {
   pullRequest: "No pull request on this branch yet.",
   pullRequests: "No linked pull requests available.",
   device: "Available from a thread.",
+  highlights: "Available from a thread.",
   sideChat: "Available after the first message.",
 } as const;
 
@@ -322,6 +327,7 @@ function RightPanelEmptyState(props: {
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
   onAddDevice: () => void;
+  onAddHighlights: () => void;
   /** Absent where side chats are not offered. */
   onAddSideChat?: (() => void) | undefined;
   browserAvailable: boolean;
@@ -331,6 +337,7 @@ function RightPanelEmptyState(props: {
   pullRequestAvailable: boolean;
   pullRequestsAvailable: boolean;
   deviceAvailable: boolean;
+  highlightsAvailable: boolean;
   sideChatAvailable: boolean;
   sideChatDisabledReason: string | null;
 }) {
@@ -393,6 +400,14 @@ function RightPanelEmptyState(props: {
       available: props.deviceAvailable,
       disabledReason: SURFACE_UNAVAILABLE_HINTS.device,
       onClick: props.onAddDevice,
+    },
+    {
+      label: "Highlights",
+      icon: HighlighterIcon,
+      shortcut: "H",
+      available: props.highlightsAvailable,
+      disabledReason: SURFACE_UNAVAILABLE_HINTS.highlights,
+      onClick: props.onAddHighlights,
     },
     ...(props.onAddSideChat
       ? [
@@ -592,6 +607,8 @@ function surfaceTitle(
       return "Pull requests";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
+    case "highlights":
+      return "Highlights";
     case "side-chat":
       return "Side chat";
     case "preview": {
@@ -684,6 +701,8 @@ function SurfaceIcon({
       return <PullRequestGlyph.link className="size-3 shrink-0" />;
     case "side-chat":
       return <SideChatTabIcon environmentId={environmentId} threadId={surface.threadId} />;
+    case "highlights":
+      return <HighlighterIcon className="size-3 shrink-0" />;
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />
@@ -1147,6 +1166,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       disabledReason: SURFACE_DISABLED_REASONS.device,
       onClick: props.onAddDevice,
     },
+    {
+      label: "Highlights",
+      icon: HighlighterIcon,
+      shortcut: "H",
+      available: props.highlightsAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.highlights,
+      onClick: props.onAddHighlights,
+    },
     ...(props.onAddSideChat
       ? [
           {
@@ -1533,6 +1560,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddPullRequest={props.onAddPullRequest}
             onAddPullRequests={props.onAddPullRequests}
             onAddDevice={props.onAddDevice}
+            onAddHighlights={props.onAddHighlights}
             onAddSideChat={props.onAddSideChat}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
@@ -1541,6 +1569,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             pullRequestAvailable={props.pullRequestAvailable}
             pullRequestsAvailable={props.pullRequestsAvailable}
             deviceAvailable={props.deviceAvailable}
+            highlightsAvailable={props.highlightsAvailable}
             sideChatAvailable={props.sideChatAvailable === true}
             sideChatDisabledReason={props.sideChatDisabledReason ?? null}
           />

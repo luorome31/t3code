@@ -342,6 +342,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "highlight-color",
+    title: "Highlight color",
+    to: "/settings/appearance",
+    searchTerms: [
+      "highlights annotation color palette amber red green blue purple slate assistant selection",
+    ],
+  },
+  {
     id: "effort-display",
     title: "Effort display",
     to: "/settings/appearance",

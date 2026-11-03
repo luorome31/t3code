@@ -33,6 +33,8 @@ import { resolveThreadDetailsVisibility, THREAD_DETAILS_ITEMS } from "./threadDe
 import { useClientSettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { SlidersHorizontalIcon } from "lucide-react";
+import { useThreadHighlightCount } from "~/highlightStore";
+import { ThreadHighlightsRow } from "./ThreadHighlightsRow";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import {
   THREAD_DETAILS_PANEL_ICON_CLASS,
@@ -76,6 +78,7 @@ interface ThreadDetailsPanelProps extends Pick<
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest: () => void;
   onOpenChanges?: () => void;
+  onOpenHighlights?: () => void;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<ProjectScriptActionResult>;
   onUpdateProjectScript: (
@@ -88,6 +91,10 @@ interface ThreadDetailsPanelProps extends Pick<
 
 export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
   const visible = useClientSettings(resolveThreadDetailsVisibility);
+  const highlightCount = useThreadHighlightCount({
+    environmentId: props.environmentId,
+    threadId: props.threadId,
+  });
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const fileScripts = useT3ProjectFileScripts(
     props.environmentId,
@@ -236,6 +243,14 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                     ) : null}
                   </div>
                 </ThreadDetailsSection>
+              ) : null}
+
+              {visible.highlights && props.isServerThread && !props.draftId ? (
+                <ThreadHighlightsRow
+                  count={highlightCount}
+                  separated={density === "full"}
+                  {...(props.onOpenHighlights ? { onOpen: props.onOpenHighlights } : {})}
+                />
               ) : null}
 
               {density === "full" && !props.draftId && visible.servers ? (

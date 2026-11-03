@@ -1,4 +1,5 @@
 import type {
+  AssistantCitation,
   EditorId,
   EnvironmentId,
   PreviewAnnotationPayload,
@@ -24,6 +25,7 @@ import { PullRequestDetailPanel } from "../pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "../pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "../pullRequest/PullRequestsUnavailableState";
 import { ThreadPullRequestsPanel } from "../pullRequest/ThreadPullRequestsPanel";
+import { ThreadHighlightsPanel } from "./ThreadHighlightsPanel";
 
 const PreviewPanel = lazy(() =>
   import("../preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
@@ -73,6 +75,7 @@ export function RightPanelSurfaceContent(props: {
     annotation: PreviewAnnotationPayload,
     image: ComposerImageAttachment | null,
   ) => void;
+  readonly onInsertHighlights: (citations: readonly AssistantCitation[]) => boolean;
   readonly onCloseSurface: (surface: RightPanelSurface) => void;
   readonly terminal: RightPanelTerminalProps;
   readonly pullRequest: RightPanelPullRequestProps;
@@ -168,6 +171,14 @@ export function RightPanelSurfaceContent(props: {
     }
     case "pull-requests":
       return <ThreadPullRequestsPanel threadRef={threadRef} />;
+    case "highlights":
+      return (
+        <ThreadHighlightsPanel
+          key={scopedThreadKey(threadRef)}
+          threadRef={threadRef}
+          onInsertHighlights={props.onInsertHighlights}
+        />
+      );
     case "side-chat":
       // Not lazy: revealing a suspended tiptap editor tears down its view and crashes the composer.
       return (

@@ -631,6 +631,18 @@ export default function ChatView(props: ChatViewProps) {
     return inserted;
   };
   const citeAssistantTextStable = useStableCallback(citeAssistantText);
+  const insertAssistantHighlights = (citations: readonly AssistantCitation[]) => {
+    const inserted = composerRef.current?.insertAssistantCitations(citations) ?? false;
+    if (!inserted) {
+      toastManager.add({
+        type: "warning",
+        title: "The composer is not ready",
+        description: "Try inserting the highlights after pending input is resolved.",
+      });
+    }
+    return inserted;
+  };
+  const insertAssistantHighlightsStable = useStableCallback(insertAssistantHighlights);
   const [isWorkspaceFileDragActive, setIsWorkspaceFileDragActive] = useState(false);
   const [optimisticBlobPreviews] = useState(createOptimisticBlobPreviews);
   const [heldOptimisticUserMessages, setHeldOptimisticUserMessages] = useState(() =>
@@ -2343,6 +2355,7 @@ export default function ChatView(props: ChatViewProps) {
     addDeviceSurfaceStable,
     addDiffSurfaceStable,
     addFilesSurfaceStable,
+    addHighlightsSurfaceStable,
     addPullRequestSurfaceStable,
     addPullRequestsSurfaceStable,
     closePreviewPanelStable,
@@ -3201,6 +3214,7 @@ export default function ChatView(props: ChatViewProps) {
       workspaceMutationId={workspaceMutationId}
       getShortcutContext={getShortcutContextStable}
       onSendAnnotation={sendPreviewAnnotationStable}
+      onInsertHighlights={insertAssistantHighlightsStable}
       onCloseSurface={closeRightPanelSurface}
       sideChatParentPanel={sideChatParentPanel}
       terminal={{
@@ -3883,6 +3897,7 @@ export default function ChatView(props: ChatViewProps) {
                   {...(isServerThread && isGitRepo
                     ? { onOpenChanges: openChangesFromThreadPanelStable }
                     : {})}
+                  {...(isServerThread ? { onOpenHighlights: addHighlightsSurfaceStable } : {})}
                   onRunProjectScript={runProjectScriptStable}
                   onAddProjectScript={saveProjectScriptStable}
                   onUpdateProjectScript={updateProjectScriptStable}
@@ -3972,6 +3987,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddPullRequest={addPullRequestSurfaceStable}
           onAddPullRequests={addPullRequestsSurfaceStable}
           onAddDevice={addDeviceSurfaceStable}
+          onAddHighlights={addHighlightsSurfaceStable}
           onAddSideChat={sideChatsOffered ? openSideChatStable : undefined}
           browserAvailable={canOperatePreview && browserAvailable}
           terminalAvailable={activeProject !== null && canOperateTerminal}
@@ -3980,6 +3996,7 @@ export default function ChatView(props: ChatViewProps) {
           pullRequestAvailable={pullRequestSurfaceAvailable}
           pullRequestsAvailable={pullRequestsSurfaceAvailable}
           deviceAvailable={activeThreadRef !== null}
+          highlightsAvailable={activeThreadRef !== null && isServerThread}
           sideChatAvailable={sideChat.available}
           sideChatDisabledReason={sideChatDisabledReason}
         >
