@@ -2187,6 +2187,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
             executionStartedAtMs: 100,
             firstOutputObservedAtMs: 250,
             observedOutputDurationMs: 100,
+            estimatedVisibleOutputTokens: 25,
           },
         },
       });
@@ -2208,6 +2209,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         executionStartedAtMs: 100,
         firstOutputObservedAtMs: 250,
         observedOutputDurationMs: 100,
+        estimatedVisibleOutputTokens: 25,
       });
 
       yield* projectionStore.apply({
@@ -2239,6 +2241,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         executionStartedAtMs: 100,
         firstOutputObservedAtMs: 250,
         observedOutputDurationMs: 500,
+        estimatedVisibleOutputTokens: 25,
         executionCompletedAtMs: 1200,
       });
     }),

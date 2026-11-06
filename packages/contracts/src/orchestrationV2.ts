@@ -1192,6 +1192,7 @@ export const OrchestrationV2ProviderTurn = Schema.Struct({
       executionCompletedAtMs: Schema.optional(NonNegativeInt),
       observedOutputDurationMs: Schema.optional(NonNegativeInt),
       outputSampleCount: Schema.optional(NonNegativeInt),
+      estimatedVisibleOutputTokens: Schema.optional(NonNegativeInt),
     }),
   ),
 });

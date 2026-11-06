@@ -12,6 +12,20 @@ import type { ProviderAdapterV2Event } from "@t3tools/provider-core/server/Provi
 type Timing = NonNullable<OrchestrationV2ProviderTurn["responseTiming"]>;
 type Observation = NonNullable<OrchestrationV2TurnItem["outputObservation"]>;
 
+function visibleTokenUnits(text: string, from: number) {
+  let units = 0;
+  for (let index = from; index < text.length; index++) {
+    const code = text.charCodeAt(index);
+    // A low surrogate can arrive in a later chunk than its high surrogate.
+    if (code >= 0xdc00 && code <= 0xdfff && index > 0) {
+      const previous = text.charCodeAt(index - 1);
+      if (previous >= 0xd800 && previous <= 0xdbff) continue;
+    }
+    units += code <= 0x7f ? 1 : 4;
+  }
+  return units;
+}
+
 export function makeResponseTimingCollector(owner: {
   threadId: ThreadId;
   runId: RunId;
@@ -21,7 +35,8 @@ export function makeResponseTimingCollector(owner: {
   let executionStartedAtMs: number | undefined;
   const turns = new Map<ProviderTurnId, Timing>();
   const lastOutputAt = new Map<ProviderTurnId, number>();
-  const outputLengths = new Map<string, number>();
+  const outputStates = new Map<string, { length: number; units: number; hasOutput: boolean }>();
+  const outputUnits = new Map<ProviderTurnId, number>();
   const startedTools = new Set<string>();
   const rawWindows = new Map<ProviderTurnId, Map<string, Observation>>();
   return {
@@ -65,6 +80,9 @@ export function makeResponseTimingCollector(owner: {
                   0,
                 ),
               }),
+          ...(previous?.firstOutputObservedAtMs !== undefined && outputUnits.has(turn.id)
+            ? { estimatedVisibleOutputTokens: Math.ceil(outputUnits.get(turn.id)! / 4) }
+            : {}),
           ...(["completed", "interrupted", "failed", "cancelled"].includes(turn.status)
             ? { executionCompletedAtMs: previous?.executionCompletedAtMs ?? nowMs }
             : {}),
@@ -119,8 +137,22 @@ export function makeResponseTimingCollector(owner: {
         }
         return event;
       }
-      const previousLength = outputLengths.get(item.id) ?? 0;
-      outputLengths.set(item.id, Math.max(previousLength, item.text.length));
+      const previousOutput = outputStates.get(item.id);
+      const previousLength = previousOutput?.length ?? 0;
+      const recount = !item.streaming || item.text.length < previousLength;
+      const units = recount
+        ? visibleTokenUnits(item.text, 0)
+        : (previousOutput?.units ?? 0) + visibleTokenUnits(item.text, previousLength);
+      const hasOutput = recount
+        ? item.text.trim().length > 0
+        : previousOutput?.hasOutput === true || item.text.slice(previousLength).trim().length > 0;
+      outputStates.set(item.id, { length: item.text.length, units, hasOutput });
+      outputUnits.set(
+        item.providerTurnId,
+        (outputUnits.get(item.providerTurnId) ?? 0) +
+          (hasOutput ? units : 0) -
+          (previousOutput?.hasOutput ? previousOutput.units : 0),
+      );
       const observation = item.outputObservation;
       if (
         observation !== undefined &&

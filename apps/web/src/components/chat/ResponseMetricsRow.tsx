@@ -23,7 +23,7 @@ export function ResponseMetricsRow({ metrics }: { metrics: ResponseMetrics }) {
     ...(metrics.outputTokens === undefined
       ? []
       : [
-          `${tokens.format(metrics.outputTokens)} output tokens${metrics.partial ? " (partial)" : ""}`,
+          `${metrics.outputTokensEstimated ? "≈" : ""}${tokens.format(metrics.outputTokens)} output tokens${metrics.partial ? " (partial)" : ""}`,
         ]),
   ];
   return (
@@ -74,27 +74,34 @@ export function ResponseMetricsRow({ metrics }: { metrics: ResponseMetrics }) {
               </p>
             )}
             <p>
-              Estimated TPS divides reported output tokens by the sum of server-observed streaming
-              output windows. Tool and approval boundaries split the windows, excluding their wait
-              before text resumes. Startup and waiting before the first output are excluded. Network
-              jitter and buffering still affect this estimate; unobserved hidden reasoning can make
-              it too high.
+              Estimated TPS divides reported or estimated output tokens by the sum of
+              server-observed streaming output windows. Tool and approval boundaries split the
+              windows, excluding their wait before text resumes. Startup and waiting before the
+              first output are excluded. Network jitter and buffering still affect this estimate;
+              unobserved hidden reasoning can make it too high.
             </p>
             {metrics.estimatedTps === undefined ? null : (
               <p>
+                {metrics.outputTokensEstimated ? "≈" : ""}
                 {tokens.format(metrics.outputTokens!)} output tokens ÷ (
                 {metrics.observedOutputDurationMs} ms / 1,000). Timing source: server observations,
                 version 1.
               </p>
             )}
             <p>
-              Tokens use provider-reported main-agent usage, including reported reasoning as a
-              subset. Native subagents and other usage are excluded. Usage:{" "}
+              {metrics.outputTokensEstimated
+                ? "Where the provider did not report output usage, visible main-agent text and reasoning are estimated at four ASCII characters or one non-ASCII code point per token. Hidden reasoning and tool arguments cannot be estimated. Reported usage takes precedence when it arrives."
+                : "Tokens use provider-reported main-agent usage, including reported reasoning as a subset."}{" "}
+              Native subagents and other usage are excluded. Usage:{" "}
               {metrics.outputTokens === undefined
                 ? "unavailable"
-                : metrics.partial
-                  ? "partial"
-                  : "complete"}
+                : metrics.outputTokensEstimated
+                  ? metrics.partial
+                    ? "estimated, partial"
+                    : "estimated"
+                  : metrics.partial
+                    ? "partial"
+                    : "complete"}
               .
             </p>
             {metrics.missing.length > 0 ? (

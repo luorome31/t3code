@@ -71,8 +71,11 @@ The setting only controls display; new runs keep recording timing while it is of
 First output measures when the server receives the first non-empty main-agent text or reasoning.
 Estimated TPS uses streaming output windows split at tool, approval and retry boundaries, rather
 than the whole turn's duration. Network jitter, buffered output and hidden reasoning can still
-skew the estimate; it is not a model benchmark. Missing usage or insufficient streaming samples
-leave TPS unavailable. Old runs without recorded timing are not backfilled.
+skew the estimate; it is not a model benchmark. When a provider does not report output usage,
+visible output is estimated at four ASCII characters or one non-ASCII code point per token.
+Those token counts and TPS show `≈`; hidden reasoning and tool arguments cannot be estimated.
+Reported usage takes precedence when it arrives. Insufficient streaming samples leave TPS
+unavailable. Old runs without recorded timing or visible-output counts are not backfilled.
 
 Context-window occupancy is separate from per-turn output usage. For Gemini usage on Antigravity,
 use **Settings → Providers → Antigravity → Update Antigravity** to update an older managed ACP

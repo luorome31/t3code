@@ -846,6 +846,7 @@ describe("deriveMessagesTimelineRows", () => {
       provider: "codex",
       requested: [],
       reportedModels: [],
+      outputTokensEstimated: false,
       partial: false,
       missing: [],
     };

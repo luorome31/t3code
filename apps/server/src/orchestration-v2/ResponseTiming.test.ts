@@ -141,6 +141,7 @@ describe("response timing", () => {
       executionCompletedAtMs: 20_100,
       observedOutputDurationMs: 300,
       outputSampleCount: 5,
+      estimatedVisibleOutputTokens: 2,
     });
   });
 
@@ -155,7 +156,28 @@ describe("response timing", () => {
       executionStartedAtMs: 100,
       firstOutputObservedAtMs: 1000,
       executionCompletedAtMs: 1100,
+      estimatedVisibleOutputTokens: 5,
     });
+  });
+  it("estimates visible output incrementally, handles split surrogate pairs and authoritative final text, and ignores replay", () => {
+    const h = setup("antigravity");
+    h.collector.start(100);
+    h.collector.observe(h.turnEvent, 100);
+    h.collector.observe(h.text("abcd\ud83d"), 200);
+    h.collector.observe(h.text("abcd\ud83d\ude00中"), 300);
+    h.collector.observe(h.text("abcd\ud83d\ude00中"), 400);
+    h.collector.observe(h.text("thought", "reasoning"), 500);
+    expect(h.finish(600)?.estimatedVisibleOutputTokens).toBe(5);
+    const corrected = setup();
+    corrected.collector.start(100);
+    corrected.collector.observe(corrected.turnEvent, 100);
+    corrected.collector.observe(corrected.text("a long draft"), 200);
+    const final = corrected.text("final");
+    corrected.collector.observe(
+      { ...final, turnItem: { ...final.turnItem, streaming: false } },
+      300,
+    );
+    expect(corrected.finish(400)?.estimatedVisibleOutputTokens).toBe(2);
   });
   it("uses pre-coalescing observations and merges overlapping output windows without counting replay twice", () => {
     const h = setup();

@@ -181,4 +181,44 @@ describe("response metrics", () => {
       }).size,
     ).toBe(0);
   });
+  it("falls back to visible output estimates, replaces them with reported usage, and never masks partial usage or local commands", () => {
+    const { run, attempt, turn } = setup();
+    const fallback = {
+      ...turn,
+      turnTokenUsage: undefined,
+      responseTiming: { ...turn.responseTiming!, estimatedVisibleOutputTokens: 60 },
+    };
+    const derive = (
+      providerTurns: ReadonlyArray<OrchestrationV2ProviderTurn>,
+      status = run.status,
+    ) =>
+      deriveResponseMetrics({ runs: [{ ...run, status }], attempts: [attempt], providerTurns }).get(
+        run.id,
+      )!;
+    expect(derive([fallback])).toMatchObject({
+      outputTokens: 60,
+      outputTokensEstimated: true,
+      estimatedTps: 60,
+      partial: false,
+    });
+    expect(derive([{ ...fallback, turnTokenUsage: turn.turnTokenUsage }])).toMatchObject({
+      outputTokens: 100,
+      outputTokensEstimated: false,
+      estimatedTps: 100,
+    });
+    expect(derive([fallback, { ...turn, id: ProviderTurnId.make("two") }])).toMatchObject({
+      outputTokens: 160,
+      outputTokensEstimated: true,
+      estimatedTps: 80,
+    });
+    expect(
+      derive([{ ...fallback, turnTokenUsage: { ...turn.turnTokenUsage!, usageStatus: "partial" } }])
+        .estimatedTps,
+    ).toBeUndefined();
+    expect(
+      derive([{ ...fallback, turnTokenUsage: { ...turn.turnTokenUsage!, localCommand: true } }])
+        .outputTokens,
+    ).toBeUndefined();
+    expect(derive([fallback], "failed").estimatedTps).toBeUndefined();
+  });
 });

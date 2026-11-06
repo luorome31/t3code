@@ -18,6 +18,7 @@ export interface ResponseMetrics {
   readonly firstOutputLatencyMs?: number;
   readonly observedOutputDurationMs?: number;
   readonly outputTokens?: number;
+  readonly outputTokensEstimated: boolean;
   readonly partial: boolean;
   readonly estimatedTps?: number;
   readonly missing: ReadonlyArray<string>;
@@ -70,9 +71,24 @@ export function deriveResponseMetrics(input: {
     const usages = turns.flatMap((turn) =>
       turn.turnTokenUsage && !turn.turnTokenUsage.localCommand ? [turn.turnTokenUsage] : [],
     );
-    const known = usages.flatMap((usage) =>
-      usage.outputTokens === undefined ? [] : [usage.outputTokens],
-    );
+    const samples = turns.map((turn) => {
+      const usage = turn.turnTokenUsage;
+      if (usage?.localCommand) return { tokens: undefined, estimated: false, complete: false };
+      if (usage?.outputTokens !== undefined)
+        return {
+          tokens: usage.outputTokens,
+          estimated: false,
+          complete: usage.usageStatus === "complete",
+        };
+      const tokens = turn.responseTiming?.estimatedVisibleOutputTokens;
+      return {
+        tokens,
+        estimated: tokens !== undefined,
+        complete: tokens !== undefined && turn.status === "completed",
+      };
+    });
+    const known = samples.flatMap((sample) => (sample.tokens === undefined ? [] : [sample.tokens]));
+    const outputTokensEstimated = samples.some((sample) => sample.estimated);
     const sum = known.reduce((total, tokens) => total + tokens, 0);
     const outputTokens =
       known.length > 0 && Number.isSafeInteger(sum) && sum >= 0 ? sum : undefined;
@@ -80,8 +96,7 @@ export function deriveResponseMetrics(input: {
     const complete =
       run.status === "completed" &&
       turns.length > 0 &&
-      usages.length === turns.length &&
-      usages.every((usage) => usage.usageStatus === "complete") &&
+      samples.every((sample) => sample.complete) &&
       attempts.every((attempt) => turns.some((turn) => turn.runAttemptId === attempt.id));
     const observedOutputDurationMs =
       duration !== undefined && Number.isFinite(duration) && duration > 0 ? duration : undefined;
@@ -105,7 +120,7 @@ export function deriveResponseMetrics(input: {
       missing.push(
         observedOutputDurationMs === undefined
           ? "Streaming output windows were not recorded for every provider turn."
-          : "Estimated TPS requires a successful run with complete main-agent usage.",
+          : "Estimated TPS requires a successful run with output coverage for every execution segment.",
       );
     result.set(run.id, {
       runId: run.id,
@@ -118,6 +133,7 @@ export function deriveResponseMetrics(input: {
       ...(firstOutputLatencyMs === undefined ? {} : { firstOutputLatencyMs }),
       ...(observedOutputDurationMs === undefined ? {} : { observedOutputDurationMs }),
       ...(outputTokens === undefined ? {} : { outputTokens }),
+      outputTokensEstimated,
       ...(estimatedTps === undefined ? {} : { estimatedTps }),
       partial: !complete,
       missing,
