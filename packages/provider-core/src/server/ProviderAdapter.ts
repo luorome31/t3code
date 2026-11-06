@@ -105,6 +105,8 @@ export const ProviderAdapterV2Event = Schema.Union([
     driver: ProviderDriverKind,
     threadId: Schema.optional(ThreadId),
     usageOnly: Schema.optional(Schema.Literal(true)),
+    /** Process-local observation, consumed before persisting the provider turn. */
+    responseMetricsFirstOutputMonotonicMs: Schema.optional(Schema.Finite),
     providerTurn: OrchestrationV2ProviderTurn,
   }),
   Schema.Struct({

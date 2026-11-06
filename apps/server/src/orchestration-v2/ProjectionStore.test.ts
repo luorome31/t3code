@@ -2570,6 +2570,20 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         },
       });
 
+      const responseMetrics = {
+        version: 2 as const,
+        kind: "visible_stream" as const,
+        tokenScope: "visible_text" as const,
+        tokenSource: "text_estimate" as const,
+        timingSource: "server_monotonic" as const,
+        tokenCount: 20,
+        durationMs: 1000,
+        sampleCount: 10,
+        maxGapMs: 200,
+        longGapCount: 0,
+        excludedInitialTokens: 5,
+        tokensPerSecond: 20,
+      };
       const providerTurn = {
         id: providerTurnId,
         providerThreadId,
@@ -2607,12 +2621,13 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         nodeId,
         driver,
         occurredAt: now,
-        payload: { ...providerTurn, status: "completed", completedAt: now },
+        payload: { ...providerTurn, status: "completed", completedAt: now, responseMetrics },
       });
 
       const reloaded = yield* projectionStore.getThreadProjection(threadId);
       assert.deepEqual(reloaded.providerTurns[0]?.tokenUsage, initialUsage);
       assert.strictEqual(reloaded.providerTurns[0]?.status, "completed");
+      assert.deepEqual(reloaded.providerTurns[0]?.responseMetrics, responseMetrics);
       assert.deepEqual(reloaded.providerTurns[0]?.responseTiming, {
         version: 1,
         executionStartedAtMs: 100,
@@ -2633,6 +2648,11 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
           status: "completed",
           completedAt: now,
           tokenUsage: replacementUsage,
+          responseMetrics: {
+            ...responseMetrics,
+            tokensPerSecond: undefined,
+            unavailableReason: "incomplete_turn",
+          },
           responseTiming: {
             version: 1,
             executionStartedAtMs: 999,
@@ -2645,6 +2665,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
 
       const replaced = yield* projectionStore.getThreadProjection(threadId);
       assert.deepEqual(replaced.providerTurns[0]?.tokenUsage, replacementUsage);
+      assert.deepEqual(replaced.providerTurns[0]?.responseMetrics, responseMetrics);
       assert.deepEqual(replaced.providerTurns[0]?.responseTiming, {
         version: 1,
         executionStartedAtMs: 100,

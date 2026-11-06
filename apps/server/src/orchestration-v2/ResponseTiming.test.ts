@@ -79,6 +79,42 @@ function setup(driverName = "codex") {
 }
 
 describe("response timing", () => {
+  it("persists monotonic first-output latency independently of epoch clock changes", () => {
+    const h = setup();
+    h.collector.start(1000, 10);
+    h.collector.observe(h.turnEvent, 1100);
+    const result = h.collector.observe(
+      {
+        ...h.turnEvent,
+        responseMetricsFirstOutputMonotonicMs: 250,
+        providerTurn: {
+          ...h.turnEvent.providerTurn,
+          status: "completed",
+          responseMetrics: {
+            version: 2,
+            kind: "visible_stream",
+            tokenScope: "visible_text",
+            tokenSource: "text_estimate",
+            timingSource: "server_monotonic",
+            tokenCount: 4,
+            durationMs: 400,
+            sampleCount: 5,
+            maxGapMs: 100,
+            longGapCount: 0,
+            excludedInitialTokens: 1,
+            firstOutputObservedAtMs: 20_000,
+            tokensPerSecond: 10,
+          },
+        },
+      },
+      30_000,
+    );
+    if (result.type !== "provider_turn.updated") throw new Error("Expected turn update");
+    expect(result.providerTurn.responseMetrics).toMatchObject({
+      executionStartedAtMs: 1000,
+      firstOutputLatencyMs: 240,
+    });
+  });
   it.each(["codex", "opencode", "antigravity", "qoder-cn"])(
     "observes first main-agent output for %s without changing output events",
     (driver) => {

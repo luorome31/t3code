@@ -64,18 +64,24 @@ update model pricing.
 ## Response performance
 
 On web and desktop, enable **Settings → Appearance → Response performance statistics** to show
-first-output latency, estimated TPS and reported output tokens below each finished response.
+first-output latency, estimated visible streaming speed and output tokens below each finished response.
 Open the details beside the statistics for the recorded model, calculation and missing-data reasons.
 The setting only controls display; new runs keep recording timing while it is off.
 
-First output measures when the server receives the first non-empty main-agent text or reasoning.
-Estimated TPS uses streaming output windows split at tool, approval and retry boundaries, rather
-than the whole turn's duration. Network jitter, buffered output and hidden reasoning can still
-skew the estimate; it is not a model benchmark. When a provider does not report output usage,
+First output measures when the server receives the first non-empty main-agent text or visible
+reasoning, starting from provider execution. It cannot reveal an earlier hidden reasoning token.
+Visible speed uses estimated text tokens and their corresponding streaming intervals, excluding
+each interval's initial packet. Tool and approval boundaries split intervals; concurrent agent
+output is retained. Long gaps remain included because they may be model work rather than network
+stalls. Network delivery and harness buffering still affect this estimate; it is not model decode
+speed. Sparse, very short or buffered samples leave speed unavailable.
+
+The output total is separate: reported usage includes any reported hidden reasoning, while visible
+speed always excludes hidden reasoning, tool arguments and tool results. Without reported usage,
 visible output is estimated at four ASCII characters or one non-ASCII code point per token.
-Those token counts and TPS show `≈`; hidden reasoning and tool arguments cannot be estimated.
-Reported usage takes precedence when it arrives. Insufficient streaming samples leave TPS
-unavailable. Old runs without recorded timing or visible-output counts are not backfilled.
+Estimated token counts and visible speed show `≈`. Late usage replaces only the output total,
+not the visible-speed calculation. Old runs retain their latency and usage; older timing records
+cannot produce the new visible speed and are not backfilled.
 
 Context-window occupancy is separate from per-turn output usage. For Gemini usage on Antigravity,
 use **Settings → Providers → Antigravity → Update Antigravity** to update an older managed ACP

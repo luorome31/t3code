@@ -183,6 +183,10 @@
       "types": "./src/server/usage.ts",
       "import": "./src/server/usage.ts"
     },
+    "./server/responseMetrics": {
+      "types": "./src/server/responseMetrics.ts",
+      "import": "./src/server/responseMetrics.ts"
+    },
     "./server/usageLimits": {
       "types": "./src/server/usageLimits.ts",
       "import": "./src/server/usageLimits.ts"

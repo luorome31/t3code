@@ -1,3 +1,4 @@
+import { makeProviderResponseMetrics } from "@t3tools/provider-core/server/responseMetrics";
 // @effect-diagnostics nodeBuiltinImport:off
 
 import {
@@ -2291,8 +2292,11 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             }
           });
 
+        const outputMetrics = makeProviderResponseMetrics(yield* Clock.Clock);
         const emitProviderEvent = (event: ProviderAdapter.ProviderAdapterV2Event) =>
-          Queue.offer(events, event).pipe(Effect.asVoid);
+          Effect.suspend(() => Queue.offer(events, outputMetrics.observe(event))).pipe(
+            Effect.asVoid,
+          );
         let scheduleDeferredFinalize: (context: ActiveAcpTurn) => Effect.Effect<void> = () =>
           Effect.void;
 
@@ -2916,6 +2920,8 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             // Agents may omit the first messageId; retain projected identity until the first later id.
             stream.current.sourceMessageId = sourceMessageId;
           }
+          if (kind !== "user")
+            outputMetrics.append(context.providerTurnId, stream.current.nativeItemId, text);
           stream.current.text += text;
           yield* publishTextSegment(context, kind);
         });

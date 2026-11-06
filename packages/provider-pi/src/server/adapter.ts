@@ -1,3 +1,5 @@
+import * as Clock from "effect/Clock";
+import { makeProviderResponseMetrics } from "@t3tools/provider-core/server/responseMetrics";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NodeUtil from "node:util";
 import { AgentScope } from "@t3tools/shared/AgentScope";
@@ -617,8 +619,9 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           ? { type: "compact" }
           : { type: "compact", customInstructions: command.customInstructions };
 
+      const outputMetrics = makeProviderResponseMetrics(yield* Clock.Clock);
       const emit = (event: ProviderAdapter.ProviderAdapterV2Event) =>
-        Queue.offer(events, event).pipe(Effect.asVoid);
+        Effect.suspend(() => Queue.offer(events, outputMetrics.observe(event))).pipe(Effect.asVoid);
 
       const updateProviderSession =
         /* Provider events include streaming deltas; avoid a span for each update. */
@@ -1927,6 +1930,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           }
           case "message_start": {
             if (turn !== null && recordString(event["message"], "role") === "assistant") {
+              outputMetrics.boundary(turn.providerTurn.id);
               turn.sawAgentActivity = true;
               turn.messageOrdinal += 1;
             }
@@ -1944,6 +1948,11 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                 turn,
                 deltaType === "text_delta" ? "assistant_message" : "reasoning",
                 contentIndex,
+              );
+              outputMetrics.append(
+                turn.providerTurn.id,
+                item.nativeItemId,
+                recordString(delta, "delta") ?? "",
               );
               item.text += recordString(delta, "delta") ?? "";
               yield* scheduleStreamFlush(turn, item);

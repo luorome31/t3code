@@ -1194,6 +1194,36 @@ export const OrchestrationV2ProviderTurn = Schema.Struct({
   completedAt: Schema.NullOr(Schema.DateTimeUtc),
   tokenUsage: Schema.optional(OrchestrationV2ProviderTurnTokenUsage),
   turnTokenUsage: Schema.optional(TurnTokenUsage),
+  responseMetrics: Schema.optional(
+    Schema.Struct({
+      version: Schema.Literal(2),
+      kind: Schema.Literal("visible_stream"),
+      tokenScope: Schema.Literal("visible_text"),
+      tokenSource: Schema.Literal("text_estimate"),
+      timingSource: Schema.Literal("server_monotonic"),
+      tokenCount: NonNegativeInt,
+      durationMs: NonNegativeInt,
+      sampleCount: NonNegativeInt,
+      maxGapMs: NonNegativeInt,
+      longGapCount: NonNegativeInt,
+      excludedInitialTokens: NonNegativeInt,
+      firstOutputObservedAtMs: Schema.optional(NonNegativeInt),
+      tokensPerSecond: Schema.optional(Schema.Finite),
+      executionStartedAtMs: Schema.optional(NonNegativeInt),
+      firstOutputLatencyMs: Schema.optional(NonNegativeInt),
+      unavailableReason: Schema.optional(
+        Schema.Literals([
+          "insufficient_samples",
+          "short_window",
+          "buffered_output",
+          "snapshot_changed",
+          "clock_discontinuity",
+          "incomplete_turn",
+          "unsupported_provider",
+        ]),
+      ),
+    }),
+  ),
   responseTiming: Schema.optional(
     Schema.Struct({
       version: Schema.Literal(1),

@@ -1,3 +1,5 @@
+import * as Clock from "effect/Clock";
+import { makeProviderResponseMetrics } from "@t3tools/provider-core/server/responseMetrics";
 import { pipe } from "effect/Function";
 import * as DocumentText from "../../provider/DocumentText.ts";
 import { revertCodexThread } from "../../provider/CodexThreadRevert.ts";
@@ -2024,8 +2026,11 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             isDescendantCodexTurn(candidate, ancestor),
           );
 
+        const outputMetrics = makeProviderResponseMetrics(yield* Clock.Clock);
         const emitProviderEvent = (event: ProviderAdapter.ProviderAdapterV2Event) =>
-          Queue.offer(events, event).pipe(Effect.asVoid);
+          Effect.suspend(() => Queue.offer(events, outputMetrics.observe(event))).pipe(
+            Effect.asVoid,
+          );
 
         const emitImageWorkState =
           /* Provider events include streaming deltas; avoid a span for each update. */
@@ -3446,6 +3451,8 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               if (part === undefined) return;
               const context = yield* awaitActiveTurn(update.turnId);
               if (context === undefined) return;
+              if (update.completed)
+                outputMetrics.finishText(context.providerTurnId, update.itemId, update.text);
               const artifacts = yield* buildAgentMessageArtifacts(
                 context,
                 { id: update.itemId, text: update.text },
@@ -3510,6 +3517,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           const itemId = reasoningPartKey(payload.turnId, payload.itemId, stream, index);
           // Reserve positions before delayed flushes so later tools stay after them.
           yield* resolveItemOrdinal(context, itemId);
+          outputMetrics.append(context.providerTurnId, itemId, payload.delta);
           yield* reasoningDeltas.append({ turnId: payload.turnId, itemId, delta: payload.delta });
         });
         const completeReasoning = Effect.fn("CodexAdapterV2.completeReasoning")(function* (
@@ -4440,6 +4448,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             const context = (yield* Ref.get(activeTurns)).get(payload.turnId);
             if (context !== undefined) {
               yield* completeProviderRetry(context, yield* DateTime.now);
+              outputMetrics.append(context.providerTurnId, payload.itemId, payload.delta);
             }
             yield* agentMessageDeltas.append({
               turnId: payload.turnId,

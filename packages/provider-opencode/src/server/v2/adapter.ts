@@ -1,3 +1,5 @@
+import * as Clock from "effect/Clock";
+import { makeProviderResponseMetrics } from "@t3tools/provider-core/server/responseMetrics";
 import * as NodeURL from "node:url";
 
 import {
@@ -738,8 +740,9 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         if (sessionId == null) return effect;
         return sessionGates.withLock(sessionId, effect);
       };
+    const outputMetrics = makeProviderResponseMetrics(yield* Clock.Clock);
     const emit = (event: ProviderAdapter.ProviderAdapterV2Event) =>
-      Queue.offer(events, event).pipe(Effect.asVoid);
+      Effect.suspend(() => Queue.offer(events, outputMetrics.observe(event))).pipe(Effect.asVoid);
     const ownerOf = (sessionId: string) => childOwners.get(sessionId) ?? threads.get(sessionId);
     const markUnsettled = (state: ThreadState) => {
       state.unsettled = true;
@@ -929,6 +932,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         readonly assistantMessageID: string;
         readonly ordinal: number;
         readonly text?: string;
+        readonly delta?: string;
       },
       kind: "text" | "reasoning",
       update: (current: string) => string,
@@ -942,6 +946,8 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         startedAt: updatedAt,
         text: "",
       };
+      if (data.delta !== undefined)
+        outputMetrics.append(turn.providerTurn.id, nativeId, data.delta);
       entry.text = update(entry.text);
       if (completed) turn.texts.delete(nativeId);
       else turn.texts.set(nativeId, entry);
@@ -2137,8 +2143,12 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         case "session.compaction.failed":
           return yield* emitCompaction(state, turn, "failed");
         case "session.step.started":
+          outputMetrics.boundary(turn.providerTurn.id);
           turn.startedSteps += 1;
           turn.models.add(`${event.data.model.providerID}/${event.data.model.id}`);
+          return;
+        case "session.step.streamed":
+          outputMetrics.boundary(turn.providerTurn.id);
           return;
         case "session.step.ended":
         case "session.step.failed": {
@@ -2611,6 +2621,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         const turn = state.active;
         if (turn === undefined) continue;
         turn.missedEvents = true;
+        outputMetrics.invalidate(turn.providerTurn.id);
         const ended = yield* backfill(sessionId, state);
         if (sessionId in active || state.active !== turn) continue;
         yield* finishTurn(

@@ -767,6 +767,9 @@ function upsertProviderTurn(
         };
   return upsertById(turns, {
     ...next,
+    ...((current?.responseMetrics ?? next.responseMetrics) === undefined
+      ? {}
+      : { responseMetrics: current?.responseMetrics ?? next.responseMetrics }),
     ...(responseTiming === undefined ? {} : { responseTiming }),
     ...((next.turnTokenUsage ?? current?.turnTokenUsage) === undefined
       ? {}

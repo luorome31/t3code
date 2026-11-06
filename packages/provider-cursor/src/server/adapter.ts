@@ -1,3 +1,5 @@
+import * as Clock from "effect/Clock";
+import { makeProviderResponseMetrics } from "@t3tools/provider-core/server/responseMetrics";
 import type {
   AgentMessage,
   AgentOptions,
@@ -1008,8 +1010,11 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
         const activeTurn = yield* Ref.make<ActiveCursorTurn | null>(null);
         const planIds = yield* Ref.make(new Map<string, OrchestrationV2PlanArtifact["id"]>());
 
+        const outputMetrics = makeProviderResponseMetrics(yield* Clock.Clock);
         const emitProviderEvent = (event: ProviderAdapter.ProviderAdapterV2Event) =>
-          Queue.offer(events, event).pipe(Effect.asVoid);
+          Effect.suspend(() => Queue.offer(events, outputMetrics.observe(event))).pipe(
+            Effect.asVoid,
+          );
 
         const resolveItemOrdinal = (context: ActiveCursorTurn, nativeItemId: string) =>
           Effect.sync(() => {
@@ -1227,6 +1232,11 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
               text: "",
             };
           }
+          outputMetrics.append(
+            input.context.providerTurnId,
+            input.stream.current.nativeItemId,
+            input.text,
+          );
           input.stream.current.text += input.text;
         });
 
@@ -2014,6 +2024,8 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
           ) {
             context.turnEnded = false;
           }
+          if (update.type === "step-started" || update.type === "step-completed")
+            outputMetrics.boundary(context.providerTurnId);
           switch (update.type) {
             case "text-delta":
               // Classify each assistant message on its own, so earlier

@@ -1,3 +1,5 @@
+import * as Clock from "effect/Clock";
+import { makeProviderResponseMetrics } from "@t3tools/provider-core/server/responseMetrics";
 import type {
   Event as OpenCodeEvent,
   Message as OpenCodeMessage,
@@ -1023,8 +1025,11 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
         let closing = false;
         let hasConnected = false;
 
+        const outputMetrics = makeProviderResponseMetrics(yield* Clock.Clock);
         const emitProviderEvent = (event: ProviderAdapter.ProviderAdapterV2Event) =>
-          Queue.offer(events, event).pipe(Effect.asVoid);
+          Effect.suspend(() => Queue.offer(events, outputMetrics.observe(event))).pipe(
+            Effect.asVoid,
+          );
 
         const logProtocolEvent = makeOpenCodeProtocolLogger({
           nativeEventLogger: options.nativeEventLogger,
@@ -2508,6 +2513,9 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
             (current.type !== "text" && current.type !== "reasoning")
           ) {
             return;
+          }
+          if (current.type !== "text" || (current.ignored !== true && current.synthetic !== true)) {
+            outputMetrics.append(turn.providerTurnId, current.id, event.properties.delta);
           }
           const updated = { ...current, text: current.text + event.properties.delta };
           turn.parts.set(updated.id, updated);

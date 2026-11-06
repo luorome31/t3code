@@ -33,6 +33,7 @@ export function makeResponseTimingCollector(owner: {
   providerThreadId: ProviderThreadId;
 }) {
   let executionStartedAtMs: number | undefined;
+  let executionStartedMonotonicMs: number | undefined;
   const turns = new Map<ProviderTurnId, Timing>();
   const lastOutputAt = new Map<ProviderTurnId, number>();
   const outputStates = new Map<string, { length: number; units: number; hasOutput: boolean }>();
@@ -40,8 +41,9 @@ export function makeResponseTimingCollector(owner: {
   const startedTools = new Set<string>();
   const rawWindows = new Map<ProviderTurnId, Map<string, Observation>>();
   return {
-    start(nowMs: number) {
+    start(nowMs: number, monotonicMs?: number) {
       executionStartedAtMs ??= nowMs;
+      executionStartedMonotonicMs ??= monotonicMs;
     },
     observe(event: ProviderAdapterV2Event, nowMs: number): ProviderAdapterV2Event {
       if (executionStartedAtMs === undefined) return event;
@@ -88,7 +90,27 @@ export function makeResponseTimingCollector(owner: {
             : {}),
         };
         turns.set(turn.id, timing);
-        return { ...event, providerTurn: { ...turn, responseTiming: timing } };
+        const latency =
+          executionStartedMonotonicMs === undefined ||
+          event.responseMetricsFirstOutputMonotonicMs === undefined
+            ? undefined
+            : Math.round(event.responseMetricsFirstOutputMonotonicMs - executionStartedMonotonicMs);
+        return {
+          ...event,
+          providerTurn: {
+            ...turn,
+            responseTiming: timing,
+            ...(turn.responseMetrics === undefined || latency === undefined || latency < 0
+              ? {}
+              : {
+                  responseMetrics: {
+                    ...turn.responseMetrics,
+                    executionStartedAtMs,
+                    firstOutputLatencyMs: latency,
+                  },
+                }),
+          },
+        };
       }
       if (event.type === "runtime_request.updated") {
         const request = event.runtimeRequest;

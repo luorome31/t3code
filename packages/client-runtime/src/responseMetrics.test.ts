@@ -68,6 +68,21 @@ function setup() {
       reasoningTokens: 30,
       models: ["reported-one"],
     },
+    responseMetrics: {
+      version: 2,
+      kind: "visible_stream",
+      tokenScope: "visible_text",
+      tokenSource: "text_estimate",
+      timingSource: "server_monotonic",
+      tokenCount: 60,
+      durationMs: 1000,
+      sampleCount: 10,
+      maxGapMs: 200,
+      longGapCount: 0,
+      excludedInitialTokens: 2,
+      tokensPerSecond: 60,
+      firstOutputObservedAtMs: 400,
+    },
     responseTiming: {
       version: 1,
       executionStartedAtMs: 100,
@@ -95,6 +110,12 @@ describe("response metrics", () => {
         outputTokens: 900,
         models: ["reported-two"],
       },
+      responseMetrics: {
+        ...turn.responseMetrics!,
+        tokenCount: 300,
+        durationMs: 3000,
+        tokensPerSecond: 100,
+      },
       responseTiming: {
         ...turn.responseTiming!,
         executionStartedAtMs: 25_000,
@@ -111,12 +132,29 @@ describe("response metrics", () => {
     expect(result).toMatchObject({
       outputTokens: 1000,
       observedOutputDurationMs: 4000,
-      estimatedTps: 250,
+      estimatedTps: 90,
+      throughput: { tokenCount: 360, durationMs: 4000 },
       firstOutputLatencyMs: 300,
       partial: false,
     });
     expect(result.reportedModels).toEqual(["reported-one", "reported-two"]);
     expect(result.requested).toEqual([run.modelSelection]);
+    const clockAdjusted = deriveResponseMetrics({
+      runs: [run],
+      attempts: [attempt],
+      providerTurns: [
+        {
+          ...turn,
+          responseMetrics: {
+            ...turn.responseMetrics!,
+            executionStartedAtMs: 100,
+            firstOutputObservedAtMs: 40_000,
+            firstOutputLatencyMs: 300,
+          },
+        },
+      ],
+    }).get(run.id)!;
+    expect(clockAdjusted.firstOutputLatencyMs).toBe(300);
   });
 
   it("keeps partial output, completes late usage on its own run, and preserves first output", () => {
@@ -128,7 +166,7 @@ describe("response metrics", () => {
       providerTurns: [turn, second],
     }).get(run.id)!;
     expect(pending).toMatchObject({ outputTokens: 100, partial: true, firstOutputLatencyMs: 300 });
-    expect(pending.estimatedTps).toBeUndefined();
+    expect(pending.estimatedTps).toBe(60);
     const complete = deriveResponseMetrics({
       runs: [run],
       attempts: [attempt],
@@ -138,7 +176,7 @@ describe("response metrics", () => {
       outputTokens: 200,
       partial: false,
       firstOutputLatencyMs: 300,
-      estimatedTps: 100,
+      estimatedTps: 60,
     });
     const failed = deriveResponseMetrics({
       runs: [{ ...run, status: "failed" }],
@@ -151,7 +189,12 @@ describe("response metrics", () => {
 
   it("does not fabricate historical timing, buffered-stream TPS, missing usage or running statistics", () => {
     const { run, attempt, turn } = setup();
-    const old = { ...turn, responseTiming: undefined, turnTokenUsage: undefined };
+    const old = {
+      ...turn,
+      responseTiming: undefined,
+      responseMetrics: undefined,
+      turnTokenUsage: undefined,
+    };
     const result = deriveResponseMetrics({
       runs: [run],
       attempts: [attempt],
@@ -161,12 +204,31 @@ describe("response metrics", () => {
     expect(result.outputTokens).toBeUndefined();
     expect(result.estimatedTps).toBeUndefined();
     expect(result.missing.length).toBeGreaterThan(0);
+    const hiddenReasoning = deriveResponseMetrics({
+      runs: [run],
+      attempts: [attempt],
+      providerTurns: [
+        {
+          ...turn,
+          responseMetrics: undefined,
+          turnTokenUsage: { ...turn.turnTokenUsage!, outputTokens: 12_003, reasoningTokens: 6_239 },
+          responseTiming: {
+            ...turn.responseTiming!,
+            observedOutputDurationMs: 14_701,
+            outputSampleCount: 1162,
+          },
+        },
+      ],
+    }).get(run.id)!;
+    expect(hiddenReasoning.outputTokens).toBe(12_003);
+    expect(hiddenReasoning.estimatedTps).toBeUndefined();
     const buffered = deriveResponseMetrics({
       runs: [run],
       attempts: [attempt],
       providerTurns: [
         {
           ...turn,
+          responseMetrics: undefined,
           responseTiming: { version: 1, executionStartedAtMs: 100, firstOutputObservedAtMs: 400 },
         },
       ],
@@ -181,7 +243,7 @@ describe("response metrics", () => {
       }).size,
     ).toBe(0);
   });
-  it("falls back to visible output estimates, replaces them with reported usage, and never masks partial usage or local commands", () => {
+  it("keeps visible speed independent of late reported totals, partial usage and missing usage", () => {
     const { run, attempt, turn } = setup();
     const fallback = {
       ...turn,
@@ -204,17 +266,24 @@ describe("response metrics", () => {
     expect(derive([{ ...fallback, turnTokenUsage: turn.turnTokenUsage }])).toMatchObject({
       outputTokens: 100,
       outputTokensEstimated: false,
-      estimatedTps: 100,
+      estimatedTps: 60,
     });
     expect(derive([fallback, { ...turn, id: ProviderTurnId.make("two") }])).toMatchObject({
       outputTokens: 160,
       outputTokensEstimated: true,
-      estimatedTps: 80,
+      estimatedTps: 60,
     });
     expect(
-      derive([{ ...fallback, turnTokenUsage: { ...turn.turnTokenUsage!, usageStatus: "partial" } }])
-        .estimatedTps,
-    ).toBeUndefined();
+      derive([
+        { ...fallback, turnTokenUsage: { ...turn.turnTokenUsage!, usageStatus: "partial" } },
+      ]),
+    ).toMatchObject({ outputTokens: 100, partial: true, estimatedTps: 60 });
+    const unavailable = {
+      ...turn.responseMetrics!,
+      tokensPerSecond: undefined,
+      unavailableReason: "buffered_output" as const,
+    };
+    expect(derive([{ ...fallback, responseMetrics: unavailable }]).estimatedTps).toBeUndefined();
     expect(
       derive([{ ...fallback, turnTokenUsage: { ...turn.turnTokenUsage!, localCommand: true } }])
         .outputTokens,

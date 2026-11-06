@@ -1,3 +1,4 @@
+import { makeProviderResponseMetrics } from "@t3tools/provider-core/server/responseMetrics";
 import * as DocumentText from "../../provider/DocumentText.ts";
 import {
   compactDynamicToolOutput,
@@ -5406,6 +5407,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
         const runtimeContext = yield* Effect.context<never>();
         const runPromise = Effect.runPromiseWith(runtimeContext);
 
+        const outputMetrics = makeProviderResponseMetrics(yield* Clock.Clock);
         const emitProviderEvent = (event: ProviderAdapter.ProviderAdapterV2Event) => {
           if (event.type === "provider_thread.updated") {
             const budget = pdfBudgets.get(event.providerThread.nativeThreadRef?.nativeId ?? "");
@@ -5425,7 +5427,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               };
             }
           }
-          return Queue.offer(events, event).pipe(Effect.asVoid);
+          return Effect.suspend(() => Queue.offer(events, outputMetrics.observe(event))).pipe(
+            Effect.asVoid,
+          );
         };
 
         const persistAttachmentBudget = Effect.fnUntraced(function* (nativeThreadId: string) {
@@ -9001,6 +9005,41 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           if (message.type === "stream_event" && !message.parent_tool_use_id) {
             const event = message.event;
             const reasoning = context.reasoning;
+            if (event.type === "message_start") outputMetrics.boundary(context.providerTurnId);
+            if (event.type === "content_block_start" && reasoning.messageId !== null) {
+              const block = event.content_block;
+              const text =
+                block.type === "text"
+                  ? block.text
+                  : block.type === "thinking"
+                    ? block.thinking
+                    : "";
+              outputMetrics.append(
+                context.providerTurnId,
+                `${reasoning.messageId}:${event.index}`,
+                text,
+              );
+            }
+            if (event.type === "content_block_delta" && reasoning.messageId !== null) {
+              const delta = event.delta;
+              const text =
+                delta.type === "text_delta"
+                  ? delta.text
+                  : delta.type === "thinking_delta"
+                    ? delta.thinking
+                    : "";
+              outputMetrics.append(
+                context.providerTurnId,
+                `${reasoning.messageId}:${event.index}`,
+                text,
+              );
+            }
+            if (event.type === "content_block_stop" && reasoning.messageId !== null) {
+              outputMetrics.finishText(
+                context.providerTurnId,
+                `${reasoning.messageId}:${event.index}`,
+              );
+            }
             if (event.type === "message_start") {
               reasoning.messageId = event.message.id;
               reasoning.streamBlocks.clear();

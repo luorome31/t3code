@@ -18,7 +18,7 @@ export function ResponseMetricsRow({ metrics }: { metrics: ResponseMetrics }) {
     ...(metrics.estimatedTps === undefined
       ? []
       : [
-          `≈${metrics.estimatedTps > 0 && metrics.estimatedTps < 0.1 ? "<0.1" : number.format(metrics.estimatedTps)} tok/s`,
+          `Visible ≈${metrics.estimatedTps > 0 && metrics.estimatedTps < 0.1 ? "<0.1" : number.format(metrics.estimatedTps)} tok/s`,
         ]),
     ...(metrics.outputTokens === undefined
       ? []
@@ -74,18 +74,23 @@ export function ResponseMetricsRow({ metrics }: { metrics: ResponseMetrics }) {
               </p>
             )}
             <p>
-              Estimated TPS divides reported or estimated output tokens by the sum of
-              server-observed streaming output windows. Tool and approval boundaries split the
-              windows, excluding their wait before text resumes. Startup and waiting before the
-              first output are excluded. Network jitter and buffering still affect this estimate;
-              unobserved hidden reasoning can make it too high.
+              Visible streaming speed estimates only main-agent text and visible reasoning received
+              inside the measured streaming intervals. It uses four ASCII characters or one
+              non-ASCII code point per token, independently of reported output usage. Hidden
+              reasoning, tool arguments and tool results are excluded. Each interval excludes its
+              initial packet. Tool and approval boundaries split intervals; concurrent output
+              remains measurable. Network delivery and harness buffering still affect this estimate.
+              Long gaps are retained, not automatically subtracted as stalls. This is not model
+              decode speed.
             </p>
-            {metrics.estimatedTps === undefined ? null : (
+            {metrics.throughput === undefined ? null : (
               <p>
-                {metrics.outputTokensEstimated ? "≈" : ""}
-                {tokens.format(metrics.outputTokens!)} output tokens ÷ (
-                {metrics.observedOutputDurationMs} ms / 1,000). Timing source: server observations,
-                version 1.
+                ≈{tokens.format(metrics.throughput.tokenCount)} visible tokens ÷ (
+                {metrics.throughput.durationMs} ms / 1,000). {metrics.throughput.sampleCount} raw
+                samples; ≈{tokens.format(metrics.throughput.excludedInitialTokens)} initial-packet
+                tokens excluded. Long gaps: {metrics.throughput.longGapCount}; longest gap:{" "}
+                {metrics.throughput.maxGapMs} ms. Timing: server monotonic clock; method:
+                visible-stream v2. The output token total below is a separate usage ledger.
               </p>
             )}
             <p>

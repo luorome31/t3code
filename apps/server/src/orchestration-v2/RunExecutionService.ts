@@ -1,5 +1,6 @@
 import { makeAssistantStreamingFilter } from "./assistantStreaming.ts";
 import { makeResponseTimingCollector } from "./ResponseTiming.ts";
+import * as Clock from "effect/Clock";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
   isOrchestrationV2WorkActive,
@@ -1735,7 +1736,10 @@ export const layer: Layer.Layer<
         const compact =
           input.message.attachments.length === 0 &&
           input.message.text.trim().toLowerCase() === "/compact";
-        responseTiming.start(DateTime.toEpochMillis(yield* DateTime.now));
+        responseTiming.start(
+          DateTime.toEpochMillis(yield* DateTime.now),
+          Number(yield* Clock.monotonicTimeNanos) / 1_000_000,
+        );
         const startTurn = compact
           ? (input.session.compactThread?.(turnInput) ??
             Effect.fail(
