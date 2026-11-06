@@ -358,6 +358,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["reasoning effort thinking bars graph word label level composer"],
   },
   {
+    id: "response-metrics",
+    title: "Response performance statistics",
+    to: "/settings/appearance",
+    searchTerms: ["TPS TTFT tokens speed latency throughput metrics 性能统计 回复性能 首输出"],
+  },
+  {
     id: "math-rendering",
     title: "Render math",
     to: "/settings/appearance",

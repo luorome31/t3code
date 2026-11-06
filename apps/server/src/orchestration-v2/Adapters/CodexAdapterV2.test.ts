@@ -129,7 +129,10 @@ describe("CodexAdapterV2 assistant message streaming", () => {
         emit: (update) => Ref.update(updates, (current) => [...current, update]),
       });
 
-      yield* coalescer.append({ turnId: "turn-1", itemId: "message-1", delta: "item final" });
+      const firstObservedAtMs = DateTime.toEpochMillis(yield* DateTime.now);
+      yield* coalescer.append({ turnId: "turn-1", itemId: "message-1", delta: "item" });
+      yield* TestClock.adjust("10 millis");
+      yield* coalescer.append({ turnId: "turn-1", itemId: "message-1", delta: " final" });
       const completedText = yield* coalescer.complete({
         turnId: "turn-1",
         itemId: "message-1",
@@ -139,8 +142,28 @@ describe("CodexAdapterV2 assistant message streaming", () => {
 
       assert.equal(completedText, "item final");
       assert.deepEqual(yield* Ref.get(updates), [
-        { turnId: "turn-1", itemId: "message-1", text: "item final", completed: true },
-        { turnId: "turn-1", itemId: "message-2", text: "turn final", completed: true },
+        {
+          turnId: "turn-1",
+          itemId: "message-1",
+          text: "item final",
+          completed: true,
+          outputObservation: {
+            firstObservedAtMs,
+            lastObservedAtMs: firstObservedAtMs + 10,
+            sampleCount: 2,
+          },
+        },
+        {
+          turnId: "turn-1",
+          itemId: "message-2",
+          text: "turn final",
+          completed: true,
+          outputObservation: {
+            firstObservedAtMs: firstObservedAtMs + 10,
+            lastObservedAtMs: firstObservedAtMs + 10,
+            sampleCount: 1,
+          },
+        },
       ]);
       yield* Effect.yieldNow;
       yield* TestClock.adjust("50 millis");

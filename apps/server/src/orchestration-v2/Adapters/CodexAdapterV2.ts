@@ -1837,6 +1837,14 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         );
         const activeTurns = yield* Ref.make(new Map<string, ActiveCodexTurnContext>());
         const turnTokenUsageByThread = new Map<string, CodexTurnTokenUsageState>();
+        const completedUsageByThread = new Map<
+          string,
+          {
+            nativeTurnId: string;
+            threadId: ThreadId;
+            providerTurn: OrchestrationV2ProviderTurn;
+          }
+        >();
         const usageStateForThread = (nativeThreadId: string) => {
           let state = turnTokenUsageByThread.get(nativeThreadId);
           if (!state) {
@@ -3423,6 +3431,17 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   ...item,
                   type: "reasoning",
                   nativeItemRef,
+                  ...(update.outputObservation === undefined
+                    ? {}
+                    : {
+                        outputObservation: update.completed
+                          ? update.outputObservation
+                          : {
+                              firstObservedAtMs: update.outputObservation.firstObservedAtMs,
+                              lastObservedAtMs: update.outputObservation.firstObservedAtMs,
+                              sampleCount: 1,
+                            },
+                      }),
                   ...(interrupted ? { status: "interrupted" as const } : {}),
                 },
               });
@@ -3524,7 +3543,20 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               yield* emitProviderEvent({
                 type: "turn_item.updated",
                 driver: CODEX_PROVIDER,
-                turnItem: artifacts.turnItem,
+                turnItem: {
+                  ...artifacts.turnItem,
+                  ...(update.outputObservation === undefined
+                    ? {}
+                    : {
+                        outputObservation: update.completed
+                          ? update.outputObservation
+                          : {
+                              firstObservedAtMs: update.outputObservation.firstObservedAtMs,
+                              lastObservedAtMs: update.outputObservation.firstObservedAtMs,
+                              sampleCount: 1,
+                            },
+                      }),
+                },
               });
               if (finalAnswerItem && update.completed) {
                 imageTurn(update.turnId).answer = { id: update.itemId, text: update.text };
@@ -4487,11 +4519,24 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
 
         yield* client.handleServerNotification("thread/tokenUsage/updated", (payload) =>
           Effect.gen(function* () {
-            accumulateCodexTurnTokenUsage(
+            const lateUsage = accumulateCodexTurnTokenUsage(
               usageStateForThread(payload.threadId),
               payload.turnId,
               payload.tokenUsage,
             );
+            const completed = completedUsageByThread.get(payload.threadId);
+            if (lateUsage !== undefined && completed?.nativeTurnId === payload.turnId) {
+              const providerTurn = { ...completed.providerTurn, turnTokenUsage: lateUsage };
+              completedUsageByThread.set(payload.threadId, { ...completed, providerTurn });
+              yield* emitProviderEvent({
+                type: "provider_turn.updated",
+                driver: CODEX_PROVIDER,
+                threadId: completed.threadId,
+                usageOnly: true,
+                providerTurn,
+              });
+              return;
+            }
             const context = yield* awaitActiveTurn(payload.turnId);
             if (context === undefined) {
               return;
@@ -4540,6 +4585,9 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           Effect.sync(() => {
             reroutedTurnModels.set(payload.turnId, payload.toModel);
             reroutedThreads.add(payload.threadId);
+            const usage = usageStateForThread(payload.threadId);
+            if (usage.activeTurnId === payload.turnId)
+              getCodexTurnAccumulator(usage, payload.turnId).models.add(payload.toModel);
           }).pipe(Effect.andThen(updateSubagentSelection(payload.threadId, payload.toModel))),
         );
 
@@ -6191,6 +6239,12 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 ),
               };
               if (!holdsForGoal) {
+                if (nativeThreadId != null)
+                  completedUsageByThread.set(nativeThreadId, {
+                    nativeTurnId: input.nativeTurnId,
+                    threadId: input.context.projectionThreadId,
+                    providerTurn: completedTurn,
+                  });
                 yield* emitProviderEvent({
                   type: "provider_turn.updated",
                   driver: CODEX_PROVIDER,
@@ -7875,6 +7929,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 Effect.andThen(revertCodexThread(client, threadId, numTurns)),
               );
               turnTokenUsageByThread.delete(threadId);
+              completedUsageByThread.delete(threadId);
               return {
                 providerThread: {
                   ...threadInput.providerThread,

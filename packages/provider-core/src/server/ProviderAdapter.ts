@@ -104,6 +104,7 @@ export const ProviderAdapterV2Event = Schema.Union([
     type: Schema.Literal("provider_turn.updated"),
     driver: ProviderDriverKind,
     threadId: Schema.optional(ThreadId),
+    usageOnly: Schema.optional(Schema.Literal(true)),
     providerTurn: OrchestrationV2ProviderTurn,
   }),
   Schema.Struct({

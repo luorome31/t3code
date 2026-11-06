@@ -712,8 +712,30 @@ function upsertProviderTurn(
   next: OrchestrationV2ProviderTurn,
 ): Array<OrchestrationV2ProviderTurn> {
   const current = turns.find((turn) => turn.id === next.id);
+  const responseTiming =
+    current?.responseTiming === undefined
+      ? next.responseTiming
+      : {
+          ...current.responseTiming,
+          ...next.responseTiming,
+          executionStartedAtMs: current.responseTiming.executionStartedAtMs,
+          ...(current.responseTiming.firstOutputObservedAtMs === undefined
+            ? {}
+            : {
+                firstOutputObservedAtMs: current.responseTiming.firstOutputObservedAtMs,
+              }),
+          ...(current.responseTiming.executionCompletedAtMs === undefined
+            ? {}
+            : {
+                executionCompletedAtMs: current.responseTiming.executionCompletedAtMs,
+              }),
+        };
   return upsertById(turns, {
     ...next,
+    ...(responseTiming === undefined ? {} : { responseTiming }),
+    ...((next.turnTokenUsage ?? current?.turnTokenUsage) === undefined
+      ? {}
+      : { turnTokenUsage: next.turnTokenUsage ?? current?.turnTokenUsage }),
     ...((next.tokenUsage ?? current?.tokenUsage) === undefined
       ? {}
       : { tokenUsage: next.tokenUsage ?? current?.tokenUsage }),
@@ -2356,15 +2378,12 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               break;
             }
             case "provider-turn.updated": {
-              const existingRows =
-                event.payload.tokenUsage === undefined
-                  ? yield* sql<PayloadRow>`
-                    SELECT payload_json
-                    FROM orchestration_v2_projection_provider_turns
-                    WHERE provider_turn_id = ${event.payload.id}
-                    LIMIT 1
-                  `
-                  : [];
+              const existingRows = yield* sql<PayloadRow>`
+                SELECT payload_json
+                FROM orchestration_v2_projection_provider_turns
+                WHERE provider_turn_id = ${event.payload.id}
+                LIMIT 1
+              `;
               const existing = existingRows[0];
               const providerTurn =
                 existing === undefined

@@ -1,4 +1,5 @@
 import * as Duration from "effect/Duration";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Ref from "effect/Ref";
 import * as Scope from "effect/Scope";
@@ -9,6 +10,11 @@ export interface ProviderTextDeltaUpdate {
   readonly itemId: string;
   readonly text: string;
   readonly completed: boolean;
+  readonly outputObservation?: {
+    readonly firstObservedAtMs: number;
+    readonly lastObservedAtMs: number;
+    readonly sampleCount: number;
+  };
 }
 
 export interface ProviderTextDeltaCoalescer {
@@ -31,6 +37,7 @@ interface BufferedProviderText {
   readonly itemId: string;
   readonly text: string;
   readonly dirty: boolean;
+  readonly outputObservation?: ProviderTextDeltaUpdate["outputObservation"];
 }
 
 function providerTextBufferKey(turnId: string, itemId: string): string {
@@ -66,6 +73,9 @@ export const makeProviderTextDeltaCoalescer = Effect.fn("makeProviderTextDeltaCo
               itemId: message.itemId,
               text: message.text,
               completed: options.completed,
+              ...(message.outputObservation === undefined
+                ? {}
+                : { outputObservation: message.outputObservation }),
             });
           }
           const emitUpdates = Effect.forEach(updates, input.emit, { discard: true });
@@ -102,6 +112,7 @@ export const makeProviderTextDeltaCoalescer = Effect.fn("makeProviderTextDeltaCo
           ? Effect.void
           : Effect.uninterruptible(
               Effect.gen(function* () {
+                const observedAtMs = yield* Clock.currentTimeMillis;
                 const shouldSchedule = yield* flushLock.withPermit(
                   Effect.gen(function* () {
                     yield* Ref.update(buffered, (current) => {
@@ -113,6 +124,18 @@ export const makeProviderTextDeltaCoalescer = Effect.fn("makeProviderTextDeltaCo
                         itemId,
                         text: `${existing?.text ?? ""}${delta}`,
                         dirty: true,
+                        ...(delta.trim().length === 0
+                          ? existing?.outputObservation === undefined
+                            ? {}
+                            : { outputObservation: existing.outputObservation }
+                          : {
+                              outputObservation: {
+                                firstObservedAtMs:
+                                  existing?.outputObservation?.firstObservedAtMs ?? observedAtMs,
+                                lastObservedAtMs: observedAtMs,
+                                sampleCount: (existing?.outputObservation?.sampleCount ?? 0) + 1,
+                              },
+                            }),
                       });
                       return next;
                     });
@@ -135,7 +158,15 @@ export const makeProviderTextDeltaCoalescer = Effect.fn("makeProviderTextDeltaCo
             const existing = (yield* Ref.get(buffered)).get(key);
             const text = finalText !== undefined ? finalText : (existing?.text ?? "");
             if (emitEmpty || text.length > 0) {
-              yield* input.emit({ turnId, itemId, text, completed: true });
+              yield* input.emit({
+                turnId,
+                itemId,
+                text,
+                completed: true,
+                ...(existing?.outputObservation === undefined
+                  ? {}
+                  : { outputObservation: existing.outputObservation }),
+              });
             }
             yield* Ref.update(buffered, (current) => {
               const next = new Map(current);

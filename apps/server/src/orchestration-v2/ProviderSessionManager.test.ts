@@ -3261,7 +3261,7 @@ it.effect.each(["manual_shutdown", "server_shutdown"] as const)(
     }),
 );
 
-it.effect("ProviderSessionManagerV2 persists session-scoped runtime requests without a run", () =>
+it.effect("persists session requests and late usage without a run subscriber", () =>
   Effect.gen(function* () {
     const state = yield* Ref.make(emptyState);
     const effect = Effect.gen(function* () {
@@ -3310,20 +3310,51 @@ it.effect("ProviderSessionManagerV2 persists session-scoped runtime requests wit
           (stored) =>
             stored.event.type === "runtime-request.updated" ||
             stored.event.type === "node.updated" ||
-            stored.event.type === "turn-item.updated",
+            stored.event.type === "turn-item.updated" ||
+            stored.event.type === "provider-turn.updated",
         ),
-        Stream.take(3),
+        Stream.take(4),
         Stream.runCollect,
         Effect.forkScoped,
       );
       const adapterEvents = (yield* Ref.get(state)).eventQueues.get(String(providerSessionId));
       assert.isDefined(adapterEvents);
-      yield* Queue.offerAll(adapterEvents!, pendingRequest.providerEvents);
+      const providerTurn = {
+        id: idAllocator.derive.providerTurn({
+          driver: providerThread.driver,
+          nativeTurnId: "finished-usage",
+        }),
+        providerThreadId: providerThread.id,
+        nodeId: pendingRequest.nodeId,
+        runAttemptId: null,
+        nativeTurnRef: null,
+        ordinal: 1,
+        status: "completed" as const,
+        startedAt: now,
+        completedAt: now,
+        turnTokenUsage: {
+          usageStatus: "complete" as const,
+          usageScope: "main_agent" as const,
+          inputTokens: 100,
+          outputTokens: 50,
+          hasSubagents: false,
+        },
+      };
+      yield* Queue.offerAll(adapterEvents!, [
+        ...pendingRequest.providerEvents,
+        {
+          type: "provider_turn.updated",
+          driver: providerThread.driver,
+          threadId,
+          usageOnly: true,
+          providerTurn,
+        },
+      ]);
       const persisted = Array.from(yield* Fiber.join(persistedFiber));
 
       assert.sameMembers(
         persisted.map((stored) => stored.event.type),
-        ["runtime-request.updated", "node.updated", "turn-item.updated"],
+        ["runtime-request.updated", "node.updated", "turn-item.updated", "provider-turn.updated"],
       );
       const projection = yield* projectionStore.getThreadProjection(threadId);
       const request = projection.runtimeRequests.find(
@@ -3340,6 +3371,10 @@ it.effect("ProviderSessionManagerV2 persists session-scoped runtime requests wit
       assert.equal(node?.status, "waiting");
       assert.equal(turnItem?.runId, null);
       assert.equal(turnItem?.status, "waiting");
+      assert.deepEqual(
+        projection.providerTurns.find((turn) => turn.id === providerTurn.id)?.turnTokenUsage,
+        providerTurn.turnTokenUsage,
+      );
     });
 
     yield* effect.pipe(Effect.provide(layerTest({ state, idleTimeoutMs: 1000 })));

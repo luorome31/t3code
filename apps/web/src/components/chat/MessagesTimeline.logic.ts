@@ -1,4 +1,5 @@
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
+import type { ResponseMetrics } from "@t3tools/client-runtime/response-metrics";
 import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
 import { isLiveSubagentTurnItem } from "@t3tools/client-runtime/state/subagentRuntime";
 import * as DateTime from "effect/DateTime";
@@ -498,6 +499,12 @@ export type MessagesTimelineRow = MessagesTimelineRowContent & {
 };
 
 type MessagesTimelineRowContent =
+  | {
+      kind: "response-metrics";
+      id: string;
+      createdAt: string;
+      metrics: ResponseMetrics;
+    }
   | {
       kind: "worktree-setup";
       id: string;
@@ -2156,6 +2163,47 @@ export function deriveMessagesTimelineRows(input: {
   });
 }
 
+export function attachResponseMetricsRows(
+  rows: MessagesTimelineRow[],
+  metrics: ReadonlyMap<RunId, ResponseMetrics> | undefined,
+): MessagesTimelineRow[] {
+  if (metrics === undefined || metrics.size === 0) return rows;
+  const lastAssistant = new Map<RunId, number>();
+  const lastRow = new Map<RunId, number>();
+  for (const [index, row] of rows.entries()) {
+    if (row.kind === "message" || row.kind === "assistant-meta") {
+      const runId = row.message.runId;
+      if (runId) {
+        lastRow.set(runId, index);
+        if (row.message.role === "assistant") lastAssistant.set(runId, index);
+      }
+    } else if (row.kind === "event") {
+      if (row.projectedItem.item.runId) lastRow.set(row.projectedItem.item.runId, index);
+    } else if (row.kind === "work") {
+      for (const entry of row.groupedEntries) if (entry.runId) lastRow.set(entry.runId, index);
+    } else if (row.kind === "work-live") {
+      if (row.entry.runId) lastRow.set(row.entry.runId, index);
+    } else if ("runId" in row && row.runId !== null) lastRow.set(row.runId, index);
+  }
+  const insertions = new Map<number, ResponseMetrics[]>();
+  for (const [runId, summary] of metrics) {
+    const index = lastAssistant.get(runId) ?? lastRow.get(runId);
+    if (index === undefined) continue;
+    const group = insertions.get(index) ?? [];
+    group.push(summary);
+    insertions.set(index, group);
+  }
+  return rows.flatMap((row, index): MessagesTimelineRow[] => [
+    row,
+    ...(insertions.get(index) ?? []).map((summary) => ({
+      kind: "response-metrics" as const,
+      id: `response-metrics:${summary.runId}`,
+      createdAt: new Date(summary.completedAtMs).toISOString(),
+      metrics: summary,
+    })),
+  ]);
+}
+
 function timelineRowIsOwnUserMessage(
   row: MessagesTimelineRow | undefined,
 ): row is Extract<MessagesTimelineRow, { kind: "message" }> {
@@ -2388,6 +2436,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
   if (a.kind !== b.kind || a.id !== b.id) return false;
 
   switch (a.kind) {
+    case "response-metrics":
+      return a.metrics === (b as typeof a).metrics;
     case "working":
       return (
         a.createdAt === (b as typeof a).createdAt && a.compacting === (b as typeof a).compacting

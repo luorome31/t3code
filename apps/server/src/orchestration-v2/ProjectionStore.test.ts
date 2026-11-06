@@ -2179,7 +2179,16 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         nodeId,
         driver,
         occurredAt: now,
-        payload: { ...providerTurn, tokenUsage: initialUsage },
+        payload: {
+          ...providerTurn,
+          tokenUsage: initialUsage,
+          responseTiming: {
+            version: 1,
+            executionStartedAtMs: 100,
+            firstOutputObservedAtMs: 250,
+            observedOutputDurationMs: 100,
+          },
+        },
       });
       yield* projectionStore.apply({
         id: EventId.make("event:provider-usage-reload:completed"),
@@ -2194,6 +2203,12 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
       const reloaded = yield* projectionStore.getThreadProjection(threadId);
       assert.deepEqual(reloaded.providerTurns[0]?.tokenUsage, initialUsage);
       assert.strictEqual(reloaded.providerTurns[0]?.status, "completed");
+      assert.deepEqual(reloaded.providerTurns[0]?.responseTiming, {
+        version: 1,
+        executionStartedAtMs: 100,
+        firstOutputObservedAtMs: 250,
+        observedOutputDurationMs: 100,
+      });
 
       yield* projectionStore.apply({
         id: EventId.make("event:provider-usage-reload:replacement"),
@@ -2207,11 +2222,25 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
           status: "completed",
           completedAt: now,
           tokenUsage: replacementUsage,
+          responseTiming: {
+            version: 1,
+            executionStartedAtMs: 999,
+            firstOutputObservedAtMs: 888,
+            observedOutputDurationMs: 500,
+            executionCompletedAtMs: 1200,
+          },
         },
       });
 
       const replaced = yield* projectionStore.getThreadProjection(threadId);
       assert.deepEqual(replaced.providerTurns[0]?.tokenUsage, replacementUsage);
+      assert.deepEqual(replaced.providerTurns[0]?.responseTiming, {
+        version: 1,
+        executionStartedAtMs: 100,
+        firstOutputObservedAtMs: 250,
+        observedOutputDurationMs: 500,
+        executionCompletedAtMs: 1200,
+      });
     }),
   );
 

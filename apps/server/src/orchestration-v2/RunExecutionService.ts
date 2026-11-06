@@ -1,4 +1,5 @@
 import { makeAssistantStreamingFilter } from "./assistantStreaming.ts";
+import { makeResponseTimingCollector } from "./ResponseTiming.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
   isOrchestrationV2WorkActive,
@@ -1316,6 +1317,12 @@ export const layer: Layer.Layer<
           return true;
         });
         const filterAssistantEvent = makeAssistantStreamingFilter(responseStreamingMode);
+        const responseTiming = makeResponseTimingCollector({
+          threadId: input.run.threadId,
+          runId: input.run.id,
+          attemptId: input.attempt.id,
+          providerThreadId: input.providerThread.id,
+        });
         // Held text writes nothing, so its item would take a position only
         // when finally written, behind every item that began after it.
         const reservedHeldTurnItemIds = new Set<TurnItemId>();
@@ -1414,9 +1421,10 @@ export const layer: Layer.Layer<
                 yield* Ref.set(latestRootProviderTurn, event.providerTurn);
               }
               let storedEventCount = 0;
+              const observedAtMs = DateTime.toEpochMillis(yield* DateTime.now);
               const deliveredEvent = filterAssistantEvent(
-                event,
-                DateTime.toEpochMillis(yield* DateTime.now),
+                responseTiming.observe(event, observedAtMs),
+                observedAtMs,
               );
               if (deliveredEvent) {
                 const rootTerminalAlreadySeen = yield* Ref.get(rootTerminalSeen);
@@ -1728,6 +1736,7 @@ export const layer: Layer.Layer<
         const compact =
           input.message.attachments.length === 0 &&
           input.message.text.trim().toLowerCase() === "/compact";
+        responseTiming.start(DateTime.toEpochMillis(yield* DateTime.now));
         const startTurn = compact
           ? (input.session.compactThread?.(turnInput) ??
             Effect.fail(

@@ -296,6 +296,19 @@ export function AppearanceSettingsPanel() {
         />
         <ThreadDetailsItemsRow />
         <SettingsRow
+          {...searchableSetting("response-metrics")}
+          description="Show first-output latency, estimated TPS and provider-reported output tokens below each completed response."
+          control={
+            <Switch
+              checked={settings.responseMetricsEnabled}
+              onCheckedChange={(checked) =>
+                updateSettings({ responseMetricsEnabled: Boolean(checked) })
+              }
+              aria-label="Response performance statistics"
+            />
+          }
+        />
+        <SettingsRow
           {...searchableSetting("highlight-color")}
           description="Used for new highlights in this browser. Existing highlights keep their color."
           resetAction={

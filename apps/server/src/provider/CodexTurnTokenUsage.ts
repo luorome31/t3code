@@ -17,12 +17,20 @@ interface CodexTurnTokenUsageAccumulator {
   reasoningTokens: number;
   observed: boolean;
   hasSubagents: boolean;
+  readonly models: Set<string>;
 }
 
 export interface CodexTurnTokenUsageState {
   baseline: CodexCumulativeTokenUsage | undefined;
   activeTurnId: string | undefined;
   readonly byTurnId: Map<string, CodexTurnTokenUsageAccumulator>;
+  completedTurn:
+    | {
+        id: string;
+        usage: CodexTurnTokenUsageAccumulator;
+        completed: boolean;
+      }
+    | undefined;
 }
 
 function codexTokenUsageBreakdown(
@@ -44,6 +52,7 @@ export function makeCodexTurnTokenUsageState(): CodexTurnTokenUsageState {
     baseline: undefined,
     activeTurnId: undefined,
     byTurnId: new Map(),
+    completedTurn: undefined,
   };
 }
 
@@ -61,6 +70,7 @@ export function getCodexTurnAccumulator(
     reasoningTokens: 0,
     observed: false,
     hasSubagents: false,
+    models: new Set(),
   };
   state.byTurnId.set(turnId, created);
   return created;
@@ -98,15 +108,25 @@ export function accumulateCodexTurnTokenUsage(
   state: CodexTurnTokenUsageState,
   turnId: string,
   usage: EffectCodexSchema.V2ThreadTokenUsageUpdatedNotification["tokenUsage"],
-): void {
+): TurnTokenUsage | undefined {
   const current = codexTokenUsageBreakdown(usage.total);
-  if (state.activeTurnId !== turnId) {
-    // Every thread-wide total updates the baseline; late finished-turn updates do not count toward the live turn.
-    state.baseline = current;
+  const completed =
+    state.activeTurnId === undefined && state.completedTurn?.id === turnId
+      ? state.completedTurn
+      : undefined;
+  const backwards =
+    state.baseline !== undefined &&
+    (current.inputTokens < state.baseline.inputTokens ||
+      current.cachedInputTokens < state.baseline.cachedInputTokens ||
+      current.outputTokens < state.baseline.outputTokens ||
+      current.reasoningTokens < state.baseline.reasoningTokens);
+  if (state.activeTurnId !== turnId && completed === undefined) {
+    // Monotonic totals from other turns advance the baseline without charging their tokens here.
+    if (!backwards) state.baseline = current;
     return;
   }
-
-  const accumulator = getCodexTurnAccumulator(state, turnId);
+  if (completed !== undefined && backwards) return;
+  const accumulator = completed?.usage ?? getCodexTurnAccumulator(state, turnId);
   const delta = codexTurnTokenUsageDelta(
     state.baseline,
     current,
@@ -131,6 +151,13 @@ export function accumulateCodexTurnTokenUsage(
   } else if (accumulator.cacheCreationTokens !== undefined) {
     accumulator.cacheCreationTokens += delta.cacheCreationTokens;
   }
+  return completed !== undefined &&
+    (delta.inputTokens > 0 ||
+      delta.outputTokens > 0 ||
+      delta.cachedInputTokens > 0 ||
+      delta.reasoningTokens > 0)
+    ? codexUsageSnapshot(accumulator, completed.completed)
+    : undefined;
 }
 
 /** `model` is the thread model Codex last reported, which a reroute replaces. */
@@ -140,15 +167,24 @@ export function completeCodexTurnTokenUsage(
   completed: boolean,
   model?: string,
 ): TurnTokenUsage {
-  const usage = state.byTurnId.get(turnId);
+  const usage = getCodexTurnAccumulator(state, turnId);
+  if (model !== undefined) usage.models.add(model);
   state.byTurnId.delete(turnId);
   if (state.activeTurnId === turnId) state.activeTurnId = undefined;
-  const models = model === undefined ? {} : { models: [model] };
-  if (!usage?.observed) {
+  state.completedTurn = { id: turnId, usage, completed };
+  return codexUsageSnapshot(usage, completed);
+}
+
+function codexUsageSnapshot(
+  usage: CodexTurnTokenUsageAccumulator,
+  completed: boolean,
+): TurnTokenUsage {
+  const models = usage.models.size > 0 ? { models: [...usage.models] } : {};
+  if (!usage.observed) {
     return {
       usageStatus: "unavailable",
       usageScope: "main_agent",
-      hasSubagents: usage?.hasSubagents ?? false,
+      hasSubagents: usage.hasSubagents,
       ...models,
     };
   }

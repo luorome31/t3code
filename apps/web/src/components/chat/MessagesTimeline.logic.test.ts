@@ -24,6 +24,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { EnvironmentId, MessageId, RunId } from "@t3tools/contracts";
 import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 import {
+  attachResponseMetricsRows,
   computeStableMessagesTimelineRows,
   deriveMessagesTimelineRows,
   timelineTurnFoldRunIdsByEntryId,
@@ -839,6 +840,39 @@ describe("deriveMessagesTimelineRows", () => {
     expect(assistantRows).toHaveLength(2);
     expect(assistantRows[0]?.showAssistantCopyButton).toBe(false);
     expect(assistantRows[1]?.showAssistantCopyButton).toBe(true);
+    const metrics = {
+      runId: RunId.make("turn-1"),
+      completedAtMs: 0,
+      provider: "codex",
+      requested: [],
+      reportedModels: [],
+      partial: false,
+      missing: [],
+    };
+    const withMetrics = attachResponseMetricsRows(rows, new Map([[metrics.runId, metrics]]));
+    expect(withMetrics.filter((row) => row.kind === "response-metrics")).toHaveLength(1);
+    expect(withMetrics.at(-1)).toMatchObject({ kind: "response-metrics", metrics });
+    expect(attachResponseMetricsRows(rows, undefined)).toBe(rows);
+    const failedRunId = RunId.make("failed-without-answer");
+    const failedPrompt: MessagesTimelineRow = {
+      ...assistantRows[1]!,
+      id: "failed-prompt",
+      message: {
+        ...assistantRows[1]!.message,
+        role: "user",
+        runId: failedRunId,
+      },
+    };
+    const failedSummary = { ...metrics, runId: failedRunId, partial: true };
+    const withFailure = attachResponseMetricsRows(
+      [...rows, failedPrompt],
+      new Map([
+        [metrics.runId, metrics],
+        [failedRunId, failedSummary],
+      ]),
+    );
+    expect(withFailure.at(-2)?.id).toBe("failed-prompt");
+    expect(withFailure.at(-1)).toMatchObject({ kind: "response-metrics", metrics: failedSummary });
   });
 
   it("projects assistant diffs and rewinds the first visible run to thread start after a rewind", () => {

@@ -270,10 +270,15 @@ function sessionKey(providerSessionId: ProviderSessionId): string {
   return String(providerSessionId);
 }
 
-function sessionScopedRuntimeRequestThreadId(
+function sessionScopedEventThreadId(
   event: ProviderAdapter.ProviderAdapterV2Event,
 ): ThreadId | undefined {
   switch (event.type) {
+    case "provider_turn.updated":
+      return event.usageOnly === true &&
+        ["completed", "failed", "interrupted", "cancelled"].includes(event.providerTurn.status)
+        ? event.threadId
+        : undefined;
     case "runtime_request.updated":
       return event.runtimeRequest.providerTurnId === null ? event.threadId : undefined;
     case "node.updated":
@@ -2000,11 +2005,8 @@ export const layerWithOptions = (
                       });
                     });
                   }
-                  // Some providers can block before a run subscriber exists
-                  // (project trust, login, or session-switch hooks). Persist
-                  // their runless request artifacts directly so the normal T3
-                  // request UI can answer them and unblock session setup.
-                  const threadId = sessionScopedRuntimeRequestThreadId(event);
+                  // Session requests and late usage must persist even without a live run subscriber.
+                  const threadId = sessionScopedEventThreadId(event);
                   if (threadId !== undefined) {
                     yield* Effect.gen(function* () {
                       const current = (yield* Ref.get(sessions)).get(

@@ -69,6 +69,18 @@ describe("sameThreadStructure", () => {
   it("holds through streamed text", () => {
     const next = withItem({ ...assistant, text: "Hello", updatedAt: later }, later);
     expect(sameThreadStructure(before, next)).toBe(true);
+    const outputObservation = { firstObservedAtMs: 100, lastObservedAtMs: 100, sampleCount: 1 };
+    expect(
+      sameThreadStructure(
+        withItem({ ...assistant, outputObservation }),
+        withItem({
+          ...assistant,
+          text: "Hello",
+          updatedAt: later,
+          outputObservation: { ...outputObservation },
+        }),
+      ),
+    ).toBe(true);
   });
 
   it("sees the item finish streaming", () => {

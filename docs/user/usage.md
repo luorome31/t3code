@@ -61,6 +61,19 @@ saved totals first, then updates them when Cursor's API responds.
 If recent work is missing or a new model shows no cost, refresh to rescan session history and
 update model pricing.
 
+## Response performance
+
+On web and desktop, enable **Settings → Appearance → Response performance statistics** to show
+first-output latency, estimated TPS and reported output tokens below each finished response.
+Open the details beside the statistics for the recorded model, calculation and missing-data reasons.
+The setting only controls display; new runs keep recording timing while it is off.
+
+First output measures when the server receives the first non-empty main-agent text or reasoning.
+Estimated TPS uses streaming output windows split at tool, approval and retry boundaries, rather
+than the whole turn's duration. Network jitter, buffered output and hidden reasoning can still
+skew the estimate; it is not a model benchmark. Missing usage or insufficient streaming samples
+leave TPS unavailable. Old runs without recorded timing are not backfilled.
+
 ## Set custom model prices
 
 On web or desktop, open the environment dropdown on **Usage**, then choose **Model prices** to add,

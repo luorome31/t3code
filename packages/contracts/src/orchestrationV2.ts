@@ -1184,6 +1184,16 @@ export const OrchestrationV2ProviderTurn = Schema.Struct({
   completedAt: Schema.NullOr(Schema.DateTimeUtc),
   tokenUsage: Schema.optional(OrchestrationV2ProviderTurnTokenUsage),
   turnTokenUsage: Schema.optional(TurnTokenUsage),
+  responseTiming: Schema.optional(
+    Schema.Struct({
+      version: Schema.Literal(1),
+      executionStartedAtMs: NonNegativeInt,
+      firstOutputObservedAtMs: Schema.optional(NonNegativeInt),
+      executionCompletedAtMs: Schema.optional(NonNegativeInt),
+      observedOutputDurationMs: Schema.optional(NonNegativeInt),
+      outputSampleCount: Schema.optional(NonNegativeInt),
+    }),
+  ),
 });
 export type OrchestrationV2ProviderTurn = typeof OrchestrationV2ProviderTurn.Type;
 
@@ -1493,6 +1503,13 @@ export const OrchestrationV2ModelSwitch = Schema.Struct({
 export type OrchestrationV2ModelSwitch = typeof OrchestrationV2ModelSwitch.Type;
 
 const OrchestrationV2TurnItemBaseFields = {
+  outputObservation: Schema.optional(
+    Schema.Struct({
+      firstObservedAtMs: NonNegativeInt,
+      lastObservedAtMs: NonNegativeInt,
+      sampleCount: PositiveInt,
+    }),
+  ),
   /** Wire-only cursor for collapsed work; persisted items keep their complete history. */
   deferredWork: Schema.optionalKey(
     Schema.Struct({

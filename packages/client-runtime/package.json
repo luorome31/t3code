@@ -518,6 +518,10 @@
     "./provider-clients": {
       "types": "./src/providerClients.ts",
       "default": "./src/providerClients.ts"
+    },
+    "./response-metrics": {
+      "types": "./src/responseMetrics.ts",
+      "default": "./src/responseMetrics.ts"
     }
   },
   "scripts": {
