@@ -74,6 +74,10 @@ than the whole turn's duration. Network jitter, buffered output and hidden reaso
 skew the estimate; it is not a model benchmark. Missing usage or insufficient streaming samples
 leave TPS unavailable. Old runs without recorded timing are not backfilled.
 
+Context-window occupancy is separate from per-turn output usage. For Gemini usage on Antigravity,
+use **Settings → Providers → Antigravity → Update Antigravity** to update an older managed ACP
+runtime to 1.4.5. Updating T3 Code alone does not update that runtime; start a new turn afterward.
+
 ## Set custom model prices
 
 On web or desktop, open the environment dropdown on **Usage**, then choose **Model prices** to add,

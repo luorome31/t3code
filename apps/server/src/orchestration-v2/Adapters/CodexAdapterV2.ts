@@ -1411,7 +1411,12 @@ function codexThreadRuntimeParams(input: {
 }
 
 const decodeCodexResumeMetadata = Schema.decodeUnknownEffect(
-  Schema.Struct({ thread: Schema.Struct({ id: Schema.String, updatedAt: Schema.Number }) }),
+  Schema.Struct({
+    thread: Schema.Struct({ id: Schema.String, updatedAt: Schema.Number }),
+    model: Schema.optional(Schema.NullOr(Schema.String)),
+    reasoningEffort: Schema.optional(Schema.NullOr(Schema.String)),
+    serviceTier: Schema.optional(Schema.NullOr(Schema.String)),
+  }),
 );
 
 const CodexChildSelection = Schema.Struct({
@@ -1877,6 +1882,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         const turnWaiters = yield* Ref.make(new Map<string, Deferred.Deferred<void, never>>());
         const subagentThreads = yield* Ref.make(new Map<string, CodexSubagentThreadContext>());
         const subagentSelections = new Map<string, Omit<ModelSelection, "instanceId">>();
+        const requestedRootModels = new Map<string, string>();
         // A reroute names one turn; until new settings arrive, the thread's model is unknown.
         const reroutedTurnModels = new Map<string, string>();
         const reroutedThreads = new Set<string>();
@@ -6800,6 +6806,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             codexInput: ReadonlyArray<CodexSchema.V2TurnStartParams__UserInput>,
           ) {
             const threadId = yield* getNativeThreadId(turnInput.providerThread);
+            if (requestedRootModels.get(threadId) !== turnInput.modelSelection.model) {
+              subagentSelections.delete(threadId);
+            }
+            requestedRootModels.set(threadId, turnInput.modelSelection.model);
             const mcpSession = yield* mcpSessions.read(turnInput.threadId);
             const turnStartParams = yield* buildCodexTurnStartParams({
               nativeThreadId: threadId,
@@ -7124,6 +7134,18 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   }),
                 ),
               ),
+              Effect.tap((response) =>
+                Effect.gen(function* () {
+                  requestedRootModels.set(response.thread.id, threadInput.modelSelection.model);
+                  reroutedThreads.delete(response.thread.id);
+                  yield* updateSubagentSelection(
+                    response.thread.id,
+                    response.model,
+                    response.reasoningEffort,
+                    response.serviceTier,
+                  );
+                }),
+              ),
               Effect.map((response): OrchestrationV2ProviderThread =>
                 providerThreadFromCodexThread({
                   appThreadId: threadInput.threadId,
@@ -7163,6 +7185,18 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               const response = yield* ensureInitialized.pipe(
                 Effect.andThen(resume),
                 Effect.flatMap(decodeCodexResumeMetadata),
+              );
+              requestedRootModels.set(
+                response.thread.id,
+                threadInput.modelSelection?.model ?? response.model ?? "",
+              );
+              subagentSelections.delete(response.thread.id);
+              reroutedThreads.delete(response.thread.id);
+              yield* updateSubagentSelection(
+                response.thread.id,
+                response.model ?? null,
+                response.reasoningEffort,
+                response.serviceTier,
               );
               return {
                 ...threadInput.providerThread,
@@ -7929,6 +7963,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 Effect.andThen(revertCodexThread(client, threadId, numTurns)),
               );
               turnTokenUsageByThread.delete(threadId);
+              requestedRootModels.delete(threadId);
               completedUsageByThread.delete(threadId);
               return {
                 providerThread: {

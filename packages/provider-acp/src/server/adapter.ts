@@ -1378,6 +1378,7 @@ interface ActiveAcpTurn {
   /** Completed when an update after dispatch matches `cancelAfterPromptStarts.isStart`. */
   readonly promptStarted: Deferred.Deferred<void, never>;
   promptUsage: EffectAcpSchema.Usage | undefined;
+  readonly reportedModels: Set<string>;
   backgroundFinalizeGeneration: number;
   /** The agent's own id for this turn's prompt, from `forkFromTurn.nativeTurnId`. */
   nativePromptId: string | undefined;
@@ -4856,6 +4857,14 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           const context = yield* Ref.get(activeTurn);
           const update = notification.update;
           if (
+            update.sessionUpdate === "config_option_update" &&
+            context?.nativeThreadId === notification.sessionId &&
+            !context.finalized
+          ) {
+            const model = findModelConfigOption(update.configOptions)?.currentValue;
+            if (typeof model === "string" && model.trim()) context.reportedModels.add(model);
+          }
+          if (
             followsAgentWorkState &&
             flavor.extractSubagentSessionEvent !== undefined &&
             notification.sessionId !== (yield* Ref.get(activeSessionId)) &&
@@ -7385,12 +7394,17 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             : {
                 // The prompt tap only captures usage for flavors that declared
                 // per-turn counters, so undeclared agents stay unavailable here.
-                turnTokenUsage: acpPerTurnPromptUsage(
-                  context.promptUsage,
-                  context.subagents.size > 0,
-                  status,
-                  flavor.geminiPromptUsage,
-                ),
+                turnTokenUsage: {
+                  ...acpPerTurnPromptUsage(
+                    context.promptUsage,
+                    context.subagents.size > 0,
+                    status,
+                    flavor.geminiPromptUsage,
+                  ),
+                  ...(context.reportedModels.size === 0
+                    ? {}
+                    : { models: [...context.reportedModels] }),
+                },
               }),
         });
 
@@ -7952,6 +7966,9 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               : yield* resolvePromptParts(turnInput, requestedSessionId);
             const startedAt = yield* DateTime.now;
             const nativeTurnId = `${requestedSessionId}:turn:${turnInput.providerTurnOrdinal}`;
+            const reportedModel =
+              findModelConfigOption(yield* runtime.getConfigOptions)?.currentValue ??
+              (yield* Ref.get(activeSessionSetup))?.sessionSetupResult.models?.currentModelId;
             const providerTurnId = deriveProviderTurnId(nativeTurnId);
             const completed = yield* Deferred.make<void, never>();
             const promptWireSettled = yield* Deferred.make<void, never>();
@@ -8016,6 +8033,9 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               promptSentAt: null,
               promptStarted,
               promptUsage: undefined,
+              reportedModels: new Set(
+                typeof reportedModel === "string" && reportedModel.trim() ? [reportedModel] : [],
+              ),
               backgroundFinalizeGeneration: 0,
               nativePromptId: undefined,
             };

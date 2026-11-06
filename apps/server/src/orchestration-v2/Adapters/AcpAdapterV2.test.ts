@@ -688,6 +688,7 @@ describe("AcpAdapterV2", () => {
         usageScope: "main_agent",
         usageStatus: "complete",
         hasSubagents: false,
+        models: ["default"],
         inputTokens: 60,
         outputTokens: 15,
       });
@@ -720,13 +721,19 @@ describe("AcpAdapterV2", () => {
         continuation?.type === "provider_turn.updated"
           ? continuation.providerTurn.turnTokenUsage
           : null,
-        { usageScope: "main_agent", usageStatus: "unavailable", hasSubagents: false },
+        {
+          usageScope: "main_agent",
+          usageStatus: "unavailable",
+          hasSubagents: false,
+          models: ["default"],
+        },
       );
       // The continuation must not disturb the next real prompt's sample.
       assert.deepEqual(yield* completedUsage(3), {
         usageScope: "main_agent",
         usageStatus: "complete",
         hasSubagents: false,
+        models: ["default"],
         inputTokens: 130,
         outputTokens: 30,
       });
@@ -909,6 +916,7 @@ describe("AcpAdapterV2", () => {
           usageScope: "main_agent",
           usageStatus: "partial",
           hasSubagents: false,
+          models: ["default"],
           inputTokens: 60,
           outputTokens: 15,
         },
@@ -1032,6 +1040,7 @@ describe("AcpAdapterV2", () => {
         usageScope: "main_agent",
         usageStatus: "unavailable",
         hasSubagents: false,
+        models: ["default"],
       });
       // The response lands now; the finalized turn must not adopt its counters.
       yield* Deferred.succeed(gate, undefined);
@@ -1040,6 +1049,7 @@ describe("AcpAdapterV2", () => {
         usageScope: "main_agent",
         usageStatus: "unavailable",
         hasSubagents: false,
+        models: ["default"],
       });
       stopCollector = true;
       yield* Fiber.interrupt(collector);
@@ -1153,6 +1163,7 @@ describe("AcpAdapterV2", () => {
             usageScope: "main_agent",
             usageStatus: "complete",
             hasSubagents: false,
+            models: ["default"],
             inputTokens: sample.inputTokens,
             outputTokens: sample.outputTokens,
             cachedInputTokens: sample.cachedReadTokens,
@@ -1244,6 +1255,7 @@ describe("AcpAdapterV2", () => {
           usageScope: "main_agent",
           usageStatus: "complete",
           hasSubagents: false,
+          models: ["default"],
           inputTokens: 100,
           outputTokens: 10,
           cachedInputTokens: 100,
@@ -1316,7 +1328,12 @@ describe("AcpAdapterV2", () => {
       );
       assert.deepEqual(
         completed?.type === "provider_turn.updated" ? completed.providerTurn.turnTokenUsage : null,
-        { usageScope: "main_agent", usageStatus: "unavailable", hasSubagents: false },
+        {
+          usageScope: "main_agent",
+          usageStatus: "unavailable",
+          hasSubagents: false,
+          models: ["default"],
+        },
       );
     }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
@@ -1386,7 +1403,12 @@ describe("AcpAdapterV2", () => {
           completed?.type === "provider_turn.updated"
             ? completed.providerTurn.turnTokenUsage
             : null,
-          { usageScope: "main_agent", usageStatus: "unavailable", hasSubagents: false },
+          {
+            usageScope: "main_agent",
+            usageStatus: "unavailable",
+            hasSubagents: false,
+            models: ["default"],
+          },
         );
       }
     }).pipe(Effect.provide(layerTest), Effect.scoped),
