@@ -54,6 +54,14 @@ describe("assistant citation navigation", () => {
     }
   });
 
+  it("keeps silent jumps separate from regular citations", async () => {
+    const router = createCitationRouter();
+    await router.navigate(assistantCitationNavigation(citation, { silent: true }));
+
+    expect(router.state.location.state.assistantCitationSilent).toBe(true);
+    expect(assistantCitationFromLocation(router.state.location.href)).toEqual(citation);
+  });
+
   it("reactivates an identical citation instead of deduplicating its navigation", async () => {
     const router = createCitationRouter();
     await router.navigate(assistantCitationNavigation(citation));

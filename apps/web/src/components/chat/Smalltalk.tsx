@@ -310,17 +310,20 @@ function SmalltalkContent({
                   aria-label="Jump to original answer"
                   onClick={() => {
                     void navigate(
-                      assistantCitationNavigation({
-                        version: 1,
-                        environmentId: threadRef.environmentId,
-                        threadId: threadRef.threadId,
-                        messageId: record.messageId,
-                        text: record.sourceText.slice(0, 200),
-                        start: 0,
-                        end: Math.min(record.sourceText.length, 200),
-                        prefix: "",
-                        suffix: "",
-                      }),
+                      assistantCitationNavigation(
+                        {
+                          version: 1,
+                          environmentId: threadRef.environmentId,
+                          threadId: threadRef.threadId,
+                          messageId: record.messageId,
+                          text: record.sourceText.slice(0, 200),
+                          start: 0,
+                          end: Math.min(record.sourceText.length, 200),
+                          prefix: "",
+                          suffix: "",
+                        },
+                        { silent: true },
+                      ),
                     );
                   }}
                 />

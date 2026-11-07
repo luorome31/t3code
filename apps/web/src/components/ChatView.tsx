@@ -570,11 +570,18 @@ export default function ChatView(props: ChatViewProps) {
   const citationKey = useLocation({
     select: (location) => location.state.assistantCitationActivation ?? location.state.__TSR_key,
   });
+  const citationSilent = useLocation({
+    select: (location) => location.state.assistantCitationSilent === true,
+  });
   const citationLocation = { href: citationHref, key: citationKey };
   const citationRequest = (() => {
     const citation = assistantCitationFromLocation(citationLocation.href);
     return citation && citation.environmentId === environmentId && citation.threadId === threadId
-      ? { citation, key: citationLocation.key ?? citationLocation.href }
+      ? {
+          citation,
+          key: citationLocation.key ?? citationLocation.href,
+          ...(citationSilent ? { silent: true } : {}),
+        }
       : null;
   })() as AssistantCitationRequest | null;
   const citationHistory = useCitedHistory(citationRequest);

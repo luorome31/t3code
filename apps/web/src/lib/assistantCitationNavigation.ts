@@ -12,6 +12,7 @@ import { randomUUID } from "./utils";
 declare module "@tanstack/react-router" {
   interface HistoryState {
     assistantCitationActivation?: string;
+    assistantCitationSilent?: boolean;
   }
 }
 
@@ -47,12 +48,18 @@ export function withoutAssistantCitationHash(href: string) {
 }
 
 /** A fresh activation lets the same link reveal its source again after dismissal. */
-export function assistantCitationNavigation(citation: AssistantCitation) {
+export function assistantCitationNavigation(
+  citation: AssistantCitation,
+  options: { silent?: boolean } = {},
+) {
   return {
     to: "/$environmentId/$threadId" as const,
     params: { environmentId: citation.environmentId, threadId: citation.threadId },
     hash: assistantCitationHash(citation),
     resetScroll: false,
-    state: { assistantCitationActivation: randomUUID() },
+    state: {
+      assistantCitationActivation: randomUUID(),
+      ...(options.silent ? { assistantCitationSilent: true } : {}),
+    },
   };
 }

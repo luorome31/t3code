@@ -88,6 +88,8 @@ export function observeAssistantCitationCommentSource({
 export interface AssistantCitationRequest {
   citation: AssistantCitation;
   key: string;
+  /** Jump to the response without warning when the saved quote no longer matches. */
+  silent?: boolean;
 }
 
 /** Navigation owns activation state across virtual row remounts. */
@@ -206,7 +208,7 @@ function observeAssistantCitationSource({
       if (rect.bottom <= scrollRect.top || rect.top >= scrollRect.bottom) return;
       activation.scrolled = true;
       request.onComplete();
-      if (!range) {
+      if (!range && !request.silent) {
         toastManager.add({
           type: "warning",
           title: "The quoted text has changed",
