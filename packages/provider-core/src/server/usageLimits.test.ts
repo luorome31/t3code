@@ -66,6 +66,29 @@ describe("applyUsageLimitsUpdate", () => {
     ).toEqual({ checkedAt, windows: [weekly], unavailable: { reason: "probeFailed" } });
   });
 
+  it("keeps an exact amount a percent-only update omits and notices amount changes", () => {
+    const amount = { remaining: 1208, total: 3000, unit: "credits" };
+    const withAmount = { ...session, amount };
+    const previous = { checkedAt, windows: [withAmount] };
+    const next = applyUsageLimitsUpdate({
+      previous,
+      checkedAt: "2026-09-03T12:00:05.000Z",
+      update: {
+        windows: [{ id: "five_hour", kind: "session", label: "Session", usedPercent: 55 }],
+      },
+    });
+    expect(next?.windows[0]).toEqual({ ...withAmount, usedPercent: 55 });
+
+    const changed = applyUsageLimitsUpdate({
+      previous: next,
+      checkedAt: "2026-09-03T12:00:10.000Z",
+      update: {
+        windows: [{ ...withAmount, usedPercent: 55, amount: { ...amount, remaining: 1000 } }],
+      },
+    });
+    expect(changed?.windows[0]?.amount).toEqual({ ...amount, remaining: 1000 });
+  });
+
   it("preserves reset credits when a streamed window update changes usage", () => {
     const resetCredits = { availableCount: 2, nextExpiresAt: "2026-10-01T00:00:00.000Z" };
     const next = applyUsageLimitsUpdate({

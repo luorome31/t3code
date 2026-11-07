@@ -19,6 +19,7 @@ import {
   collectLimitPools,
   elapsedShare,
   exhaustedUsageWindow,
+  formatUsageAmount,
   paceOf,
   paceRemainingPercent,
   usesChatGptSharing,
@@ -1504,5 +1505,35 @@ describe("ChatGPT sharing presentation", () => {
         auth: { status: "unauthenticated", subscriptionSharing: true },
       }),
     ).toBe(false);
+  });
+});
+
+describe("usage amounts", () => {
+  const amount = { remaining: 1208, total: 3000, unit: "credits" } as const;
+  const account = (key: string): LimitAccount => ({
+    key,
+    driver: ProviderDriverKind.make("claudeAgent"),
+    displayName: key,
+    email: undefined,
+    plan: undefined,
+    accentColor: undefined,
+    environments: [],
+    sourceLabel: "Hub",
+    redeem: null,
+    limits: {
+      checkedAt: "2026-09-03T11:00:00.000Z",
+      windows: [{ ...window, amount }],
+    },
+  });
+
+  it("formats exact credit balances", () => {
+    expect(formatUsageAmount(amount)).toBe("1,208 / 3,000 credits");
+  });
+
+  it("keeps an amount only when one account contributes to the window", () => {
+    expect(collectLimitPools([account("a")], now)[0]?.windows[0]?.amount).toEqual(amount);
+    expect(
+      collectLimitPools([account("a"), account("b")], now)[0]?.windows[0]?.amount,
+    ).toBeUndefined();
   });
 });

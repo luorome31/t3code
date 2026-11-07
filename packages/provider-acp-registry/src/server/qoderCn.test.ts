@@ -12,10 +12,13 @@ import { AcpRegistrySettings } from "../settings.ts";
 import {
   isQoderCn,
   parseQoderCnModelOptions,
+  parseQoderCnUsageResponse,
   QODER_CN_CONTEXT_OPTION_ID,
   qoderCnRuntimeConfigurationKey,
   qoderCnSpawnArgs,
+  qoderCnUsageLimits,
   readQoderCnModelOptions,
+  readQoderCnUsageInfo,
 } from "./qoderCn.ts";
 
 const response = (models: ReadonlyArray<unknown>) =>
@@ -222,5 +225,142 @@ describe("Qoder CN model options", () => {
         "Failure",
       );
     }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner("unknown", 1))),
+  );
+});
+
+const quota = {
+  userId: "user-1",
+  userType: "teams",
+  totalUsagePercentage: 60,
+  expiresAt: 1_794_844_800_000,
+  isQuotaExceeded: false,
+  usageType: "credits",
+  userQuota: { total: 3000, used: 1792, remaining: 1208, percentage: 60, unit: "credits" },
+  isPlanQuotaProrated: false,
+  orgResourcePackage: {
+    used: 0,
+    cap: 0,
+    remaining: 0,
+    percentage: 0,
+    available: false,
+    unit: "credits",
+  },
+} as const;
+
+const usageResponse = (usage: unknown, usageError?: string) =>
+  JSON.stringify({
+    type: "control_response",
+    response: {
+      subtype: "success",
+      request_id: "t3-usage",
+      response: { usage, ...(usageError ? { usage_error: usageError } : {}) },
+    },
+  });
+
+describe("Qoder CN usage", () => {
+  it("parses daemon usage responses", () => {
+    expect(parseQoderCnUsageResponse(usageResponse(quota))).toEqual({ usage: quota });
+    expect(parseQoderCnUsageResponse(usageResponse(null, "quota unavailable"))).toEqual({
+      usage: null,
+      usageError: "quota unavailable",
+    });
+    expect(parseQoderCnUsageResponse("not-json")).toBeUndefined();
+  });
+
+  it("maps credits to a monthly window with exact amounts", () => {
+    const limits = qoderCnUsageLimits({
+      usage: quota,
+      checkedAt: "2026-11-07T00:00:00.000Z",
+    });
+    expect(limits?.windows).toEqual([
+      {
+        id: "monthly_credits",
+        kind: "monthly",
+        label: "Monthly credits",
+        usedPercent: 60,
+        resetsAt: "2026-11-16T16:00:00.000Z",
+        windowDurationMins: 43_200,
+        amount: { remaining: 1208, total: 3000, unit: "credits" },
+      },
+    ]);
+    expect(limits?.credentialFingerprint).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("falls back to total usage and omits unknown reset and prorated pace", () => {
+    const limits = qoderCnUsageLimits({
+      usage: { totalUsagePercentage: 42, expiresAt: 0, isPlanQuotaProrated: true },
+      checkedAt: "2026-11-07T00:00:00.000Z",
+    });
+    expect(limits?.windows).toEqual([
+      { id: "monthly_credits", kind: "monthly", label: "Monthly", usedPercent: 42 },
+    ]);
+  });
+
+  it("marks exhausted accounts and adds an available organization pool", () => {
+    const limits = qoderCnUsageLimits({
+      usage: {
+        ...quota,
+        isQuotaExceeded: true,
+        orgResourcePackage: {
+          used: 200,
+          cap: 1000,
+          remaining: 800,
+          percentage: 20,
+          available: true,
+          unit: "credits",
+        },
+      },
+      checkedAt: "2026-11-07T00:00:00.000Z",
+    });
+    expect(limits?.windows.map((window) => [window.id, window.usedPercent, window.amount])).toEqual(
+      [
+        ["monthly_credits", 100, { remaining: 1208, total: 3000, unit: "credits" }],
+        ["org_credits", 20, { remaining: 800, total: 1000, unit: "credits" }],
+      ],
+    );
+  });
+
+  it.live("reads usage through the SDK daemon", () =>
+    Effect.gen(function* () {
+      for (const outcome of ["success", "unauthenticated", "unsupported"] as const) {
+        const script = `
+          if (!process.argv.includes('--sdk')) process.exit(0);
+          const readline = require('node:readline');
+          const expected = ['daemon.initialize', 'daemon.authenticate', 'daemon.get_usage_info'];
+          let stage = 0;
+          readline.createInterface({ input: process.stdin }).on('line', (line) => {
+            const message = JSON.parse(line);
+            if (message.request.subtype !== expected[stage++]) process.exit(2);
+            if (message.request.subtype !== 'daemon.get_usage_info') {
+              console.log(JSON.stringify({ type: 'control_response', response: {
+                subtype: 'success', request_id: message.request_id, response: {}
+              }}));
+              return;
+            }
+            if (${JSON.stringify(outcome)} === 'unsupported') {
+              console.log(JSON.stringify({ type: 'control_response', response: {
+                subtype: 'error', request_id: message.request_id, code: 'METHOD_NOT_FOUND'
+              }}));
+              return;
+            }
+            const usage = ${JSON.stringify(outcome)} === 'unauthenticated' ? null : ${JSON.stringify(quota)};
+            console.log(JSON.stringify({ type: 'control_response', response: {
+              subtype: 'success', request_id: message.request_id, response: { usage }
+            }}));
+          });
+        `;
+        const result = yield* readQoderCnUsageInfo({
+          command: process.execPath,
+          args: ["-e", script, "--", "--acp"],
+        });
+        if (outcome === "success") {
+          expect(result).toEqual({ status: "ok", usage: quota });
+        } else if (outcome === "unauthenticated") {
+          expect(result).toEqual({ status: "unauthenticated" });
+        } else {
+          expect(result).toMatchObject({ status: "unsupported" });
+        }
+      }
+    }).pipe(Effect.provide(NodeServices.layer)),
   );
 });

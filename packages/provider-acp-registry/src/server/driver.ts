@@ -57,7 +57,12 @@ import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
 import * as AcpRegistryRuntimeCoordinator from "./AcpRegistryRuntimeCoordinator.ts";
 import * as AcpRegistryAuth from "./auth.ts";
 import * as AcpRegistryAuthenticationState from "./authenticationState.ts";
-import { isQoderCn, QODER_CN_CONTEXT_OPTION_ID, type QoderCnModelOptions } from "./qoderCn.ts";
+import {
+  isQoderCn,
+  QODER_CN_CONTEXT_OPTION_ID,
+  type QoderCnModelOptions,
+  readQoderCnUsageLimits,
+} from "./qoderCn.ts";
 
 const DRIVER_KIND = ProviderDriverKind.make("acpRegistry");
 const decodeSettings = Schema.decodeSync(AcpRegistrySettings);
@@ -587,6 +592,20 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
       settings: effectiveConfig,
       environment: processEnvironment,
     };
+    const qoderCnUsage = isQoderCn(effectiveConfig)
+      ? yield* Effect.cachedInvalidateWithTTL(
+          Effect.gen(function* () {
+            const resolved = yield* catalog.resolve(
+              effectiveConfig,
+              host.paths.cwd,
+              processEnvironment,
+            );
+            return yield* readQoderCnUsageLimits(resolved.spawn);
+          }).pipe(Effect.catchCause(() => Effect.undefined)),
+          "60 seconds",
+        )
+      : ([undefined, undefined] as const);
+    const [readQoderCnUsage, invalidateQoderCnUsage] = qoderCnUsage;
     const confirmedAuthentication =
       yield* AcpRegistryAuthenticationState.makeAcpRegistryAuthenticationState({
         cacheDir: host.paths.providerStatusCacheDir,
@@ -630,8 +649,24 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
           );
     });
     const checkProvider = checkAcpRegistryProviderReadiness(readinessInput).pipe(
-      Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, catalog),
       Effect.flatMap(withLiveRuntimeState),
+      Effect.flatMap((provider) =>
+        Effect.filterOrElse(
+          Effect.succeed(provider),
+          () =>
+            readQoderCnUsage === undefined ||
+            !provider.enabled ||
+            !provider.installed ||
+            provider.auth.status === "unauthenticated",
+          () =>
+            readQoderCnUsage!.pipe(
+              Effect.map((usageLimits) => (usageLimits ? { ...provider, usageLimits } : provider)),
+              Effect.catchCause(() => Effect.succeed(provider)),
+            ),
+        ),
+      ),
+      Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, catalog),
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
     );
     const enrichProvider = checkAcpRegistryProviderStatus(
       {
@@ -698,6 +733,17 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
       haveSettingsChanged: haveProviderSnapshotSettingsChanged,
       initialSnapshot: () => checkProvider,
       checkProvider,
+      ...(readQoderCnUsage === undefined
+        ? {}
+        : {
+            checkUsageLimits: readQoderCnUsage.pipe(
+              Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, catalog),
+              Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+            ),
+            ...(invalidateQoderCnUsage === undefined
+              ? {}
+              : { invalidateUsageCache: invalidateQoderCnUsage }),
+          }),
       enrichSnapshot: Effect.fn("enrichSnapshot")(function ({
         snapshot,
         getSnapshot,
@@ -867,7 +913,10 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
       auth,
       snapshot: {
         ...snapshot,
-        refresh: snapshot.refresh.pipe(Effect.tap(() => controller.refreshMethods ?? Effect.void)),
+        refresh: (invalidateQoderCnUsage ?? Effect.void).pipe(
+          Effect.andThen(snapshot.refresh),
+          Effect.tap(() => controller.refreshMethods ?? Effect.void),
+        ),
       },
       orchestrationAdapter,
       textGeneration: makeUnsupportedTextGeneration(),

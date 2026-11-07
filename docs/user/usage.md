@@ -197,6 +197,11 @@ Grok reports the remaining subscription allowance and reset time for its current
 after signing in with `grok login`. Explicit `XAI_API_KEY` connections and custom authentication
 or endpoint configurations do not report subscription limits.
 
+Qoder CN reports its monthly credit balance and reset time when the CLI is signed in on the
+server. The account shows the exact balance, such as `1,208 / 3,000 credits`. Qoder CN bills in
+credits, so its spend does not appear in the token or cost charts. Qoder CN CLI 1.1.73 or newer is
+required.
+
 API-key accounts may not report subscription limits. This also applies to Claude connections
 using a proxy through `ANTHROPIC_AUTH_TOKEN`.
 

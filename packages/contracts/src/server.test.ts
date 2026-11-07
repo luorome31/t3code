@@ -59,7 +59,13 @@ describe("server config forward compatibility", () => {
       usageLimits: {
         checkedAt: "2026-04-10T00:00:00.000Z",
         windows: [
-          { id: "primary", kind: "session", label: "Session", usedPercent: 12 },
+          {
+            id: "primary",
+            kind: "session",
+            label: "Session",
+            usedPercent: 12,
+            amount: { remaining: 1208, total: 3000, unit: "credits" },
+          },
           { id: "future", kind: "some-future-kind", label: "Future", usedPercent: 1 },
           { id: "bad", kind: "weekly", label: "Weekly", usedPercent: 120 },
         ],
@@ -67,7 +73,13 @@ describe("server config forward compatibility", () => {
     });
 
     expect(parsed.usageLimits?.windows).toEqual([
-      { id: "primary", kind: "session", label: "Session", usedPercent: 12 },
+      {
+        id: "primary",
+        kind: "session",
+        label: "Session",
+        usedPercent: 12,
+        amount: { remaining: 1208, total: 3000, unit: "credits" },
+      },
     ]);
   });
 });

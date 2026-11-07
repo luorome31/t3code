@@ -9,6 +9,14 @@ import {
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
 
+/** Exact quota amounts for providers that bill in non-token units, such as credits. */
+export const ServerProviderUsageAmount = Schema.Struct({
+  remaining: Schema.Number,
+  total: Schema.Number,
+  unit: TrimmedNonEmptyString,
+});
+export type ServerProviderUsageAmount = typeof ServerProviderUsageAmount.Type;
+
 /** Stable per-provider ids let sparse updates merge with full probes. */
 export const ServerProviderUsageWindow = Schema.Struct({
   id: TrimmedNonEmptyString,
@@ -17,6 +25,7 @@ export const ServerProviderUsageWindow = Schema.Struct({
   usedPercent: Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 100 })),
   resetsAt: Schema.optional(IsoDateTime),
   windowDurationMins: Schema.optional(NonNegativeInt),
+  amount: Schema.optional(ServerProviderUsageAmount),
 });
 export type ServerProviderUsageWindow = typeof ServerProviderUsageWindow.Type;
 

@@ -7,6 +7,7 @@ import type {
 import {
   collectProviderUsageLimits,
   formatDuration,
+  formatUsageAmount,
   type LimitPace,
   limitsNotice,
   paceOf,
@@ -161,6 +162,9 @@ function LimitRow({
           <span className="text-foreground">
             {window.label}: {left}% left
           </span>
+          {window.amount ? (
+            <span className="text-muted-foreground">{formatUsageAmount(window.amount)}</span>
+          ) : null}
           {window.resetsAt && resetsAt > now ? (
             <span className="text-muted-foreground">
               Resets in {formatDuration(resetsAt - now)} ·{" "}

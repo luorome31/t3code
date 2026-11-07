@@ -13,6 +13,7 @@ import {
 import {
   formatDuration,
   formatResetsIn,
+  formatUsageAmount,
   limitsNotice,
   paceOf,
   paceRemainingPercent,
@@ -91,6 +92,11 @@ function WindowRow(props: {
           {remaining}% left
         </Text>
       </View>
+      {window.amount ? (
+        <Text className="text-xs tabular-nums text-foreground-muted">
+          {formatUsageAmount(window.amount)}
+        </Text>
+      ) : null}
       <View
         className="h-3 justify-center"
         onLayout={(event) => setBarWidth(event.nativeEvent.layout.width)}

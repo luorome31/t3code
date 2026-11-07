@@ -13,6 +13,7 @@ import { normalizeProviderAccentColor } from "@t3tools/client-runtime/state/prov
 import {
   formatDuration,
   formatResetsIn,
+  formatUsageAmount,
   type LimitPace,
   paceOf,
   paceRemainingPercent,
@@ -203,8 +204,8 @@ export function LimitWindows({
     <div
       className={
         compact
-          ? "grid grid-cols-[minmax(0,9rem)_minmax(3rem,1fr)_auto] gap-x-3 gap-y-0.5"
-          : "grid grid-cols-[11rem_minmax(0,1fr)_7rem] gap-x-4 gap-y-1"
+          ? "grid grid-cols-[minmax(0,9rem)_minmax(3rem,1fr)_auto] items-center gap-x-3 gap-y-0.5"
+          : "grid grid-cols-[11rem_minmax(0,1fr)_7rem] items-center gap-x-4 gap-y-1"
       }
     >
       {windows.map((window) => {
@@ -212,11 +213,18 @@ export function LimitWindows({
         const resetsIn = formatResetsIn(window, now);
         return (
           <Fragment key={window.id}>
-            <span className="flex min-w-0 items-center gap-2 text-xs">
-              <span className="truncate text-muted-foreground">{window.label}</span>
-              <span className="ms-auto shrink-0 font-medium text-foreground tabular-nums">
-                {remainingPercent(window)}% left
+            <span className="flex min-w-0 flex-col gap-0.5 text-xs">
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="truncate text-muted-foreground">{window.label}</span>
+                <span className="ms-auto shrink-0 font-medium text-foreground tabular-nums">
+                  {remainingPercent(window)}% left
+                </span>
               </span>
+              {window.amount ? (
+                <span className="text-2xs text-muted-foreground tabular-nums">
+                  {formatUsageAmount(window.amount)}
+                </span>
+              ) : null}
             </span>
             <WindowBar color={color} window={window} now={now} />
             <span className="flex items-center gap-2 text-xs whitespace-nowrap text-muted-foreground tabular-nums">

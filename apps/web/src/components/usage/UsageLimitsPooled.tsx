@@ -7,6 +7,7 @@ import {
   cursorUsageWindowDetails,
   displayLimitWindows,
   formatResetsIn,
+  formatUsageAmount,
   type LimitAccount,
   type LimitPool,
   type LimitPoolMember,
@@ -185,6 +186,7 @@ function SegmentPopover({
       </div>
       <div className="flex flex-col gap-1 border-t border-border/60 pt-2.5">
         <Row label="Left">{remaining}%</Row>
+        {window.amount ? <Row label="Quota">{formatUsageAmount(window.amount)}</Row> : null}
         {window.resetsAt ? (
           <Row label="Resets">
             {formatUpcomingTimestamp(window.resetsAt, timestampFormat, now)}
@@ -555,6 +557,11 @@ function PoolWindowCard({
             {pool.pace ? <PaceIcon pace={pool.pace} /> : null}
           </span>
         </span>
+        {pool.amount ? (
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {formatUsageAmount(pool.amount)}
+          </span>
+        ) : null}
         {nextRefill && pool.columns.length > 1 ? (
           <span className="text-xs font-medium text-foreground tabular-nums">
             ↻ +{nextRefill.restoresPercent}%
@@ -571,7 +578,10 @@ function PoolWindowCard({
 
 function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: number }) {
   const color = barColor(pool.driver);
-  const label = providerClients.get(pool.driver)?.label ?? String(pool.driver);
+  const label =
+    pool.accounts.length === 1 && pool.accounts[0]?.displayName
+      ? pool.accounts[0].displayName
+      : (providerClients.get(pool.driver)?.label ?? String(pool.driver));
   const windows = displayLimitWindows(pool);
   return (
     <section className="flex flex-col gap-3">

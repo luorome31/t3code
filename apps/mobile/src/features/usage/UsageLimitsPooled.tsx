@@ -10,6 +10,7 @@ import {
   cursorUsageWindowDetails,
   displayLimitWindows,
   formatResetsIn,
+  formatUsageAmount,
   paceRemainingPercent,
   remainingPercent,
   type LimitAccount,
@@ -207,6 +208,11 @@ function PoolWindowCard({
             </Text>
             <Text className="text-sm text-foreground-muted">left</Text>
           </View>
+          {pool.amount ? (
+            <Text className="text-xs tabular-nums text-foreground-muted">
+              {formatUsageAmount(pool.amount)}
+            </Text>
+          ) : null}
         </View>
         {pool.pace ? (
           <Text className="text-xs text-foreground-tertiary">{PACE_LABEL[pool.pace]}</Text>
@@ -446,15 +452,17 @@ export function UsageLimitsSection({
       ) : null}
       {pools.map((pool, index) => {
         const windows = displayLimitWindows(pool);
+        const poolLabel =
+          pool.accounts.length === 1 && pool.accounts[0]?.displayName
+            ? pool.accounts[0].displayName
+            : (DRIVER_LABEL[pool.driver] ?? pool.driver);
         return (
           <Fragment key={pool.driver}>
             {index === cursorPromptAt ? cursorPrompt : null}
             <View className="gap-3">
               <View className="flex-row items-center gap-2 px-1">
                 <ProviderIcon provider={pool.driver} size={18} />
-                <Text className="text-base font-t3-medium text-foreground">
-                  {DRIVER_LABEL[pool.driver] ?? pool.driver}
-                </Text>
+                <Text className="text-base font-t3-medium text-foreground">{poolLabel}</Text>
               </View>
               {windows.map((window) => {
                 const details =

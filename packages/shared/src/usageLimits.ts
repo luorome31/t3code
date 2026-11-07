@@ -11,6 +11,7 @@ import {
   isProviderAvailable,
   PROVIDER_DISPLAY_NAMES,
   type ServerProvider,
+  type ServerProviderUsageAmount,
   type ServerProviderUsageLimits,
   type ServerProviderUsageWindow,
   type UsageLimitSourceSnapshots,
@@ -422,6 +423,8 @@ export interface LimitPoolWindow {
   readonly id: string;
   readonly kind: ServerProviderUsageWindow["kind"];
   readonly label: string;
+  /** Only set when one account contributes to the window; multi-account pools show per-account amounts. */
+  readonly amount?: ServerProviderUsageAmount;
   readonly members: readonly LimitPoolMember[];
   readonly columns: ReadonlyArray<
     LimitPoolMember | { readonly account: LimitAccount; readonly window: null }
@@ -573,6 +576,7 @@ function poolWindows(accounts: readonly LimitAccount[], now: number): readonly L
   const pools = [...byKey].map(([key, members]): LimitPoolWindow => {
     const memberByAccount = new Map(members.map((member) => [member.account.key, member]));
     const first = members[0]!.window;
+    const amount = members.length === 1 ? members[0]!.window.amount : undefined;
     const id = members[0]!.account.driver === "codex" ? key : first.id;
     const usedPercent = members.reduce((sum, m) => sum + m.window.usedPercent, 0) / members.length;
     // Judge pace only for windows with reset clocks; others add spend without elapsed time.
@@ -601,6 +605,7 @@ function poolWindows(accounts: readonly LimitAccount[], now: number): readonly L
       id,
       kind: first.kind,
       label: first.label,
+      ...(amount ? { amount } : {}),
       members,
       columns: accounts.map(
         (account) => memberByAccount.get(account.key) ?? { account, window: null },
@@ -626,6 +631,12 @@ export function limitsNotice(limits: ServerProviderUsageLimits): string | null {
 
 export function remainingPercent(window: ServerProviderUsageWindow): number {
   return Math.round(100 - Math.max(0, Math.min(100, window.usedPercent)));
+}
+
+const USAGE_AMOUNT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+
+export function formatUsageAmount(amount: ServerProviderUsageAmount): string {
+  return `${USAGE_AMOUNT.format(amount.remaining)} / ${USAGE_AMOUNT.format(amount.total)} ${amount.unit}`;
 }
 
 function resetMillis(window: ServerProviderUsageWindow): number | null {

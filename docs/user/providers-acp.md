@@ -56,6 +56,9 @@ In a thread's model picker, choose a model to see its supported **Reasoning Effo
 fewer controls than a specific model. Changes apply on the next turn. Changing the context window
 preserves the conversation, and **Default** restores the selected model's default window.
 
+When the CLI is signed in, **Usage → Limits** shows the account's monthly credit balance, the exact
+number of remaining credits, and the next reset time. Qoder CN CLI 1.1.73 or newer is required.
+
 ## Where agents run
 
 Registry agents always run on the machine that hosts your T3 Code server. That stays true when you
