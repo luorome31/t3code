@@ -95,6 +95,7 @@ import { SettingsProviderAccountsRouteScreen } from "./features/settings/Setting
 import { SettingsAuthRouteScreen } from "./features/settings/SettingsAuthRouteScreen";
 import { SettingsEnvironmentDetailRouteScreen } from "./features/settings/SettingsEnvironmentDetailRouteScreen";
 import { SettingsEnvironmentsRouteScreen } from "./features/settings/SettingsEnvironmentsRouteScreen";
+import { SmalltalkRouteScreen } from "./features/threads/SmalltalkScreen";
 import { SettingsFollowUpRouteScreen } from "./features/settings/SettingsFollowUpRouteScreen";
 import {
   SettingsEnvironmentMaintenanceRouteScreen,
@@ -635,6 +636,11 @@ const RootStackConfig = createWorkspaceStackNavigator({
       screen: ReviewCommentComposerSheet,
       linking: `${THREAD_LINKING_PREFIX}/review-comment`,
       options: sheetRoute({ detent: 0.55, android: "fullScreen" }),
+    }),
+    ThreadSmalltalk: createNativeStackScreen({
+      screen: SmalltalkRouteScreen,
+      linking: `${THREAD_LINKING_PREFIX}/smalltalk`,
+      options: pageRoute({ title: "Smalltalk" }),
     }),
     ThreadFiles: createNativeStackScreen({
       screen: ThreadFilesTreeScreen,

@@ -361,7 +361,10 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
     });
   const generateReviewGuide: ProviderTextGeneration["generateReviewGuide"] = () =>
     Effect.fail(investigationUnsupported("generateReviewGuide", "Muse Code"));
+  const generateSmalltalk: ProviderTextGeneration["generateSmalltalk"] = () =>
+    Effect.fail(investigationUnsupported("generateSmalltalk", "Muse Code"));
   return {
+    generateSmalltalk,
     generateCommitMessage,
     generatePrContent,
     generateBranchName,

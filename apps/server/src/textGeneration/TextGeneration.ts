@@ -42,6 +42,7 @@ export class TextGeneration extends Context.Service<TextGeneration, ProviderText
 ) {}
 
 type TextGenerationOp =
+  | "generateSmalltalk"
   | "generateCommitMessage"
   | "generatePrContent"
   | "generateBranchName"
@@ -132,6 +133,11 @@ export const make = Effect.gen(function* () {
     );
   });
   return TextGeneration.of({
+    generateSmalltalk: Effect.fn("TextGeneration.generateSmalltalk")(function (input) {
+      return resolveInstance(registry, "generateSmalltalk", input.modelSelection.instanceId).pipe(
+        Effect.flatMap((service) => service.generateSmalltalk(input)),
+      );
+    }),
     generateCommitMessage: Effect.fn("TextGeneration.generateCommitMessage")(function (input) {
       return generate("generateCommitMessage", input.modelSelection, (service, modelSelection) =>
         service.generateCommitMessage({ ...input, modelSelection }),

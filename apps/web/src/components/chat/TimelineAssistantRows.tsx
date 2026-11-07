@@ -13,6 +13,7 @@ import { checkpointFileTotals } from "@t3tools/client-runtime/state/thread-check
 import { ChangedFilesCard } from "./ChangedFilesTree";
 import { useFileContextMenuHandler } from "../../fileContextMenu";
 import { useAssistantMessageText, useProject, useThreadShell } from "../../state/entities";
+import { SmalltalkButton } from "./Smalltalk";
 import { MessageCopyButton } from "./MessageCopyButton";
 import { AssistantCitationSource } from "./AssistantCitationSource";
 import { resolveAssistantMessageCopyState } from "./MessagesTimeline.logic";
@@ -187,6 +188,17 @@ function AssistantMessageMeta({
       />
       {projectedItem?.item.type === "assistant_message" ? (
         <AssistantForkButton projectedItem={projectedItem} />
+      ) : null}
+      {ctx.threadRef &&
+      projectedItem?.item.type === "assistant_message" &&
+      projectedItem.item.status === "completed" &&
+      !copyStreaming &&
+      message.text.trim() ? (
+        <SmalltalkButton
+          threadRef={ctx.threadRef}
+          sourceThreadId={projectedItem.sourceThreadId}
+          messageId={projectedItem.item.messageId}
+        />
       ) : null}
       {!message.streaming && (
         <Tooltip>

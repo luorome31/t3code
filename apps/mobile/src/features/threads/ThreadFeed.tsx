@@ -40,6 +40,7 @@ import {
   resolveUserMessageFileCards,
   resolveUserMessagePresentation,
 } from "@t3tools/client-runtime/user-message";
+import { MobileSmalltalkButton } from "./SmalltalkScreen";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
 import { formatDiffCount } from "@t3tools/client-runtime/diff-count";
@@ -2296,6 +2297,12 @@ function renderFeedEntry(
                 iconSize={props.replyActionSize.icon}
                 projectedItem={message.projectedItem}
                 sourceTitle={props.threadTitle}
+              />
+            ) : null}
+            {message.projectedItem && !message.streaming ? (
+              <MobileSmalltalkButton
+                threadRef={{ environmentId: props.environmentId, threadId: props.threadId }}
+                projectedItem={message.projectedItem}
               />
             ) : null}
             <Text className="font-t3-medium text-xs tabular-nums text-foreground-secondary">

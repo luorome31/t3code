@@ -41,6 +41,7 @@ import {
   type ScopedMobileSettingsTarget,
 } from "./settings-scoped-server";
 import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
+import { SmalltalkSettings } from "./components/SmalltalkSettings";
 import { AutoSettleSettingsRows } from "./ThreadSettingsSections";
 import { supportsSharedSettingsSync } from "@t3tools/client-runtime/state/shared-settings";
 
@@ -395,6 +396,16 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                   />
                 </SettingsSection>
                 <AutoSettleSettingsRows write={write} pending={pendingWrites > 0} />
+                <SmalltalkSettings
+                  settings={reference.settings}
+                  environmentId={reference.environment.environmentId}
+                  disabled={
+                    disabledFor("smalltalkModelSelection") ||
+                    disabledFor("smalltalkPresets") ||
+                    disabledFor("smalltalkDefaultPresetId")
+                  }
+                  onChange={write}
+                />
               </>
             ) : null}
 

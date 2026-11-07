@@ -25,6 +25,7 @@ import { PullRequestDetailPanel } from "../pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "../pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "../pullRequest/PullRequestsUnavailableState";
 import { ThreadPullRequestsPanel } from "../pullRequest/ThreadPullRequestsPanel";
+import { SmalltalkPanel } from "./Smalltalk";
 import { ThreadHighlightsPanel } from "./ThreadHighlightsPanel";
 
 const PreviewPanel = lazy(() =>
@@ -172,6 +173,8 @@ export function RightPanelSurfaceContent(props: {
     }
     case "pull-requests":
       return <ThreadPullRequestsPanel threadRef={threadRef} />;
+    case "smalltalk":
+      return <SmalltalkPanel key={scopedThreadKey(threadRef)} threadRef={threadRef} />;
     case "highlights":
       return (
         <ThreadHighlightsPanel

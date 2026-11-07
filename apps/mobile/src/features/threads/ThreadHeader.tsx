@@ -1,3 +1,7 @@
+import { useAtomValue } from "@effect/atom-react";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { useNavigation } from "@react-navigation/native";
+import { serverEnvironment } from "../../state/server";
 import { AppBar } from "../../components/ui/AppBar";
 import { ScreenHeaderButton } from "../../components/ui/ScreenHeaderButton";
 import type { AppBarAction, AppBarMenu } from "../../components/ui/AppBar.types";
@@ -22,6 +26,10 @@ export function ThreadHeader(props: {
   readonly onToggleInspector: () => void;
   readonly onOpenFilesInspector: () => void;
 }) {
+  const navigation = useNavigation();
+  const config = useAtomValue(
+    serverEnvironment.configValueAtom(EnvironmentId.make(String(props.gitControls.environmentId))),
+  );
   const goBack = useWorkspaceBackNavigation("threads");
   const { panes, toggleAuxiliaryPane, composerKeyboardActive, startNewTask } =
     useAdaptiveWorkspaceLayout();
@@ -41,6 +49,17 @@ export function ThreadHeader(props: {
         },
       ]
     : [];
+  if (!props.draft && config?.environment.capabilities.smalltalk === true)
+    actions.push({
+      accessibilityLabel: "Smalltalk",
+      icon: "text.bubble",
+      overflowOnly: true,
+      onPress: () =>
+        navigation.navigate("ThreadSmalltalk", {
+          environmentId: EnvironmentId.make(String(props.gitControls.environmentId)),
+          threadId: ThreadId.make(String(props.gitControls.threadId)),
+        }),
+    });
   const menus = [gitMenu, terminalMenu].filter((menu): menu is AppBarMenu => menu !== null);
 
   return (

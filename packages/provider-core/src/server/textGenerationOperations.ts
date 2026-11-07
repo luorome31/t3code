@@ -5,6 +5,7 @@ import { type ChatAttachment, type ModelSelection, TextGenerationError } from "@
 import { formatGeneratedBranchName, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 import { extractJsonObject } from "@t3tools/shared/schemaJson";
 
+import { buildSmalltalkPrompt } from "./smalltalkPrompt.ts";
 import type { ProviderTextGeneration } from "./textGeneration.ts";
 import {
   buildBranchNamePrompt,
@@ -29,6 +30,7 @@ export interface Request<S extends Schema.Top> {
   readonly prompt: string;
   readonly outputSchema: S;
   readonly modelSelection: ModelSelection;
+  readonly onModelSelectionResolved?: (selection: ModelSelection) => void;
   readonly attachments?: ReadonlyArray<ChatAttachment> | undefined;
   /** Investigate cwd with read-only tools across turns; fail if the runner cannot guarantee read-only access. */
   readonly investigate?: { readonly timeoutMs: number } | undefined;
@@ -180,7 +182,24 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     });
   });
 
+  const generateSmalltalk: ProviderTextGeneration["generateSmalltalk"] = Effect.fn(
+    `${name}.generateSmalltalk`,
+  )(function* (input) {
+    let actualSelection = input.modelSelection;
+    const result = yield* run({
+      onModelSelectionResolved: (selection) => {
+        actualSelection = selection;
+      },
+      operation: "generateSmalltalk",
+      cwd: input.cwd,
+      modelSelection: input.modelSelection,
+      prompt: buildSmalltalkPrompt(input),
+      outputSchema: Schema.Struct({ explanation: Schema.NonEmptyString }),
+    });
+    return { explanation: result.explanation, modelSelection: actualSelection };
+  });
   return {
+    generateSmalltalk,
     generateCommitMessage,
     generatePrContent,
     generateBranchName,

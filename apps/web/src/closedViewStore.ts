@@ -62,6 +62,7 @@ const isClosedViewEntry = (entry: unknown): entry is ClosedViewEntry => {
   switch (surface.kind) {
     case "diff":
     case "files":
+    case "smalltalk":
     case "highlights":
     case "pull-requests":
       return surface.id === surface.kind;

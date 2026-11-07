@@ -107,7 +107,17 @@ export interface TranscriptionPostProcessingResult {
   transcription: string;
 }
 
+export interface SmalltalkGenerationInput {
+  cwd: string;
+  sourceText: string;
+  question: string;
+  instructions: string;
+  modelSelection: ModelSelection;
+}
 export interface ProviderTextGeneration {
+  readonly generateSmalltalk: (
+    input: SmalltalkGenerationInput,
+  ) => Effect.Effect<{ explanation: string; modelSelection: ModelSelection }, TextGenerationError>;
   readonly generateTranscriptionPostProcessing: (
     input: TranscriptionPostProcessingInput,
   ) => Effect.Effect<TranscriptionPostProcessingResult, TextGenerationError>;

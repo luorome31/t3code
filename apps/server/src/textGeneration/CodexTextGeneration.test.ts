@@ -211,6 +211,39 @@ function withFakeCodexEnv<A, E, R>(
 }
 
 it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
+  it.effect(
+    "explains quoted answers with shell and search disabled and records the resolved model",
+    () =>
+      withFakeCodexEnv(
+        {
+          output: JSON.stringify({ explanation: "Save everything together." }),
+          models: ["openai.gpt-5.6-luna"],
+          requireArg:
+            '--config features.shell_tool=false --config web_search="disabled" --config features.multi_agent=false',
+          stdinMustContain: '"answer":"Save atomically."',
+        },
+        (generation) =>
+          Effect.gen(function* () {
+            const result = yield* generation.generateSmalltalk({
+              cwd: process.cwd(),
+              sourceText: "Save atomically.",
+              question: "What does this mean?",
+              instructions: "Explain simply.",
+              modelSelection: createModelSelection(
+                ProviderInstanceId.make("codex"),
+                "gpt-5.6-luna",
+              ),
+            });
+            expect(result).toEqual({
+              explanation: "Save everything together.",
+              modelSelection: createModelSelection(
+                ProviderInstanceId.make("codex"),
+                "openai.gpt-5.6-luna",
+              ),
+            });
+          }),
+      ),
+  );
   it.effect.each(["exec", "mcp list"] as const)(
     "kills a stalled %s CLI when its request is interrupted",
     (command) =>
@@ -603,6 +636,7 @@ it.effect.each(PREFLIGHT_PRIMARY_STATES)("text generation preflight: %s", (prima
           generatePrContent: () => Effect.die("unused"),
           generateBranchName: () => Effect.die("unused"),
           generateReviewGuide: () => Effect.die("unused"),
+          generateSmalltalk: () => Effect.die("unused"),
           generateTranscriptionPostProcessing: () => Effect.die("unused"),
           generateThreadTitle: (input) =>
             Effect.sync(() => {
