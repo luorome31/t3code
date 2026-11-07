@@ -70,11 +70,14 @@ const layer = Layer.mergeAll(
   Layer.succeed(OpenCodeRuntime.OpenCodeRuntime, openCode2Runtime),
 ).pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 
+// The usage probe reads OpenCode's credential database; keep it off the developer's real one.
+const isolatedEnvironment = [{ name: "OPENCODE_DB", value: ":memory:", sensitive: false }];
+
 const create = (config: Partial<OpenCodeSettings>, http: HttpClient.HttpClient) =>
   OpenCodeDriver.create({
     instanceId: ProviderInstanceId.make("opencode-test"),
     displayName: undefined,
-    environment: [],
+    environment: isolatedEnvironment,
     enabled: true,
     config: { ...OpenCodeDriver.defaultConfig(), ...config },
   }).pipe(Effect.provideService(HttpClient.HttpClient, http));
@@ -124,7 +127,7 @@ it.live("discovers models through a home-relative OpenCode wrapper", () =>
     const instance = yield* OpenCodeDriver.create({
       instanceId: ProviderInstanceId.make("opencode-home"),
       displayName: undefined,
-      environment: [],
+      environment: isolatedEnvironment,
       enabled: true,
       config: {
         ...OpenCodeDriver.defaultConfig(),
@@ -639,7 +642,7 @@ it.layer(layerUpdate)("OpenCodeDriver updates", (it) => {
         const instance = yield* OpenCodeDriver.create({
           instanceId: ProviderInstanceId.make("opencode-update"),
           displayName: undefined,
-          environment: [],
+          environment: isolatedEnvironment,
           enabled: true,
           config: { ...OpenCodeDriver.defaultConfig(), binaryPath },
         }).pipe(Effect.provideService(HttpClient.HttpClient, noHttp));
