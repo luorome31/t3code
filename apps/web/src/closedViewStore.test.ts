@@ -73,8 +73,11 @@ describe("closedViewStore", () => {
     expect(() => useClosedViewStore.getState().remember(diff(refB))).not.toThrow();
   });
 
-  it("keeps a saved highlights tab through rehydration", async () => {
-    const surface = { kind: "highlights", id: "highlights" } as const;
+  it.each([
+    { kind: "highlights", id: "highlights" },
+    { kind: "smalltalk", id: "smalltalk" },
+    { kind: "questions", id: "questions" },
+  ] as const)("keeps a saved $kind tab through rehydration", async (surface) => {
     const id = useClosedViewStore.getState().remember({
       kind: "panel-tab",
       threadRef: refA,
