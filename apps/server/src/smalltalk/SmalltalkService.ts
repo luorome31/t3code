@@ -8,6 +8,7 @@ import {
   type ServerSettings,
   isProviderAvailable,
   isProviderTextGenerationCapable,
+  isSmalltalkTextGenerationDriver,
   resolveProjectProviderInstanceEnabled,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -18,6 +19,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
@@ -48,6 +50,7 @@ const decode = Schema.decodeUnknownEffect(Schema.fromJsonString(Smalltalk));
 const encode = Schema.encodeEffect(Schema.fromJsonString(Smalltalk));
 const decodeSummaries = Schema.decodeUnknownEffect(Schema.Array(SmalltalkSummary));
 const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
+const PROGRESS_FLUSH_CHARS = 24;
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -64,7 +67,8 @@ const make = Effect.gen(function* () {
 
   // A CLI request cannot safely be replayed after a restart: it may already have incurred usage.
   yield* sql`UPDATE smalltalk SET status = 'failed', payload_json = json_set(payload_json,
-    '$.status', 'failed', '$.error', 'Generation was interrupted by a server restart. Retry to continue.')
+    '$.status', 'failed', '$.error', 'Generation was interrupted by a server restart. Retry to continue.',
+    '$.streamingText', '')
     WHERE status = 'generating'`.pipe(Effect.mapError(storageError));
 
   const notify = Effect.fn("SmalltalkService.notify")(function (threadId: ThreadId) {
@@ -83,7 +87,8 @@ const make = Effect.gen(function* () {
     yield* requireThread(threadId);
     const rows =
       yield* sql`SELECT id, thread_id AS "threadId", source_thread_id AS "sourceThreadId",
-      message_id AS "messageId", title, status, created_at AS "createdAt", updated_at AS "updatedAt"
+      message_id AS "messageId", title, status, created_at AS "createdAt", updated_at AS "updatedAt",
+      COALESCE(json_extract(payload_json, '$.streamingText'), '') AS "streamingText"
       FROM smalltalk WHERE thread_id = ${threadId} ORDER BY created_at DESC, id DESC`.pipe(
         Effect.mapError(storageError),
       );
@@ -114,6 +119,18 @@ const make = Effect.gen(function* () {
       RETURNING id`.pipe(Effect.mapError(storageError));
     if (rows.length > 0) yield* notify(record.threadId);
   });
+  const saveProgress = Effect.fn("SmalltalkService.saveProgress")(function* (
+    record: Smalltalk,
+    text: string,
+  ) {
+    const updatedAt = yield* now;
+    const rows = yield* sql`UPDATE smalltalk SET updated_at = ${updatedAt},
+      payload_json = json_set(payload_json, '$.streamingText', ${text}, '$.updatedAt', ${updatedAt})
+      WHERE id = ${record.id} AND thread_id = ${record.threadId}
+        AND request_id = ${record.requestId} AND status = 'generating'
+      RETURNING id`.pipe(Effect.mapError(storageError));
+    if (rows.length > 0) yield* notify(record.threadId);
+  });
   const choosePreset = (settings: ServerSettings, presetId?: string) => {
     const id = presetId ?? settings.smalltalkDefaultPresetId;
     return (
@@ -138,7 +155,7 @@ const make = Effect.gen(function* () {
       .pipe(Effect.mapError(() => new SmalltalkError({ reason: "provider_unavailable" })));
     const snapshot = instance ? yield* instance.snapshot.getSnapshot : undefined;
     // These runners isolate the request and disable external integrations; other drivers need equivalent guarantees.
-    const supported = instance?.driverKind === "codex" || instance?.driverKind === "claudeAgent";
+    const supported = isSmalltalkTextGenerationDriver(instance?.driverKind);
     const available =
       snapshot &&
       snapshot.enabled &&
@@ -151,6 +168,7 @@ const make = Effect.gen(function* () {
       ...record,
       requestId: yield* random.uuidV4(),
       updatedAt: yield* now,
+      streamingText: "",
       requestedPreset: choosePreset(settings, presetId),
       requestedModelSelection: selection,
       preset: record.explanation ? record.preset : choosePreset(settings, presetId),
@@ -162,6 +180,24 @@ const make = Effect.gen(function* () {
     };
     yield* save(next, record.requestId);
     if (next.status !== "generating") return next;
+    const progress = yield* Ref.make({ text: "", persistedLength: 0 });
+    const flushProgress = Effect.fn("SmalltalkService.flushProgress")(function* (force: boolean) {
+      const current = yield* Ref.get(progress);
+      if (current.text.length === current.persistedLength) return;
+      if (!force && current.text.length - current.persistedLength < PROGRESS_FLUSH_CHARS) return;
+      yield* saveProgress(next, current.text).pipe(
+        Effect.catchCause((cause) => Effect.logDebug("Could not save Smalltalk progress.", cause)),
+      );
+      yield* Ref.update(progress, (value) => ({
+        ...value,
+        persistedLength: current.text.length,
+      }));
+    });
+    const onTextDelta = (delta: string) =>
+      Ref.updateAndGet(progress, (current) => ({
+        ...current,
+        text: current.text + delta,
+      })).pipe(Effect.andThen(flushProgress(false)));
     const work = Effect.scoped(
       Effect.gen(function* () {
         const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "t3-smalltalk-" });
@@ -171,6 +207,7 @@ const make = Effect.gen(function* () {
           question: next.question,
           instructions: next.requestedPreset.prompt,
           modelSelection: selection,
+          onTextDelta,
         });
       }),
     ).pipe(
@@ -187,6 +224,7 @@ const make = Effect.gen(function* () {
                   status: "completed",
                   error: null,
                   explanation: result.explanation,
+                  streamingText: "",
                   modelSelection: result.modelSelection,
                   preset: next.requestedPreset,
                   updatedAt: yield* now,
@@ -209,6 +247,7 @@ const make = Effect.gen(function* () {
                       status: "failed",
                       error:
                         "Could not generate this explanation. Check the Smalltalk model in Settings and retry.",
+                      streamingText: "",
                       updatedAt: yield* now,
                     },
                     next.requestId,
@@ -296,6 +335,7 @@ const make = Effect.gen(function* () {
             createdAt: timestamp,
             updatedAt: timestamp,
             explanation: "",
+            streamingText: "",
             error: null,
             modelSelection: null,
             requestedModelSelection: null,
@@ -332,6 +372,7 @@ const make = Effect.gen(function* () {
               ...record,
               requestId: yield* random.uuidV4(),
               status: "cancelled",
+              streamingText: "",
               updatedAt: yield* now,
             },
             record.requestId,

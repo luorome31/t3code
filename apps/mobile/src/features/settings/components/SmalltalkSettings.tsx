@@ -2,6 +2,7 @@ import { useEnvironmentServerConfig } from "../../../state/entities";
 import { useState } from "react";
 import { View } from "react-native";
 import {
+  isSmalltalkTextGenerationDriver,
   type ServerSettings,
   type ServerSettingsPatch,
   type EnvironmentId,
@@ -31,12 +32,21 @@ export function SmalltalkSettings({
   const presets = [SYSTEM_SMALLTALK_PRESET, ...settings.smalltalkPresets];
   const selected = presets.find((preset) => preset.id === editingId) ?? SYSTEM_SMALLTALK_PRESET;
   const model = settings.smalltalkModelSelection ?? settings.textGenerationModelSelection;
+  const supportedInstanceIds: ReadonlySet<string> = new Set(
+    (config?.providers ?? [])
+      .filter(
+        (provider) =>
+          isSmalltalkTextGenerationDriver(provider.driver) &&
+          provider.supportsTextGeneration !== false,
+      )
+      .map((provider) => provider.instanceId),
+  );
   const models = buildModelOptions(
     config ? { ...config, settings } : null,
     model,
     undefined,
     null,
-  ).filter((entry) => entry.providerDriver === "codex" || entry.providerDriver === "claudeAgent");
+  ).filter((entry) => supportedInstanceIds.has(entry.providerKey));
   return (
     <SettingsSection title="Smalltalk">
       <View className="gap-3 p-4">

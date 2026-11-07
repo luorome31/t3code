@@ -5,19 +5,17 @@ import {
   ThreadId,
   type ScopedThreadRef,
   type Smalltalk,
-  type OrchestrationV2ProjectedTurnItem,
   type SmalltalkMutation,
-  SYSTEM_SMALLTALK_PRESET,
+  type SmalltalkSummary,
+  type OrchestrationV2ProjectedTurnItem,
 } from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
-import { useThreadShell } from "../../state/entities";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { useState } from "react";
-import { View, Pressable } from "react-native";
+import { Alert, View, Pressable } from "react-native";
 import { AppText as Text } from "../../components/ui/AppText";
 import { AppBar } from "../../components/ui/AppBar";
-import { SymbolView } from "../../components/ui/AppSymbol";
-import { Button } from "../../components/ui/Button";
+import { SymbolView, type AppSymbolName } from "../../components/ui/AppSymbol";
+import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { ScreenScrollView } from "../../components/ui/ScreenScrollView";
 import { ListChoiceRow } from "../../components/ui/ListChoiceRow";
 import { SelectableMarkdownText } from "../../native/SelectableMarkdownText";
@@ -95,21 +93,32 @@ export function SmalltalkRouteScreen({
     }),
   );
   const [selectedId, setSelectedId] = useState(route.params.selectedId);
-  const rows = AsyncResult.isSuccess(list) ? list.value : [];
-  const selected = rows.find((record) => record.id === selectedId) ?? rows[0];
+  const records = AsyncResult.isSuccess(list) ? list.value : [];
+  const generating = records.filter((record) => record.status === "generating");
+  const completed = records.filter((record) => record.status === "completed");
+  const selected =
+    records.find((record) => record.id === selectedId) ??
+    generating[0] ??
+    completed[0] ??
+    records[0];
+  const selectedNotInHistory =
+    selected !== undefined && selected.status !== "completed" && selected.status !== "generating"
+      ? [selected]
+      : [];
+  const visibleRows = [...generating, ...selectedNotInHistory, ...completed];
   return (
     <View className="flex-1 bg-screen">
-      <AppBar title={`Smalltalk · ${rows.length}`} onBack={() => navigation.goBack()} />
+      <AppBar title={`Smalltalk · ${completed.length}`} onBack={() => navigation.goBack()} />
       <ScreenScrollView
         className="flex-1"
         contentInsetAdjustmentBehavior="automatic"
         contentContainerClassName="gap-4 p-5 pb-16"
       >
-        {rows.map((record) => (
+        {visibleRows.map((record) => (
           <ListChoiceRow
             key={record.id}
-            label={record.title}
-            description={record.status}
+            label={record.title || "Smalltalk"}
+            leading={<SmalltalkRowIcon status={record.status} />}
             selected={record.id === selected?.id}
             onPress={() => setSelectedId(record.id)}
           />
@@ -119,17 +128,62 @@ export function SmalltalkRouteScreen({
             {AsyncResult.isFailure(list)
               ? "Could not load Smalltalk. Reconnect or update the environment."
               : AsyncResult.isSuccess(list)
-                ? "Use 说人话 beside a completed response to create an explanation."
+                ? "还没有解释。"
                 : "Loading Smalltalk…"}
           </Text>
         ) : (
-          <MobileSmalltalkDetail key={selected.id} threadRef={threadRef} id={selected.id} />
+          <MobileSmalltalkDetail
+            key={selected.id}
+            threadRef={threadRef}
+            id={selected.id}
+            summary={selected}
+          />
         )}
       </ScreenScrollView>
     </View>
   );
 }
-function MobileSmalltalkDetail({ threadRef, id }: { threadRef: ScopedThreadRef; id: string }) {
+
+function SmalltalkRowIcon({ status }: { status: SmalltalkSummary["status"] }) {
+  switch (status) {
+    case "generating":
+      return <AppActivityIndicator size="small" />;
+    case "completed":
+      return (
+        <SymbolView
+          name="checkmark.circle"
+          size={16}
+          tintColorClassName="accent-foreground-muted"
+        />
+      );
+    case "failed":
+      return (
+        <SymbolView
+          name="exclamationmark.circle"
+          size={16}
+          tintColorClassName="accent-danger-foreground"
+        />
+      );
+    case "cancelled":
+      return (
+        <SymbolView
+          name="xmark.circle.fill"
+          size={16}
+          tintColorClassName="accent-foreground-muted"
+        />
+      );
+  }
+}
+
+function MobileSmalltalkDetail({
+  threadRef,
+  id,
+  summary,
+}: {
+  threadRef: ScopedThreadRef;
+  id: string;
+  summary: SmalltalkSummary;
+}) {
   const detail = useAtomValue(
     smalltalkEnvironment.detail({
       environmentId: threadRef.environmentId,
@@ -144,117 +198,151 @@ function MobileSmalltalkDetail({ threadRef, id }: { threadRef: ScopedThreadRef; 
           : "Loading explanation…"}
       </Text>
     );
-  return <MobileSmalltalkContent threadRef={threadRef} record={detail.value} />;
+  return <MobileSmalltalkContent threadRef={threadRef} record={detail.value} summary={summary} />;
 }
+
 function MobileSmalltalkContent({
   threadRef,
   record,
+  summary,
 }: {
   threadRef: ScopedThreadRef;
   record: Smalltalk;
+  summary: SmalltalkSummary;
 }) {
-  const environmentSettings = useAtomValue(
-    serverEnvironment.settingsValueAtom(threadRef.environmentId),
-  );
-  const thread = useThreadShell(threadRef);
-  const settings = environmentSettings
-    ? resolveProjectSettings(environmentSettings, thread?.projectId ?? null).settings
-    : null;
   const allowed = useAtomValue(smalltalkEnvironment.mutate.permissionAtom(threadRef.environmentId));
   const mutate = useAtomCommand(smalltalkEnvironment.mutate);
   const navigation = useNavigation();
   const styles = useMarkdownPreviewStyles();
-  const [presetOverride, setPresetId] = useState<string | null>(null);
-  const presetId =
-    presetOverride ?? settings?.smalltalkDefaultPresetId ?? SYSTEM_SMALLTALK_PRESET.id;
-  const [showSource, setShowSource] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
-  const presets = [SYSTEM_SMALLTALK_PRESET, ...(settings?.smalltalkPresets ?? [])];
+  const isGenerating = summary.status === "generating";
+  const stale = record.status !== summary.status;
+  const explanation = isGenerating ? summary.streamingText : stale ? "" : record.explanation;
+  const model = record.modelSelection?.model ?? record.requestedModelSelection?.model ?? "未知";
   const apply = (input: SmalltalkMutation) => {
     setBusy(true);
     void mutate({ environmentId: threadRef.environmentId, input }).finally(() => setBusy(false));
   };
+  const deleteWithConfirmation = () => {
+    Alert.alert("删除这条解释？", undefined, [
+      { text: "取消", style: "cancel" },
+      {
+        text: "删除",
+        style: "destructive",
+        onPress: () => apply({ action: "delete", threadId: threadRef.threadId, id: record.id }),
+      },
+    ]);
+  };
   return (
-    <View className="gap-4">
-      <Text className="text-sm text-foreground-muted">
-        {record.status} · {record.modelSelection?.model ?? "No completed generation"} ·{" "}
-        {record.preset.name}
-      </Text>
-      {record.status === "generating" ? <Text>Generating explanation…</Text> : null}
-      {record.error ? <Text accessibilityRole="alert">{record.error}</Text> : null}
-      {record.explanation ? (
-        <>
-          <SelectableMarkdownText
-            markdown={record.explanation}
-            textStyle={styles.nativeTextStyle}
-          />
-          <Button
-            label="Copy explanation"
+    <View className="gap-3">
+      <View className="flex-row items-center gap-2">
+        <Text className="min-w-0 flex-1 text-sm text-foreground-muted" numberOfLines={1}>
+          {model}
+        </Text>
+        <SymbolView
+          name="sparkles"
+          size={14}
+          tintColorClassName="accent-foreground-muted"
+          accessibilityLabel={`Preset: ${record.preset.name}`}
+        />
+        <View className="flex-row items-center">
+          <SmalltalkIconButton
+            name="arrow.turn.left.up"
+            label="跳转到原回答"
             onPress={() => {
-              void copyTextWithHaptic(record.explanation);
+              requestThreadMessageJump(scopedThreadKey(threadRef), record.messageId);
+              navigation.dispatch(
+                StackActions.popTo(
+                  "Thread",
+                  { environmentId: threadRef.environmentId, threadId: threadRef.threadId },
+                  { merge: true },
+                ),
+              );
             }}
           />
-        </>
-      ) : null}
-      <Button
-        label="View original response"
-        onPress={() => {
-          requestThreadMessageJump(scopedThreadKey(threadRef), record.messageId);
-          navigation.dispatch(
-            StackActions.popTo(
-              "Thread",
-              { environmentId: threadRef.environmentId, threadId: threadRef.threadId },
-              { merge: true },
-            ),
-          );
-        }}
-      />
-      <Button
-        label={showSource ? "Hide original snapshot" : "Original response snapshot"}
-        onPress={() => setShowSource(!showSource)}
-      />
-      {showSource ? (
-        <SelectableMarkdownText markdown={record.sourceText} textStyle={styles.nativeTextStyle} />
-      ) : null}
-      {allowed ? (
-        <>
-          {presets.map((preset) => (
-            <ListChoiceRow
-              key={preset.id}
-              label={preset.name}
-              selected={preset.id === presetId}
-              onPress={() => setPresetId(preset.id)}
-            />
-          ))}
-          <Button
-            label={record.explanation ? "Regenerate" : "Retry"}
-            disabled={busy || record.status === "generating"}
-            onPress={() =>
-              apply({ action: "regenerate", threadId: threadRef.threadId, id: record.id, presetId })
-            }
-          />
-          {record.status === "generating" ? (
-            <Button
-              label="Cancel"
-              disabled={busy}
-              onPress={() =>
-                apply({ action: "cancel", threadId: threadRef.threadId, id: record.id })
-              }
+          {explanation ? (
+            <SmalltalkIconButton
+              name="doc.on.doc"
+              label="复制解释"
+              onPress={() => {
+                void copyTextWithHaptic(explanation);
+              }}
             />
           ) : null}
-          <Button
-            tone="danger"
-            label={confirmDelete ? "Confirm delete" : "Delete"}
-            disabled={busy}
-            onPress={() => {
-              if (confirmDelete)
-                apply({ action: "delete", threadId: threadRef.threadId, id: record.id });
-              else setConfirmDelete(true);
-            }}
-          />
-        </>
+          {allowed ? (
+            isGenerating ? (
+              <SmalltalkIconButton
+                name="xmark"
+                label="取消生成"
+                disabled={busy}
+                onPress={() =>
+                  apply({ action: "cancel", threadId: threadRef.threadId, id: record.id })
+                }
+              />
+            ) : (
+              <SmalltalkIconButton
+                name="arrow.clockwise"
+                label={record.explanation ? "重新生成" : "重试"}
+                disabled={busy}
+                onPress={() =>
+                  apply({ action: "regenerate", threadId: threadRef.threadId, id: record.id })
+                }
+              />
+            )
+          ) : null}
+          {allowed ? (
+            <SmalltalkIconButton
+              name="trash"
+              label="删除"
+              disabled={busy}
+              tintColorClassName="accent-danger-foreground"
+              onPress={deleteWithConfirmation}
+            />
+          ) : null}
+        </View>
+      </View>
+      {isGenerating || (stale && !explanation) ? (
+        <View className="flex-row items-center gap-2">
+          <AppActivityIndicator size="small" />
+          <Text className="text-sm text-foreground-muted">
+            {isGenerating ? "生成中…" : "载入中…"}
+          </Text>
+        </View>
+      ) : null}
+      {!isGenerating && record.error ? (
+        <Text accessibilityRole="alert" className="text-sm text-danger-foreground">
+          {record.error}
+        </Text>
+      ) : null}
+      {explanation ? (
+        <SelectableMarkdownText markdown={explanation} textStyle={styles.nativeTextStyle} />
       ) : null}
     </View>
+  );
+}
+
+function SmalltalkIconButton({
+  name,
+  label,
+  onPress,
+  disabled,
+  tintColorClassName = "accent-foreground-muted",
+}: {
+  name: AppSymbolName;
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+  tintColorClassName?: string;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      disabled={disabled}
+      onPress={onPress}
+      className="size-9 items-center justify-center rounded-full active:opacity-60"
+    >
+      <SymbolView name={name} size={18} tintColorClassName={tintColorClassName} />
+    </Pressable>
   );
 }

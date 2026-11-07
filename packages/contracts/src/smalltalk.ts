@@ -18,6 +18,12 @@ export const SYSTEM_SMALLTALK_PRESET: SmalltalkPreset = {
   prompt: DEFAULT_SMALLTALK_PROMPT,
 };
 export const SmalltalkStatus = Schema.Literals(["generating", "completed", "failed", "cancelled"]);
+const SMALLTALK_TEXT_GENERATION_DRIVERS = ["codex", "claudeAgent", "antigravity"] as const;
+const SMALLTALK_TEXT_GENERATION_DRIVER_SET: ReadonlySet<string> = new Set(
+  SMALLTALK_TEXT_GENERATION_DRIVERS,
+);
+export const isSmalltalkTextGenerationDriver = (driver: string | null | undefined): boolean =>
+  typeof driver === "string" && SMALLTALK_TEXT_GENERATION_DRIVER_SET.has(driver);
 export const SmalltalkSummary = Schema.Struct({
   id: Schema.String,
   threadId: ThreadId,
@@ -27,6 +33,7 @@ export const SmalltalkSummary = Schema.Struct({
   status: SmalltalkStatus,
   createdAt: Schema.String,
   updatedAt: Schema.String,
+  streamingText: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
 });
 export type SmalltalkSummary = typeof SmalltalkSummary.Type;
 export const Smalltalk = Schema.Struct({

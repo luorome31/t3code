@@ -4,14 +4,23 @@ import {
   type ScopedThreadRef,
   type Smalltalk,
   type SmalltalkMutation,
+  type SmalltalkSummary,
   type MessageId,
   type ThreadId,
-  SYSTEM_SMALLTALK_PRESET,
 } from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
-import { MessageCircleMoreIcon } from "lucide-react";
-import { useThreadShell } from "../../state/entities";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import {
+  AlertCircle,
+  Ban,
+  Check,
+  CornerUpLeft,
+  LoaderCircle,
+  MessageCircleMoreIcon,
+  RotateCw,
+  Sparkles,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { smalltalkEnvironment, selectedSmalltalkAtom } from "../../state/smalltalk";
@@ -19,12 +28,13 @@ import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useRightPanelStore } from "../../rightPanelStore";
 import { assistantCitationNavigation } from "../../lib/assistantCitationNavigation";
+import { formatRelativeTimeLabel } from "../../timestampFormat";
 import ChatMarkdown from "../ChatMarkdown";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { Select, SelectTrigger, SelectValue, SelectPopup, SelectItem } from "../ui/select";
 import { MessageCopyButton } from "./MessageCopyButton";
 import { ThreadHighlightsRow } from "./ThreadHighlightsRow";
+import { cn } from "~/lib/utils";
 
 export function SmalltalkButton(props: {
   threadRef: ScopedThreadRef;
@@ -83,6 +93,7 @@ export function ThreadSmalltalkRow({ threadRef }: { threadRef: ScopedThreadRef }
   if (config?.environment.capabilities.smalltalk !== true) return null;
   return <SmalltalkCountRow threadRef={threadRef} />;
 }
+
 function SmalltalkCountRow({ threadRef }: { threadRef: ScopedThreadRef }) {
   const list = useAtomValue(
     smalltalkEnvironment.list({
@@ -94,7 +105,11 @@ function SmalltalkCountRow({ threadRef }: { threadRef: ScopedThreadRef }) {
     <ThreadHighlightsRow
       title="Smalltalk"
       icon={MessageCircleMoreIcon}
-      count={AsyncResult.isSuccess(list) ? list.value.length : 0}
+      count={
+        AsyncResult.isSuccess(list)
+          ? list.value.filter((record) => record.status === "completed").length
+          : 0
+      }
       separated={false}
       onOpen={() => useRightPanelStore.getState().open(threadRef, "smalltalk")}
     />
@@ -115,40 +130,117 @@ export function SmalltalkPanel({ threadRef }: { threadRef: ScopedThreadRef }) {
       <p className="p-4 text-sm">Could not load Smalltalk. Reconnect or update this environment.</p>
     );
   if (!AsyncResult.isSuccess(list)) return <p className="p-4 text-sm">Loading Smalltalk…</p>;
-  const selected = list.value.find((record) => record.id === requested) ?? list.value[0];
+
+  const records = list.value;
+  const generating = records.filter((record) => record.status === "generating");
+  const completed = records.filter((record) => record.status === "completed");
+  const selected =
+    records.find((record) => record.id === requested) ??
+    generating[0] ??
+    completed[0] ??
+    records[0];
+  const selectedNotInHistory =
+    selected !== undefined && selected.status !== "completed" && selected.status !== "generating"
+      ? [selected]
+      : [];
+  const visible = [...generating, ...selectedNotInHistory, ...completed];
+
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-auto p-4 gap-4">
-      <h2 className="text-sm font-medium">Smalltalk · {list.value.length}</h2>
-      {selected ? (
-        <>
-          <Select
-            value={selected.id}
-            onValueChange={(value) => {
-              if (value) select(value);
-            }}
-          >
-            <SelectTrigger aria-label="Select Smalltalk">
-              <SelectValue>{selected.title}</SelectValue>
-            </SelectTrigger>
-            <SelectPopup>
-              {list.value.map((record) => (
-                <SelectItem key={record.id} value={record.id}>
-                  {record.title} · {record.status}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-          <SmalltalkDetail key={selected.id} threadRef={threadRef} id={selected.id} />
-        </>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          No Smalltalk yet. Use 说人话 beside a completed response to create an explanation.
-        </p>
-      )}
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex items-center gap-2 border-b px-3 py-2">
+        <MessageCircleMoreIcon aria-hidden className="size-4 text-muted-foreground" />
+        <span className="text-sm font-medium">Smalltalk</span>
+        <span className="font-mono text-xs tabular-nums text-muted-foreground">
+          {completed.length}
+        </span>
+        {generating.length > 0 ? (
+          <LoaderCircle
+            aria-label="Generating"
+            className="size-3.5 animate-spin text-muted-foreground"
+          />
+        ) : null}
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-2">
+        {visible.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 p-8 text-center text-xs text-muted-foreground">
+            <MessageCircleMoreIcon aria-hidden className="size-5" />
+            <span>还没有解释</span>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {visible.map((record) => (
+              <SmalltalkRecord
+                key={record.id}
+                threadRef={threadRef}
+                record={record}
+                selected={record.id === selected?.id}
+                onSelect={() => select(record.id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
-function SmalltalkDetail({ threadRef, id }: { threadRef: ScopedThreadRef; id: string }) {
+
+function SmalltalkRecord(props: {
+  threadRef: ScopedThreadRef;
+  record: SmalltalkSummary;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <section
+      className={cn(
+        "overflow-hidden rounded-lg border",
+        props.selected ? "border-border bg-card" : "border-transparent",
+      )}
+    >
+      <button
+        type="button"
+        aria-expanded={props.selected}
+        onClick={props.onSelect}
+        className={cn(
+          "flex w-full items-center gap-2 px-2.5 py-2 text-left transition-colors",
+          !props.selected && "hover:bg-accent",
+        )}
+      >
+        <SmalltalkStatusIcon status={props.record.status} />
+        <span className="min-w-0 flex-1 truncate text-sm">{props.record.title || "Smalltalk"}</span>
+        <span className="shrink-0 text-2xs text-muted-foreground">
+          {formatRelativeTimeLabel(props.record.createdAt)}
+        </span>
+      </button>
+      {props.selected ? (
+        <SmalltalkDetail threadRef={props.threadRef} id={props.record.id} summary={props.record} />
+      ) : null}
+    </section>
+  );
+}
+
+function SmalltalkStatusIcon({ status }: { status: SmalltalkSummary["status"] }) {
+  switch (status) {
+    case "generating":
+      return <LoaderCircle aria-hidden className="size-3.5 animate-spin text-muted-foreground" />;
+    case "completed":
+      return <Check aria-hidden className="size-3.5 text-muted-foreground" />;
+    case "failed":
+      return <AlertCircle aria-hidden className="size-3.5 text-destructive" />;
+    case "cancelled":
+      return <Ban aria-hidden className="size-3.5 text-muted-foreground" />;
+  }
+}
+
+function SmalltalkDetail({
+  threadRef,
+  id,
+  summary,
+}: {
+  threadRef: ScopedThreadRef;
+  id: string;
+  summary: SmalltalkSummary;
+}) {
   const detail = useAtomValue(
     smalltalkEnvironment.detail({
       environmentId: threadRef.environmentId,
@@ -157,166 +249,228 @@ function SmalltalkDetail({ threadRef, id }: { threadRef: ScopedThreadRef; id: st
   );
   if (!AsyncResult.isSuccess(detail))
     return (
-      <p className="text-sm">
-        {AsyncResult.isFailure(detail)
-          ? "Could not load this explanation."
-          : "Loading explanation…"}
+      <p className="px-2.5 pb-2 text-xs text-muted-foreground">
+        {AsyncResult.isFailure(detail) ? "Could not load this explanation." : "Loading…"}
       </p>
     );
-  return <SmalltalkContent threadRef={threadRef} record={detail.value} />;
+  return <SmalltalkContent threadRef={threadRef} record={detail.value} summary={summary} />;
 }
+
 function SmalltalkContent({
   threadRef,
   record,
+  summary,
 }: {
   threadRef: ScopedThreadRef;
   record: Smalltalk;
+  summary: SmalltalkSummary;
 }) {
-  const environmentSettings = useAtomValue(
-    serverEnvironment.settingsValueAtom(threadRef.environmentId),
-  );
-  const thread = useThreadShell(threadRef);
-  const settings = environmentSettings
-    ? resolveProjectSettings(environmentSettings, thread?.projectId ?? null).settings
-    : null;
   const allowed = useAtomValue(smalltalkEnvironment.mutate.permissionAtom(threadRef.environmentId));
   const mutate = useAtomCommand(smalltalkEnvironment.mutate);
   const navigate = useNavigate();
-  const [presetOverride, setPresetId] = useState<string | null>(null);
-  const presetId =
-    presetOverride ?? settings?.smalltalkDefaultPresetId ?? SYSTEM_SMALLTALK_PRESET.id;
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
-  const presets = [SYSTEM_SMALLTALK_PRESET, ...(settings?.smalltalkPresets ?? [])];
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const isGenerating = summary.status === "generating";
+  const stale = record.status !== summary.status;
+  const explanation = isGenerating ? summary.streamingText : stale ? "" : record.explanation;
+  const model = record.modelSelection?.model ?? record.requestedModelSelection?.model ?? "未知";
+
   const apply = (input: SmalltalkMutation) => {
     setBusy(true);
+    setConfirmDelete(false);
     void mutate({ environmentId: threadRef.environmentId, input }).finally(() => setBusy(false));
   };
+
   return (
     <>
-      <div className="text-xs text-muted-foreground">
-        {record.status} · {new Date(record.createdAt).toLocaleString()}
-        <br />
-        {record.modelSelection?.model ?? "No completed generation"} · {record.preset.name}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2.5 pb-2 text-2xs text-muted-foreground">
+        <span className="min-w-0 max-w-48 truncate">{model}</span>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span
+                tabIndex={0}
+                aria-label={`Preset: ${record.preset.name}`}
+                className="inline-flex items-center"
+              />
+            }
+          >
+            <Sparkles aria-hidden className="size-3" />
+          </TooltipTrigger>
+          <TooltipPopup>{record.preset.name}</TooltipPopup>
+        </Tooltip>
+        <div className="ml-auto flex items-center gap-0.5">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label="Jump to original answer"
+                  onClick={() => {
+                    void navigate(
+                      assistantCitationNavigation({
+                        version: 1,
+                        environmentId: threadRef.environmentId,
+                        threadId: threadRef.threadId,
+                        messageId: record.messageId,
+                        text: record.sourceText.slice(0, 200),
+                        start: 0,
+                        end: Math.min(record.sourceText.length, 200),
+                        prefix: "",
+                        suffix: "",
+                      }),
+                    );
+                  }}
+                />
+              }
+            >
+              <CornerUpLeft />
+            </TooltipTrigger>
+            <TooltipPopup>跳转到原回答</TooltipPopup>
+          </Tooltip>
+          {explanation ? (
+            <MessageCopyButton
+              text={explanation}
+              label="Copy explanation"
+              size="icon-xs"
+              variant="ghost"
+            />
+          ) : null}
+          {allowed ? (
+            <>
+              {isGenerating ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        type="button"
+                        size="icon-xs"
+                        variant="ghost"
+                        aria-label="Cancel generation"
+                        disabled={busy}
+                        onClick={() =>
+                          apply({ action: "cancel", threadId: threadRef.threadId, id: record.id })
+                        }
+                      />
+                    }
+                  >
+                    <X />
+                  </TooltipTrigger>
+                  <TooltipPopup>取消生成</TooltipPopup>
+                </Tooltip>
+              ) : (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        type="button"
+                        size="icon-xs"
+                        variant="ghost"
+                        aria-label={record.explanation ? "Regenerate" : "Retry"}
+                        disabled={busy}
+                        onClick={() =>
+                          apply({
+                            action: "regenerate",
+                            threadId: threadRef.threadId,
+                            id: record.id,
+                          })
+                        }
+                      />
+                    }
+                  >
+                    <RotateCw />
+                  </TooltipTrigger>
+                  <TooltipPopup>{record.explanation ? "重新生成" : "重试"}</TooltipPopup>
+                </Tooltip>
+              )}
+              {confirmDelete ? (
+                <>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          type="button"
+                          size="icon-xs"
+                          variant="ghost-destructive"
+                          aria-label="Confirm delete"
+                          disabled={busy}
+                          onClick={() =>
+                            apply({
+                              action: "delete",
+                              threadId: threadRef.threadId,
+                              id: record.id,
+                            })
+                          }
+                        />
+                      }
+                    >
+                      <Check />
+                    </TooltipTrigger>
+                    <TooltipPopup>确认删除</TooltipPopup>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          type="button"
+                          size="icon-xs"
+                          variant="ghost"
+                          aria-label="Cancel delete"
+                          onClick={() => setConfirmDelete(false)}
+                        />
+                      }
+                    >
+                      <X />
+                    </TooltipTrigger>
+                    <TooltipPopup>取消</TooltipPopup>
+                  </Tooltip>
+                </>
+              ) : (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        type="button"
+                        size="icon-xs"
+                        variant="ghost-destructive"
+                        aria-label="Delete"
+                        disabled={busy}
+                        onClick={() => setConfirmDelete(true)}
+                      />
+                    }
+                  >
+                    <Trash2 />
+                  </TooltipTrigger>
+                  <TooltipPopup>删除</TooltipPopup>
+                </Tooltip>
+              )}
+            </>
+          ) : null}
+        </div>
       </div>
-      {record.status === "generating" ? (
-        <p role="status" className="text-sm">
-          Generating explanation…
-        </p>
+      {(isGenerating || stale) && !explanation ? (
+        <div
+          role="status"
+          className="flex items-center gap-2 px-2.5 pb-2 text-xs text-muted-foreground"
+        >
+          <LoaderCircle aria-hidden className="size-3.5 animate-spin" />
+          <span>{isGenerating ? "生成中…" : "载入中…"}</span>
+        </div>
       ) : null}
-      {record.error ? (
-        <p role="alert" className="text-sm text-destructive">
+      {!isGenerating && record.error ? (
+        <p role="alert" className="px-2.5 pb-2 text-xs text-destructive">
           {record.error}{" "}
           <a href="/settings/threads" className="underline">
-            Settings
+            设置
           </a>
         </p>
       ) : null}
-      {record.explanation ? (
-        <>
-          <ChatMarkdown cwd={undefined} text={record.explanation} threadRef={threadRef} />
-          <div>
-            <MessageCopyButton text={record.explanation} />
-          </div>
-        </>
-      ) : null}
-      <div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            void navigate(
-              assistantCitationNavigation({
-                version: 1,
-                environmentId: threadRef.environmentId,
-                threadId: threadRef.threadId,
-                messageId: record.messageId,
-                text: record.sourceText.slice(0, 200),
-                start: 0,
-                end: Math.min(record.sourceText.length, 200),
-                prefix: "",
-                suffix: "",
-              }),
-            );
-          }}
-        >
-          View original response
-        </Button>
-      </div>
-      <details>
-        <summary className="cursor-pointer text-sm">Original response snapshot</summary>
-        <div className="mt-2">
-          <ChatMarkdown cwd={undefined} text={record.sourceText} threadRef={threadRef} />
+      {explanation ? (
+        <div className="px-2.5 pb-2">
+          <ChatMarkdown cwd={undefined} text={explanation} threadRef={threadRef} />
         </div>
-      </details>
-      {allowed ? (
-        <>
-          <Select
-            value={
-              presets.some((preset) => preset.id === presetId)
-                ? presetId
-                : SYSTEM_SMALLTALK_PRESET.id
-            }
-            onValueChange={(value) => {
-              if (value) setPresetId(value);
-            }}
-          >
-            <SelectTrigger aria-label="Smalltalk prompt preset">
-              <SelectValue>
-                {presets.find((preset) => preset.id === presetId)?.name ??
-                  SYSTEM_SMALLTALK_PRESET.name}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectPopup>
-              {presets.map((preset) => (
-                <SelectItem key={preset.id} value={preset.id}>
-                  {preset.name}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy || record.status === "generating"}
-              onClick={() =>
-                apply({
-                  action: "regenerate",
-                  threadId: threadRef.threadId,
-                  id: record.id,
-                  presetId,
-                })
-              }
-            >
-              {record.explanation ? "Regenerate" : "Retry"}
-            </Button>
-            {record.status === "generating" ? (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={busy}
-                onClick={() =>
-                  apply({ action: "cancel", threadId: threadRef.threadId, id: record.id })
-                }
-              >
-                Cancel
-              </Button>
-            ) : null}
-            <Button
-              size="sm"
-              variant="destructive"
-              disabled={busy}
-              onClick={() => {
-                if (confirmDelete)
-                  apply({ action: "delete", threadId: threadRef.threadId, id: record.id });
-                else setConfirmDelete(true);
-              }}
-            >
-              {confirmDelete ? "Confirm delete" : "Delete"}
-            </Button>
-          </div>
-        </>
       ) : null}
     </>
   );

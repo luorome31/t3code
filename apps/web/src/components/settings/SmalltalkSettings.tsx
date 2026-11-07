@@ -1,5 +1,9 @@
 import { useState } from "react";
-import { SYSTEM_SMALLTALK_PRESET, type SmalltalkPreset } from "@t3tools/contracts";
+import {
+  isSmalltalkTextGenerationDriver,
+  SYSTEM_SMALLTALK_PRESET,
+  type SmalltalkPreset,
+} from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 import { useSettingsScope } from "./SettingsScopeContext";
@@ -27,8 +31,7 @@ export function SmalltalkSettings() {
     environment ? (providersByEnvironment.get(environment.environmentId) ?? []) : []
   ).filter(
     (provider) =>
-      (provider.driver === "codex" || provider.driver === "claudeAgent") &&
-      provider.supportsTextGeneration !== false,
+      isSmalltalkTextGenerationDriver(provider.driver) && provider.supportsTextGeneration !== false,
   );
   const entries = providerInstanceEntriesFor(providers, settings, target?.projectId ?? null);
   const selection = resolveAppModelSelectionState(

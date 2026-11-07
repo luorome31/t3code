@@ -73,7 +73,13 @@ export const decodeJsonReply = <S extends Schema.Top>(
   );
 };
 
-export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
+export function fromRunner(
+  name: string,
+  run: Runner,
+  overrides?: {
+    readonly generateSmalltalk?: ProviderTextGeneration["generateSmalltalk"] | undefined;
+  },
+): ProviderTextGeneration {
   const generateCommitMessage: ProviderTextGeneration["generateCommitMessage"] = Effect.fn(
     `${name}.generateCommitMessage`,
   )(function* (input) {
@@ -182,7 +188,7 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     });
   });
 
-  const generateSmalltalk: ProviderTextGeneration["generateSmalltalk"] = Effect.fn(
+  const defaultGenerateSmalltalk: ProviderTextGeneration["generateSmalltalk"] = Effect.fn(
     `${name}.generateSmalltalk`,
   )(function* (input) {
     let actualSelection = input.modelSelection;
@@ -199,7 +205,7 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     return { explanation: result.explanation, modelSelection: actualSelection };
   });
   return {
-    generateSmalltalk,
+    generateSmalltalk: overrides?.generateSmalltalk ?? defaultGenerateSmalltalk,
     generateCommitMessage,
     generatePrContent,
     generateBranchName,

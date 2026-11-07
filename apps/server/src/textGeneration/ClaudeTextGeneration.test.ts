@@ -114,7 +114,8 @@ it.layer(layerClaudeTextGenerationTest)("ClaudeTextGeneration", (it) => {
     withFakeClaudeEnv(
       {
         output: JSON.stringify({
-          structured_output: { explanation: "All changes are saved together." },
+          type: "result",
+          result: "All changes are saved together.",
         }),
         cwdMustNotBe: process.cwd(),
         stdinMustContain: '"answer":"Atomic commit"',
@@ -135,6 +136,97 @@ it.layer(layerClaudeTextGenerationTest)("ClaudeTextGeneration", (it) => {
         }),
     ),
   );
+  it.effect("streams explanation chunks before the final result", () =>
+    withFakeClaudeEnv(
+      {
+        output: [
+          JSON.stringify({
+            type: "stream_event",
+            event: {
+              type: "content_block_delta",
+              delta: { type: "text_delta", text: "All changes " },
+            },
+          }),
+          JSON.stringify({
+            type: "stream_event",
+            event: {
+              type: "content_block_delta",
+              delta: { type: "text_delta", text: "are saved together." },
+            },
+          }),
+          JSON.stringify({ type: "result", result: "All changes are saved together." }),
+        ].join("\n"),
+        argsMustContain: "--output-format stream-json --include-partial-messages",
+      },
+      (generation) =>
+        Effect.gen(function* () {
+          const deltas: string[] = [];
+          const result = yield* generation.generateSmalltalk({
+            cwd: process.cwd(),
+            sourceText: "Atomic commit",
+            question: "Explain",
+            instructions: "Use simple language.",
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("claudeAgent"),
+              model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+            },
+            onTextDelta: (delta) =>
+              Effect.sync(() => {
+                deltas.push(delta);
+              }),
+          });
+          expect(deltas).toEqual(["All changes ", "are saved together."]);
+          expect(result.explanation).toBe("All changes are saved together.");
+        }),
+    ),
+  );
+
+  it.effect("streams Smalltalk text as it arrives", () =>
+    withFakeClaudeEnv(
+      {
+        output: [
+          JSON.stringify({
+            type: "stream_event",
+            event: {
+              type: "content_block_delta",
+              delta: { type: "text_delta", text: "All changes " },
+            },
+          }),
+          JSON.stringify({
+            type: "stream_event",
+            event: {
+              type: "content_block_delta",
+              delta: { type: "text_delta", text: "are saved together." },
+            },
+          }),
+          JSON.stringify({ type: "result", result: "All changes are saved together." }),
+        ].join("\n"),
+        argsMustContain: "--output-format stream-json",
+        cwdMustNotBe: process.cwd(),
+      },
+      (generation) =>
+        Effect.gen(function* () {
+          const deltas: string[] = [];
+          const result = yield* generation.generateSmalltalk({
+            cwd: process.cwd(),
+            sourceText: "Atomic commit",
+            question: "Explain",
+            instructions: "Use simple language.",
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("claudeAgent"),
+              model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+            },
+            onTextDelta: (delta) =>
+              Effect.sync(() => {
+                deltas.push(delta);
+              }),
+          });
+          expect(deltas.join("")).toBe("All changes are saved together.");
+          expect(result.explanation).toBe("All changes are saved together.");
+        }),
+    ),
+  );
+
   it.effect(
     "keeps canonical built-in capabilities when a custom model collides with its alias",
     () =>

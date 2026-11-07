@@ -1,6 +1,6 @@
 import { WS_METHODS } from "@t3tools/contracts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
-import type { Atom } from "effect/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import {
   createEnvironmentRpcCommand,
   createEnvironmentRpcQueryAtomFamily,
@@ -16,7 +16,13 @@ export function createSmalltalkAtoms<R, E>(runtime: Atom.AtomRuntime<Environment
     label: "smalltalk:detail",
     tag: WS_METHODS.smalltalkGet,
     refreshTrigger: (target) =>
-      list({ environmentId: target.environmentId, input: { threadId: target.input.threadId } }),
+      Atom.map(
+        list({ environmentId: target.environmentId, input: { threadId: target.input.threadId } }),
+        (result) =>
+          AsyncResult.isSuccess(result)
+            ? result.value.find((record) => record.id === target.input.id)?.status
+            : undefined,
+      ),
   });
   return {
     list,

@@ -1,6 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
@@ -8,6 +9,11 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { type ClaudeSettings, TextGenerationError } from "@t3tools/contracts";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
+import { buildSmalltalkPrompt } from "@t3tools/provider-core/server/smalltalkPrompt";
+import type {
+  ProviderTextGeneration,
+  SmalltalkGenerationInput,
+} from "@t3tools/provider-core/server/textGeneration";
 import * as TextGenerationOperations from "@t3tools/provider-core/server/textGenerationOperations";
 import {
   normalizeCliError,
@@ -62,6 +68,7 @@ const ClaudeOutputMessage = Schema.Struct({
 const isClaudeOutputEnvelope = Schema.is(ClaudeOutputEnvelope);
 
 const encodeJsonString = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
+const isTextGenerationError = Schema.is(TextGenerationError);
 const decodeClaudeOutput = Schema.decodeEffect(
   Schema.fromJsonString(Schema.Union([ClaudeOutputEnvelope, Schema.Array(ClaudeOutputMessage)])),
 );
@@ -75,6 +82,26 @@ const ClaudeErrorResult = Schema.Struct({
 });
 const isClaudeErrorResult = Schema.is(ClaudeErrorResult);
 const decodeJsonOption = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
+
+interface ClaudeStreamMessage {
+  readonly type: string;
+  readonly event?: {
+    readonly type?: string;
+    readonly delta?: {
+      readonly type?: string;
+      readonly text?: string;
+    };
+  };
+  readonly result?: string;
+  readonly is_error?: boolean;
+  readonly errors?: ReadonlyArray<string>;
+}
+
+function decodeClaudeStreamMessage(line: string): ClaudeStreamMessage | undefined {
+  const value = Option.getOrUndefined(decodeJsonOption(line));
+  if (!value || typeof value !== "object" || !("type" in value)) return undefined;
+  return typeof value.type === "string" ? (value as ClaudeStreamMessage) : undefined;
+}
 
 // Claude reports JSON errors on stdout; stderr may contain only wrapper notices.
 function claudeErrorResult(stdout: string): string | undefined {
@@ -346,5 +373,227 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
     );
   });
 
-  return TextGenerationOperations.fromRunner("ClaudeTextGeneration", runClaudeJson);
+  const runClaudeSmalltalk = Effect.fn("ClaudeTextGeneration.runSmalltalk")(function* (
+    input: SmalltalkGenerationInput,
+  ) {
+    const operation = "generateSmalltalk";
+    const catalog = yield* scopedModelCatalog;
+    const resolvedModelSelection = {
+      ...input.modelSelection,
+      model: resolveClaudeModelSlug(catalog, input.modelSelection.model),
+    };
+    const caps = getClaudeCatalogModelCapabilities(catalog, resolvedModelSelection.model);
+    const descriptors = getProviderOptionDescriptors({
+      caps,
+      selections: resolvedModelSelection.options,
+    });
+    const findDescriptor = (id: string) => descriptors.find((descriptor) => descriptor.id === id);
+    const rawEffortSelection = getModelSelectionStringOptionValue(resolvedModelSelection, "effort");
+    const resolvedEffort = resolveClaudeCatalogEffort(
+      catalog,
+      resolvedModelSelection.model,
+      rawEffortSelection,
+    );
+    const cliEffort = normalizeClaudeCatalogEffort(
+      catalog,
+      resolvedEffort,
+      resolvedModelSelection.model,
+    );
+    const ultracode = findDescriptor("ultracode")?.currentValue;
+    const thinkingDescriptor = findDescriptor("thinking");
+    const fastModeDescriptor = findDescriptor("fastMode");
+    const thinking =
+      thinkingDescriptor?.type === "boolean"
+        ? getModelSelectionBooleanOptionValue(resolvedModelSelection, "thinking")
+        : undefined;
+    const fastMode =
+      fastModeDescriptor?.type === "boolean" ? fastModeDescriptor.currentValue : undefined;
+    const settingsJson = yield* encodeJsonForOperation(
+      operation,
+      {
+        disableAllHooks: true,
+        ...(typeof thinking === "boolean" ? { alwaysThinkingEnabled: thinking } : {}),
+        ...(fastMode ? { fastMode: true } : {}),
+        ...(typeof ultracode === "boolean" ? { ultracode } : {}),
+      },
+      "Failed to encode Claude CLI settings.",
+    );
+
+    const runAttempt = Effect.fn("ClaudeTextGeneration.runSmalltalkAttempt")(
+      function* (noSessionPersistence: boolean) {
+        const workingDirectory = yield* fileSystem
+          .makeTempDirectoryScoped({ prefix: "t3code-claude-smalltalk-" })
+          .pipe(
+            Effect.mapError((cause) =>
+              normalizeCliError("claude", operation, cause, "Failed to create Smalltalk directory"),
+            ),
+          );
+        const managedMcpConfig = yield* hasClaudeManagedMcpConfig().pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+        );
+        const spawnCommand = yield* resolveSpawnCommand(
+          claudeSettings.binaryPath || "claude",
+          [
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--include-partial-messages",
+            "--verbose",
+            "--model",
+            resolveClaudeCatalogApiModelId(catalog, resolvedModelSelection),
+            ...(cliEffort ? ["--effort", cliEffort] : []),
+            "--settings",
+            settingsJson,
+            "--tools",
+            "",
+            "--disable-slash-commands",
+            ...(noSessionPersistence ? [NO_SESSION_PERSISTENCE] : []),
+            ...(managedMcpConfig ? [] : ["--strict-mcp-config"]),
+            "--permission-mode",
+            "dontAsk",
+          ],
+          { env: claudeEnvironment },
+        );
+        const command = ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+          env: claudeEnvironment,
+          cwd: workingDirectory,
+          shell: spawnCommand.shell,
+          stdin: {
+            stream: Stream.encodeText(Stream.make(buildSmalltalkPrompt(input, { format: "text" }))),
+          },
+          forceKillAfter: "1 second",
+        });
+        const child = yield* commandSpawner
+          .spawn(command)
+          .pipe(
+            Effect.mapError((cause) =>
+              normalizeCliError("claude", operation, cause, "Failed to spawn Claude CLI process"),
+            ),
+          );
+        const emitted = yield* Ref.make(false);
+        const [stdout, stderr, exitCode] = yield* Effect.all(
+          [
+            child.stdout.pipe(
+              Stream.decodeText(),
+              Stream.splitLines,
+              Stream.runFoldEffect(
+                (): { text: string; result: string | undefined } => ({
+                  text: "",
+                  result: undefined,
+                }),
+                (state, line) => {
+                  const message = decodeClaudeStreamMessage(line);
+                  if (!message) return Effect.succeed(state);
+                  if (
+                    message.type === "stream_event" &&
+                    message.event?.type === "content_block_delta" &&
+                    message.event.delta?.type === "text_delta" &&
+                    message.event.delta.text
+                  ) {
+                    const delta = message.event.delta.text;
+                    return Ref.set(emitted, true).pipe(
+                      Effect.andThen(input.onTextDelta?.(delta) ?? Effect.void),
+                      Effect.as({ ...state, text: state.text + delta }),
+                    );
+                  }
+                  if (message.type === "result") {
+                    if (message.is_error) {
+                      const detail =
+                        message.result?.trim() ||
+                        message.errors
+                          ?.filter((error) => !error.startsWith("[ede_diagnostic]"))
+                          .join("\n") ||
+                        "Claude streamed an error.";
+                      return Effect.fail(new TextGenerationError({ operation, detail }));
+                    }
+                    return Effect.succeed({
+                      ...state,
+                      result: message.result?.trim() || state.result,
+                    });
+                  }
+                  return Effect.succeed(state);
+                },
+              ),
+            ),
+            readStreamAsString(operation, child.stderr),
+            child.exitCode.pipe(
+              Effect.mapError((cause) =>
+                normalizeCliError(
+                  "claude",
+                  operation,
+                  cause,
+                  "Failed to read Claude CLI exit code",
+                ),
+              ),
+            ),
+          ],
+          { concurrency: "unbounded" },
+        );
+        return { ...stdout, stderr, exitCode, emitted: yield* Ref.get(emitted) };
+      },
+      (effect) => effect.pipe(Effect.scoped),
+    );
+
+    const run = Effect.gen(function* () {
+      const first = yield* runAttempt(true);
+      if (
+        first.exitCode !== 0 &&
+        first.stderr.includes(NO_SESSION_PERSISTENCE_REJECTED) &&
+        !first.emitted
+      ) {
+        yield* Effect.logDebug("Retrying Claude Smalltalk without session persistence.");
+        return yield* runAttempt(false);
+      }
+      return first;
+    });
+
+    const result = yield* run.pipe(
+      Effect.timeoutOption(CLAUDE_TIMEOUT_MS),
+      Effect.flatMap(
+        Option.match({
+          onNone: () =>
+            Effect.fail(
+              new TextGenerationError({ operation, detail: "Claude CLI request timed out." }),
+            ),
+          onSome: Effect.succeed,
+        }),
+      ),
+    );
+    if (result.exitCode !== 0) {
+      const detail = result.stderr.trim() || result.result?.trim();
+      return yield* new TextGenerationError({
+        operation,
+        detail:
+          detail && detail.length > 0
+            ? `Claude CLI command failed: ${detail}`
+            : `Claude CLI command failed with code ${result.exitCode}.`,
+      });
+    }
+    const explanation = (result.result || result.text).trim();
+    if (!explanation) {
+      return yield* new TextGenerationError({
+        operation,
+        detail: "Claude returned empty output.",
+      });
+    }
+    return { explanation, modelSelection: resolvedModelSelection };
+  });
+
+  const generateSmalltalk: ProviderTextGeneration["generateSmalltalk"] = (input) =>
+    runClaudeSmalltalk(input).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.mapError((cause) =>
+        isTextGenerationError(cause)
+          ? cause
+          : new TextGenerationError({
+              operation: "generateSmalltalk",
+              detail: "Claude Smalltalk generation failed.",
+              cause,
+            }),
+      ),
+    );
+
+  return TextGenerationOperations.fromRunner("ClaudeTextGeneration", runClaudeJson, {
+    generateSmalltalk,
+  });
 });

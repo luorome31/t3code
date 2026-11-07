@@ -6,6 +6,7 @@ import {
   MessageId,
   ThreadId,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   SYSTEM_SMALLTALK_PRESET,
   TextGenerationError,
@@ -36,115 +37,118 @@ const selection = { instanceId: ProviderInstanceId.make("codex"), model: "test-m
 const create = { action: "create" as const, threadId, sourceThreadId: threadId, messageId };
 const custom = { id: "custom", name: "Example", prompt: "Explain with an example." };
 
-const fixture = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
-  yield* sql`CREATE TABLE orchestration_v2_projection_threads (thread_id TEXT PRIMARY KEY, deleted_at TEXT)`;
-  yield* sql`INSERT INTO orchestration_v2_projection_threads (thread_id) VALUES (${threadId}), (${otherThreadId})`;
-  yield* migration;
-  const settings = yield* Ref.make({
-    ...DEFAULT_SERVER_SETTINGS,
-    smalltalkModelSelection: selection,
-    smalltalkPresets: [custom],
-  });
-  type Job = {
-    gate: Deferred.Deferred<string, TextGenerationError>;
-    instructions: string;
-    sourceText: string;
-  };
-  const jobs = yield* Queue.unbounded<Job>();
-  const projection = {
-    thread: { id: threadId, projectId: ProjectId.make("project") },
-    messages: [
-      {
-        id: messageId,
-        role: "assistant",
-        text: "A transaction commits all changes atomically.",
-        streaming: false,
-        runId: "run",
-      },
-      {
-        id: secondMessageId,
-        role: "assistant",
-        text: "A cache stores earlier results.",
-        streaming: false,
-        runId: "run",
-      },
-    ],
-    runs: [{ id: "run", status: "completed" }],
-    visibleTurnItems: [
-      {
-        sourceThreadId: threadId,
-        item: { type: "assistant_message", messageId, status: "completed" },
-      },
-      {
-        sourceThreadId: threadId,
-        item: { type: "assistant_message", messageId: secondMessageId, status: "completed" },
-      },
-    ],
-  };
-  const layer = SmalltalkService.layer.pipe(
-    Layer.provide(
-      Layer.mock(ThreadManagement.ThreadManagementService)({
-        getThreadProjection: () =>
-          Effect.succeed(
-            projection as unknown as Awaited<
-              Effect.Success<
-                ReturnType<
-                  ThreadManagement.ThreadManagementService["Service"]["getThreadProjection"]
+const fixture = (driverKind = "codex") =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`CREATE TABLE orchestration_v2_projection_threads (thread_id TEXT PRIMARY KEY, deleted_at TEXT)`;
+    yield* sql`INSERT INTO orchestration_v2_projection_threads (thread_id) VALUES (${threadId}), (${otherThreadId})`;
+    yield* migration;
+    const settings = yield* Ref.make({
+      ...DEFAULT_SERVER_SETTINGS,
+      smalltalkModelSelection: selection,
+      smalltalkPresets: [custom],
+    });
+    type Job = {
+      gate: Deferred.Deferred<string, TextGenerationError>;
+      instructions: string;
+      sourceText: string;
+      emit: (text: string) => Effect.Effect<void>;
+    };
+    const jobs = yield* Queue.unbounded<Job>();
+    const projection = {
+      thread: { id: threadId, projectId: ProjectId.make("project") },
+      messages: [
+        {
+          id: messageId,
+          role: "assistant",
+          text: "A transaction commits all changes atomically.",
+          streaming: false,
+          runId: "run",
+        },
+        {
+          id: secondMessageId,
+          role: "assistant",
+          text: "A cache stores earlier results.",
+          streaming: false,
+          runId: "run",
+        },
+      ],
+      runs: [{ id: "run", status: "completed" }],
+      visibleTurnItems: [
+        {
+          sourceThreadId: threadId,
+          item: { type: "assistant_message", messageId, status: "completed" },
+        },
+        {
+          sourceThreadId: threadId,
+          item: { type: "assistant_message", messageId: secondMessageId, status: "completed" },
+        },
+      ],
+    };
+    const layer = SmalltalkService.layer.pipe(
+      Layer.provide(
+        Layer.mock(ThreadManagement.ThreadManagementService)({
+          getThreadProjection: () =>
+            Effect.succeed(
+              projection as unknown as Awaited<
+                Effect.Success<
+                  ReturnType<
+                    ThreadManagement.ThreadManagementService["Service"]["getThreadProjection"]
+                  >
                 >
+              >,
+            ),
+          getThreadRecords: () =>
+            Effect.succeed(
+              projection as unknown as Effect.Success<
+                ReturnType<ThreadManagement.ThreadManagementService["Service"]["getThreadRecords"]>
+              >,
+            ),
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(ProviderRegistry.ProviderInstanceRegistry)({
+          getInstance: () =>
+            Effect.succeed({
+              driverKind: ProviderDriverKind.make(driverKind),
+              snapshot: {
+                getSnapshot: Effect.succeed({
+                  enabled: true,
+                  installed: true,
+                  status: "ready",
+                  auth: { status: "authenticated" },
+                } as ServerProvider),
+              },
+            } as unknown as NonNullable<
+              Effect.Success<
+                ReturnType<ProviderRegistry.ProviderInstanceRegistry["Service"]["getInstance"]>
               >
-            >,
-          ),
-        getThreadRecords: () =>
-          Effect.succeed(
-            projection as unknown as Effect.Success<
-              ReturnType<ThreadManagement.ThreadManagementService["Service"]["getThreadRecords"]>
-            >,
-          ),
-      }),
-    ),
-    Layer.provide(
-      Layer.mock(ProviderRegistry.ProviderInstanceRegistry)({
-        getInstance: () =>
-          Effect.succeed({
-            driverKind: "codex",
-            snapshot: {
-              getSnapshot: Effect.succeed({
-                enabled: true,
-                installed: true,
-                status: "ready",
-                auth: { status: "authenticated" },
-              } as ServerProvider),
-            },
-          } as unknown as NonNullable<
-            Effect.Success<
-              ReturnType<ProviderRegistry.ProviderInstanceRegistry["Service"]["getInstance"]>
-            >
-          >),
-      }),
-    ),
-    Layer.provide(Layer.mock(Settings.ServerSettingsService)({ getSettings: Ref.get(settings) })),
-    Layer.provide(
-      Layer.mock(TextGeneration.TextGeneration)({
-        generateSmalltalk: (input) =>
-          Effect.gen(function* () {
-            const gate = yield* Deferred.make<string, TextGenerationError>();
-            yield* Queue.offer(jobs, {
-              gate,
-              instructions: input.instructions,
-              sourceText: input.sourceText,
-            });
-            const explanation = yield* Deferred.await(gate);
-            return {
-              explanation,
-              modelSelection: { ...input.modelSelection, model: "actual-model" },
-            };
-          }),
-      }),
-    ),
-  );
-  return { layer, settings, jobs, sql };
-});
+            >),
+        }),
+      ),
+      Layer.provide(Layer.mock(Settings.ServerSettingsService)({ getSettings: Ref.get(settings) })),
+      Layer.provide(
+        Layer.mock(TextGeneration.TextGeneration)({
+          generateSmalltalk: (input) =>
+            Effect.gen(function* () {
+              const gate = yield* Deferred.make<string, TextGenerationError>();
+              yield* Queue.offer(jobs, {
+                gate,
+                instructions: input.instructions,
+                sourceText: input.sourceText,
+                emit: (text) => input.onTextDelta?.(text) ?? Effect.void,
+              });
+              const explanation = yield* Deferred.await(gate);
+              return {
+                explanation,
+                modelSelection: { ...input.modelSelection, model: "actual-model" },
+              };
+            }),
+        }),
+      ),
+    );
+    return { layer, settings, jobs, sql };
+  });
 const database = NodeSqliteClient.layer({ filename: ":memory:" });
 const dependencies = Layer.mergeAll(NodeServices.layer, NodeCrypto.layer);
 const settled = (
@@ -162,7 +166,7 @@ it.effect(
   () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const f = yield* fixture;
+        const f = yield* fixture();
         yield* Effect.gen(function* () {
           const service = yield* SmalltalkService.SmalltalkService;
           const first = yield* service.mutate(create);
@@ -232,7 +236,7 @@ it.effect(
   () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const f = yield* fixture;
+        const f = yield* fixture();
         yield* Effect.gen(function* () {
           const service = yield* SmalltalkService.SmalltalkService;
           const invalid = yield* service
@@ -258,12 +262,55 @@ it.effect(
     ).pipe(Effect.provide(database.pipe(Layer.provideMerge(dependencies)))),
 );
 
+it.effect("streams partial text into summaries and clears it when the generation completes", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      yield* Effect.gen(function* () {
+        const service = yield* SmalltalkService.SmalltalkService;
+        const record = (yield* service.mutate(create))!;
+        const job = yield* Queue.take(f.jobs);
+        const chunk = "A".repeat(30);
+        yield* job.emit(chunk);
+        const summaries = Option.getOrThrow(
+          yield* service.subscribe({ threadId }).pipe(Stream.runHead),
+        );
+        assert.strictEqual(
+          summaries.find((summary) => summary.id === record.id)?.streamingText,
+          chunk,
+        );
+        yield* Deferred.succeed(job.gate, `${chunk} done`);
+        yield* settled(service, record.id, "completed");
+        const result = yield* service.get(record);
+        assert.strictEqual(result.explanation, `${chunk} done`);
+        assert.strictEqual(result.streamingText, "");
+      }).pipe(Effect.provide(f.layer));
+    }),
+  ).pipe(Effect.provide(database.pipe(Layer.provideMerge(dependencies)))),
+);
+
+it.effect("accepts Antigravity as a Smalltalk model", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const f = yield* fixture("antigravity");
+      yield* Effect.gen(function* () {
+        const service = yield* SmalltalkService.SmalltalkService;
+        const record = (yield* service.mutate(create))!;
+        const job = yield* Queue.take(f.jobs);
+        yield* Deferred.succeed(job.gate, "Explained.");
+        yield* settled(service, record.id, "completed");
+        assert.strictEqual((yield* service.get(record)).explanation, "Explained.");
+      }).pipe(Effect.provide(f.layer));
+    }),
+  ).pipe(Effect.provide(database.pipe(Layer.provideMerge(dependencies)))),
+);
+
 it.effect(
   "recovers interrupted requests on restart and removes data when their owning thread is deleted",
   () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const f = yield* fixture;
+        const f = yield* fixture();
         const record = yield* Effect.scoped(
           Effect.gen(function* () {
             const service = yield* SmalltalkService.SmalltalkService;

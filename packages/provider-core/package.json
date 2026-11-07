@@ -155,6 +155,10 @@
       "types": "./src/server/subagentProjection.ts",
       "import": "./src/server/subagentProjection.ts"
     },
+    "./server/smalltalkPrompt": {
+      "types": "./src/server/smalltalkPrompt.ts",
+      "import": "./src/server/smalltalkPrompt.ts"
+    },
     "./server/textGeneration": {
       "types": "./src/server/textGeneration.ts",
       "import": "./src/server/textGeneration.ts"

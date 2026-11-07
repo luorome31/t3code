@@ -346,6 +346,27 @@ it.layer(NodeServices.layer)("AntigravityTextGeneration", (it) => {
       }).pipe(Effect.scoped),
   );
 
+  it.effect("streams Smalltalk text as it arrives", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture({ outputs: ["Streamed explanation text."] });
+      const deltas: string[] = [];
+      const result = yield* fixture.textGeneration.generateSmalltalk({
+        cwd: fixture.projectDirectory,
+        sourceText: "A transaction commits all changes atomically.",
+        question: "Explain",
+        instructions: "Use simple language.",
+        modelSelection,
+        onTextDelta: (delta) =>
+          Effect.sync(() => {
+            deltas.push(delta);
+          }),
+      });
+      expect(deltas.join("")).toBe("Streamed explanation text.");
+      expect(result.explanation).toBe("Streamed explanation text.");
+      yield* fixture.assertCleaned;
+    }).pipe(Effect.scoped),
+  );
+
   it.effect.each(["tool_call", "tool_call_update"] as const)(
     "aborts on %s even without a permission request",
     (sessionUpdate) =>

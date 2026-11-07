@@ -113,6 +113,8 @@ export interface SmalltalkGenerationInput {
   question: string;
   instructions: string;
   modelSelection: ModelSelection;
+  /** Providers that stream call this with incremental text before returning the final answer. */
+  readonly onTextDelta?: ((delta: string) => Effect.Effect<void>) | undefined;
 }
 export interface ProviderTextGeneration {
   readonly generateSmalltalk: (

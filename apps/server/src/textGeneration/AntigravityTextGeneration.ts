@@ -1,4 +1,4 @@
-import { ProviderSetupError, TextGenerationError } from "@t3tools/contracts";
+import { ProviderSetupError, TextGenerationError, type ModelSelection } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -18,6 +18,8 @@ import {
   isAntigravitySignInRequiredError,
 } from "../provider/antigravityAuthSupport.ts";
 import type * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
+import { buildSmalltalkPrompt } from "@t3tools/provider-core/server/smalltalkPrompt";
+import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textGeneration";
 import * as TextGenerationOperations from "@t3tools/provider-core/server/textGenerationOperations";
 
 const ANTIGRAVITY_TIMEOUT_MS = 180_000;
@@ -132,8 +134,13 @@ export const makeAntigravityTextGeneration = Effect.fn("makeAntigravityTextGener
     Effect.provideService(Path.Path, path),
   );
 
-  const runAntigravityJson = Effect.fn("AntigravityTextGeneration.runJson")(
-    function* <S extends Schema.Top>(input: TextGenerationOperations.Request<S>) {
+  const runAntigravityPrompt = Effect.fn("AntigravityTextGeneration.runPrompt")(
+    function* (input: {
+      readonly operation: TextGenerationOperations.Operation;
+      readonly prompt: string;
+      readonly modelSelection: ModelSelection;
+      readonly onTextDelta?: ((delta: string) => Effect.Effect<void>) | undefined;
+    }) {
       const { operation } = input;
       const scope = yield* Scope.make();
       yield* Effect.addFinalizer((exit) => Scope.close(scope, exit));
@@ -230,6 +237,7 @@ export const makeAntigravityTextGeneration = Effect.fn("makeAntigravityTextGener
               if (exceeded) {
                 return yield* reject("Antigravity text generation exceeded the output limit.");
               }
+              if (input.onTextDelta) yield* input.onTextDelta(text);
             }),
           );
 
@@ -298,7 +306,7 @@ export const makeAntigravityTextGeneration = Effect.fn("makeAntigravityTextGener
             detail: "Antigravity returned empty text generation output.",
           });
         }
-        return yield* TextGenerationOperations.decodeJsonReply(input, "Antigravity", rawResult);
+        return rawResult;
       }).pipe(
         Effect.scoped,
         Effect.timeoutOption(ANTIGRAVITY_TIMEOUT_MS),
@@ -339,8 +347,32 @@ export const makeAntigravityTextGeneration = Effect.fn("makeAntigravityTextGener
       ),
   );
 
+  const runAntigravityJson = Effect.fn("AntigravityTextGeneration.runJson")(function* <
+    S extends Schema.Top,
+  >(input: TextGenerationOperations.Request<S>) {
+    const raw = yield* runAntigravityPrompt({
+      operation: input.operation,
+      prompt: input.prompt,
+      modelSelection: input.modelSelection,
+    });
+    return yield* TextGenerationOperations.decodeJsonReply(input, "Antigravity", raw);
+  });
+
+  const generateSmalltalk: ProviderTextGeneration["generateSmalltalk"] = Effect.fn(
+    "AntigravityTextGeneration.generateSmalltalk",
+  )(function* (input) {
+    const explanation = yield* runAntigravityPrompt({
+      operation: "generateSmalltalk",
+      prompt: buildSmalltalkPrompt(input, { format: "text" }),
+      modelSelection: input.modelSelection,
+      onTextDelta: input.onTextDelta,
+    });
+    return { explanation, modelSelection: input.modelSelection };
+  });
+
   return TextGenerationOperations.fromRunner(
     "AntigravityTextGeneration",
     TextGenerationOperations.withoutInvestigation("Antigravity", runAntigravityJson),
+    { generateSmalltalk },
   );
 });
