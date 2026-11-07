@@ -110,6 +110,31 @@ function withFakeClaudeEnv<A, E, R>(
 }
 
 it.layer(layerClaudeTextGenerationTest)("ClaudeTextGeneration", (it) => {
+  it.effect("explains an answer outside the project with tools and hooks disabled", () =>
+    withFakeClaudeEnv(
+      {
+        output: JSON.stringify({
+          structured_output: { explanation: "All changes are saved together." },
+        }),
+        cwdMustNotBe: process.cwd(),
+        stdinMustContain: '"answer":"Atomic commit"',
+      },
+      (generation) =>
+        Effect.gen(function* () {
+          const result = yield* generation.generateSmalltalk({
+            cwd: process.cwd(),
+            sourceText: "Atomic commit",
+            question: "Explain",
+            instructions: "Use simple language.",
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("claudeAgent"),
+              model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+            },
+          });
+          expect(result.explanation).toBe("All changes are saved together.");
+        }),
+    ),
+  );
   it.effect(
     "keeps canonical built-in capabilities when a custom model collides with its alias",
     () =>

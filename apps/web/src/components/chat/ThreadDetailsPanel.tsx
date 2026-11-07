@@ -34,6 +34,7 @@ import { useClientSettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { SlidersHorizontalIcon } from "lucide-react";
 import { useThreadHighlightCount } from "~/highlightStore";
+import { ThreadSmalltalkRow } from "./Smalltalk";
 import { ThreadHighlightsRow } from "./ThreadHighlightsRow";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import {
@@ -251,6 +252,10 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                   separated={density === "full"}
                   {...(props.onOpenHighlights ? { onOpen: props.onOpenHighlights } : {})}
                 />
+              ) : null}
+
+              {props.isServerThread && !props.draftId ? (
+                <ThreadSmalltalkRow threadRef={activeThreadRef} />
               ) : null}
 
               {density === "full" && !props.draftId && visible.servers ? (

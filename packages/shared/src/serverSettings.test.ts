@@ -84,6 +84,31 @@ describe("fallbackTextGenerationModelSelection", () => {
 });
 
 describe("serverSettings helpers", () => {
+  it("replaces Smalltalk models and presets and restores the system default after deletion", () => {
+    const preset = { id: "custom", name: "Example", prompt: "Give an example." };
+    const model = createModelSelection(ProviderInstanceId.make("codex"), "example", [
+      { id: "reasoningEffort", value: "low" },
+    ]);
+    const configured = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      smalltalkModelSelection: model,
+      smalltalkPresets: [preset],
+      smalltalkDefaultPresetId: preset.id,
+    });
+    const replaced = applyServerSettingsPatch(configured, {
+      smalltalkModelSelection: {
+        instanceId: ProviderInstanceId.make("claudeAgent"),
+        model: "another",
+      },
+      smalltalkPresets: [],
+    });
+    expect(replaced.smalltalkPresets).toEqual([]);
+    expect(replaced.smalltalkDefaultPresetId).toBe("system");
+    expect(replaced.smalltalkModelSelection).toEqual({
+      instanceId: ProviderInstanceId.make("claudeAgent"),
+      model: "another",
+    });
+    expect(configured.smalltalkPresets).toEqual([preset]);
+  });
   it("translates a shipped client's idle compaction switch into a mode", () => {
     const off = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, { idleCompaction: "off" });
     expect([off.idleCompaction, off.compactIdleThreads]).toEqual(["off", false]);

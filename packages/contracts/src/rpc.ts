@@ -33,6 +33,14 @@ import {
   ChatGptHandoffInput,
   ChatGptHandoffState,
 } from "./providerSetup.ts";
+import {
+  Smalltalk,
+  SmalltalkSummary,
+  SmalltalkError,
+  SmalltalkThreadInput,
+  SmalltalkGetInput,
+  SmalltalkMutation,
+} from "./smalltalk.ts";
 import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
@@ -567,6 +575,9 @@ export const WS_METHODS = {
   pullRequestsActivity: "pullRequests.activity",
   pullRequestsReviewGuide: "pullRequests.reviewGuide",
   pullRequestsGenerateReviewGuide: "pullRequests.generateReviewGuide",
+  smalltalkSubscribe: "smalltalk.subscribe",
+  smalltalkGet: "smalltalk.get",
+  smalltalkMutate: "smalltalk.mutate",
   pullRequestsThreadComments: "pullRequests.threadComments",
   pullRequestsDiffFileContents: "pullRequests.diffFileContents",
   pullRequestsFilesViewed: "pullRequests.filesViewed",
@@ -1999,7 +2010,27 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
   { error: EnvironmentAuthorizationError },
 ) {}
 
+const WsSmalltalkSubscribeRpc = Rpc.make(WS_METHODS.smalltalkSubscribe, {
+  payload: SmalltalkThreadInput,
+  success: Schema.Array(SmalltalkSummary),
+  error: SmalltalkError,
+  stream: true,
+});
+const WsSmalltalkGetRpc = Rpc.make(WS_METHODS.smalltalkGet, {
+  payload: SmalltalkGetInput,
+  success: Smalltalk,
+  error: SmalltalkError,
+});
+const WsSmalltalkMutateRpc = Rpc.make(WS_METHODS.smalltalkMutate, {
+  payload: SmalltalkMutation,
+  success: Schema.NullOr(Smalltalk),
+  error: SmalltalkError,
+});
+
 export const WsRpcGroup = RpcGroup.make(
+  WsSmalltalkSubscribeRpc,
+  WsSmalltalkGetRpc,
+  WsSmalltalkMutateRpc,
   WsGuestShareCreateRpc,
   WsServerProbeRpc,
   WsServerGetConfigRpc,

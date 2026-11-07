@@ -222,6 +222,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     modelSelection,
     attachments,
     investigate,
+    onModelSelectionResolved,
   }: TextGenerationOperations.Request<S>): Effect.fn.Return<
     S["Type"],
     TextGenerationError,
@@ -259,6 +260,12 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
           (entry) => entry.slug === requestedModel,
         )?.slug ??
         listed.find((candidate) => codexModelFamily(candidate.slug) === requestedFamily)?.slug;
+      if (operation === "generateSmalltalk" && models.length > 0 && matchedModel === undefined) {
+        return yield* new TextGenerationError({
+          operation,
+          detail: "The selected Smalltalk model is unavailable.",
+        });
+      }
       const model =
         matchedModel ??
         listed.find((candidate) => candidate.isDefault)?.slug ??
@@ -267,6 +274,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
         requestedModel;
       // The selection's options were chosen for the requested model and may not fit a fallback.
       const fellBack = matchedModel === undefined && model !== requestedModel;
+      onModelSelectionResolved?.({ ...modelSelection, model });
       const launchArgs = resolveCodexLaunchArgs(effectiveConfig.launchArgs, effectiveEnvironment);
       const reasoningEffort =
         (fellBack
@@ -302,6 +310,16 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
           ...execLaunchArgs,
           // A user's MCP server could act on the text-generation prompt.
           ...CODEX_NO_PLUGIN_ARGS,
+          ...(operation === "generateSmalltalk"
+            ? [
+                "--config",
+                "features.shell_tool=false",
+                "--config",
+                'web_search="disabled"',
+                "--config",
+                "features.multi_agent=false",
+              ]
+            : []),
           ...(mcpServersOff ? ["--config", mcpServersOff] : []),
           "--ephemeral",
           "--skip-git-repo-check",
@@ -321,9 +339,22 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
         ],
         { env: effectiveEnvironment },
       );
+      const workingDirectory =
+        operation === "generateSmalltalk"
+          ? yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-smalltalk-" }).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new TextGenerationError({
+                    operation,
+                    detail: "Could not isolate Smalltalk.",
+                    cause,
+                  }),
+              ),
+            )
+          : cwd;
       const command = ChildProcess.make(spawnCommand.command, spawnCommand.args, {
         env,
-        cwd,
+        cwd: workingDirectory,
         shell: spawnCommand.shell,
         stdin: {
           stream: Stream.encodeText(Stream.make(prompt)),

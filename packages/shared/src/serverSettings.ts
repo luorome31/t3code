@@ -641,6 +641,12 @@ export function applyServerSettingsPatch(
     ...(patch.sourceControlWriterModelSelection !== undefined
       ? { sourceControlWriterModelSelection: patch.sourceControlWriterModelSelection }
       : {}),
+    ...(patch.smalltalkModelSelection !== undefined
+      ? { smalltalkModelSelection: patch.smalltalkModelSelection }
+      : {}),
+    ...(patch.smalltalkPresets !== undefined
+      ? { smalltalkPresets: patch.smalltalkPresets.filter((preset) => preset.id !== "system") }
+      : {}),
     ...(patch.reviewGuideModelSelection !== undefined
       ? { reviewGuideModelSelection: patch.reviewGuideModelSelection }
       : {}),
@@ -653,8 +659,14 @@ export function applyServerSettingsPatch(
   const resolvedBackgroundActivity = resolveBackgroundActivitySettings(
     normalizedBackgroundActivity,
   );
+  const smalltalkDefaultPresetId = nextWithReplacementsBase.smalltalkPresets.some(
+    (preset) => preset.id === nextWithReplacementsBase.smalltalkDefaultPresetId,
+  )
+    ? nextWithReplacementsBase.smalltalkDefaultPresetId
+    : "system";
   const nextWithReplacements = {
     ...withIdleCompaction(nextWithReplacementsBase, patchedIdleCompaction(current, patch)),
+    smalltalkDefaultPresetId,
     ...deriveLegacyProjectOverrides(nextWithReplacementsBase),
     backgroundActivity: normalizedBackgroundActivity,
     automaticGitFetchInterval: resolvedBackgroundActivity.automaticGitFetchInterval,

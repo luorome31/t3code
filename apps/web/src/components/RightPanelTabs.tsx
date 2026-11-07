@@ -607,6 +607,8 @@ function surfaceTitle(
       return "Pull requests";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
+    case "smalltalk":
+      return "Smalltalk";
     case "highlights":
       return "Highlights";
     case "side-chat":
@@ -701,6 +703,8 @@ function SurfaceIcon({
       return <PullRequestGlyph.link className="size-3 shrink-0" />;
     case "side-chat":
       return <SideChatTabIcon environmentId={environmentId} threadId={surface.threadId} />;
+    case "smalltalk":
+      return <HighlighterIcon className="size-3 shrink-0" />;
     case "highlights":
       return <HighlighterIcon className="size-3 shrink-0" />;
     case "device":

@@ -816,6 +816,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["generated thread titles source control content default provider"],
   },
   {
+    id: "smalltalk-model",
+    title: "Smalltalk model",
+    to: "/settings/threads",
+    targetId: "smalltalk",
+    searchTerms: ["说人话", "explanation", "prompt", "preset", "通俗解释"],
+  },
+  {
     id: "thread-title-instructions",
     title: "Thread title instructions",
     to: "/settings/threads",

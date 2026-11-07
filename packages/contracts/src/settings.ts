@@ -61,6 +61,8 @@ import {
   SpeechPostProcessingPromptSettings,
 } from "./speech.ts";
 
+import { SmalltalkPreset, SYSTEM_SMALLTALK_PRESET_ID } from "./smalltalk.ts";
+
 export const TimestampFormat = Schema.Literals(["locale", "12-hour", "24-hour"]);
 export type TimestampFormat = typeof TimestampFormat.Type;
 const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
@@ -1077,6 +1079,9 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "enableAgentBrowserAccess",
   "enableAgentDeviceAccess",
   "textGenerationModelSelection",
+  "smalltalkModelSelection",
+  "smalltalkPresets",
+  "smalltalkDefaultPresetId",
   "threadTitleInstructions",
   "sourceControlWriterModelSelection",
   "reviewGuideModelSelection",
@@ -1115,6 +1120,9 @@ export const ProjectSettingsOverrides = Schema.Struct({
   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
   enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
   textGenerationModelSelection: Schema.optionalKey(ModelSelection),
+  smalltalkModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  smalltalkPresets: Schema.optionalKey(Schema.Array(SmalltalkPreset)),
+  smalltalkDefaultPresetId: Schema.optionalKey(TrimmedNonEmptyString),
   threadTitleInstructions: Schema.optionalKey(TrimmedString),
   sourceControlWriterModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   reviewGuideModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
@@ -1159,6 +1167,7 @@ const NULLABLE_PROJECT_SETTINGS_OVERRIDES: ReadonlySet<ProjectScopedServerSettin
   "defaultModelSelection",
   "sourceControlWriterModelSelection",
   "reviewGuideModelSelection",
+  "smalltalkModelSelection",
   "pullRequestMergeMethod",
   "sidebarAutoSettleAfterDays",
 ]);
@@ -1385,6 +1394,15 @@ export const ServerSettings = Schema.Struct({
         ],
       }),
     ),
+  ),
+  smalltalkModelSelection: Schema.NullOr(ModelSelection).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  smalltalkPresets: Schema.Array(SmalltalkPreset).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  smalltalkDefaultPresetId: TrimmedNonEmptyString.pipe(
+    Schema.withDecodingDefault(Effect.succeed(SYSTEM_SMALLTALK_PRESET_ID)),
   ),
   threadTitleInstructions: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   branchNamingMode: BranchNamingMode.pipe(
@@ -1739,6 +1757,9 @@ export const ServerSettingsPatch = Schema.Struct({
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   ghqCloneLayout: Schema.optionalKey(Schema.Boolean),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
+  smalltalkModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  smalltalkPresets: Schema.optionalKey(Schema.Array(SmalltalkPreset)),
+  smalltalkDefaultPresetId: Schema.optionalKey(TrimmedNonEmptyString),
   threadTitleInstructions: Schema.optionalKey(TrimmedString),
   branchNamingMode: Schema.optionalKey(BranchNamingMode),
   branchNamePrefix: Schema.optionalKey(TrimmedString),
