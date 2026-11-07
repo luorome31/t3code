@@ -13,10 +13,12 @@ import "~/components/ChatView";
 import { DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import { __setClientSettingsForTests } from "~/hooks/useSettings";
 import { getRouter } from "~/router";
+import { useRightPanelStore } from "~/rightPanelStore";
 import {
   ENVIRONMENT_ID,
   PROJECT_ID,
   installFakeEnvironment,
+  threadWithHistory,
   type FakeDriver,
 } from "../../test/fakeEnvironment";
 import { render } from "../../test/render";
@@ -35,6 +37,49 @@ vi.mock(import("~/rpc/requestLatencyState"), async (original) => ({
   ...(await original()),
   trackRpcRequestSent: () => {},
 }));
+
+it.each(["questions", "timeline"] as const)(
+  "opens an existing conversation with a saved question outline panel in %s mode",
+  async (conversationNavigation) => {
+    await page.viewport(1400, 900);
+    const threads = ["questions", "timeline"].map((mode) =>
+      threadWithHistory(`thread-navigation-${mode}`, 2),
+    );
+    const thread = threads[conversationNavigation === "questions" ? 0 : 1]!;
+    using _environment = installFakeEnvironment(threads);
+    __setClientSettingsForTests({
+      ...DEFAULT_CLIENT_SETTINGS,
+      onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
+      conversationNavigation,
+    });
+    useRightPanelStore
+      .getState()
+      .open({ environmentId: ENVIRONMENT_ID, threadId: thread.id }, "questions");
+    const router = getRouter(
+      createMemoryHistory({ initialEntries: [`/${ENVIRONMENT_ID}/${thread.id}`] }),
+    );
+    await router.load();
+    const container = document.createElement("div");
+    container.style.cssText = "height: 900px; width: 1400px;";
+    await using screen = await render(<AppRoot router={router} />, {
+      container,
+      // AppRoot brings its own router.
+      router: false,
+    });
+    await expect
+      .element(screen.getByText(`Answer 1 for ${thread.id}.`, { exact: false }))
+      .toBeVisible();
+    if (conversationNavigation === "questions") {
+      await expect
+        .element(screen.getByRole("heading", { name: "Question outline", level: 2 }))
+        .toBeVisible();
+    } else {
+      await expect
+        .element(screen.getByRole("heading", { name: "Question outline", level: 2 }))
+        .not.toBeInTheDocument();
+    }
+  },
+);
 
 it("a new draft does not load its reserved thread before the server lists it", async () => {
   using _environment = installFakeEnvironment([]);

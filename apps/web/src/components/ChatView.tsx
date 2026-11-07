@@ -1086,13 +1086,9 @@ export default function ChatView(props: ChatViewProps) {
   const rightPanelOpen = rightPanelState.isOpen;
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
-  const rightPanelPresenceValue = {
-    activeSurface: activeRightPanelSurface,
-    surfaces: rightPanelState.surfaces,
-  };
   const rightPanelPresence = usePanelPresence(
     rightPanelOpen && activeThreadRef !== null,
-    rightPanelPresenceValue,
+    storedRightPanelState,
     panelAnimationsActive,
     activeThreadKey,
     panelAnimationDurationMs,
@@ -1101,8 +1097,17 @@ export default function ChatView(props: ChatViewProps) {
   const rightPanelControlsInPanel =
     shouldUsePlanSidebarSheet && rightPanelPresent && rightPanelOpen;
   const rightPanelControlsAtRoot = rightPanelPresent && !shouldUsePlanSidebarSheet;
-  const renderedRightPanelSurface = rightPanelPresence.value?.activeSurface ?? null;
-  const renderedRightPanelSurfaces = rightPanelPresence.value?.surfaces ?? [];
+  const renderedRightPanelState = rightPanelPresence.value
+    ? visibleRightPanelState(
+        rightPanelPresence.value,
+        settings.conversationNavigation === "questions",
+      )
+    : null;
+  const renderedRightPanelSurfaces = renderedRightPanelState?.surfaces ?? [];
+  const renderedRightPanelSurface =
+    renderedRightPanelSurfaces.find(
+      (surface) => surface.id === renderedRightPanelState?.activeSurfaceId,
+    ) ?? null;
   const previewMiniPlayerVisible = shouldRenderPreviewMiniPlayer(
     activePreviewMiniPlayer?.source ?? null,
     renderedRightPanelSurface,
