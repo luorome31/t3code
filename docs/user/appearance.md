@@ -50,6 +50,14 @@ there to review them, change a color, delete them, or insert selected quotes int
 The color chosen under **Settings → Appearance → Highlight color** applies to new highlights;
 existing highlights keep their color.
 
+## Conversation navigation
+
+In **Settings → Chat → Conversation navigation**, choose **Left timeline**, **Question outline**,
+or **Off**. With Question outline, open the directory from thread details to revisit your prompts,
+including earlier questions that have not loaded in the chat yet. The previous and next question
+controls navigate from your current reading position without opening the directory. This preference
+is saved separately in each browser or desktop client.
+
 ## Motion
 
 The main sidebar, right panel, and terminal drawer open and close immediately by default. Move the

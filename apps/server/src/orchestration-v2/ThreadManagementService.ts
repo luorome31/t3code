@@ -29,6 +29,7 @@ import {
   type OrchestrationV2ThreadShellSnapshot,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2ThreadTranscript,
+  type OrchestrationV2QuestionPage,
   type OrchestrationV2ThreadShell,
   type OrchestrationV2TurnItem,
   ProjectId,
@@ -376,6 +377,10 @@ export interface ThreadManagementServiceShape {
     Orchestrator.OrchestratorV2Error | ThreadManagementProviderInstanceDisabledError
   >;
   readonly getThreadHistoryPage: Orchestrator.OrchestratorV2["Service"]["getThreadHistoryPage"];
+  readonly getQuestions: (
+    threadId: ThreadId,
+    afterPosition?: number,
+  ) => Effect.Effect<typeof OrchestrationV2QuestionPage.Type, Orchestrator.OrchestratorV2Error>;
   readonly getTimelinePage: Orchestrator.OrchestratorV2["Service"]["getTimelinePage"];
   readonly getMessageCount: Orchestrator.OrchestratorV2["Service"]["getMessageCount"];
   readonly getTurnItem: (input: {
@@ -674,6 +679,35 @@ const make = Effect.gen(function* () {
     ensureProjectionTranscript(threadId).pipe(
       Effect.andThen(orchestrator.getThreadSnapshot(threadId)),
     );
+  const getQuestions = Effect.fn("orchestrationV2.threadManagement.getQuestions")(function* (
+    threadId: ThreadId,
+    afterPosition?: number,
+  ) {
+    yield* ensureProjectionTranscript(threadId);
+    const page = yield* orchestrator.getTimelinePage(threadId, {
+      view: "questions",
+      limit: 100,
+      ...(afterPosition === undefined ? {} : { afterPosition }),
+    });
+    return {
+      items: page.items.flatMap((row) =>
+        row.item.type !== "user_message"
+          ? []
+          : [
+              {
+                messageId: row.item.messageId,
+                entryId: row.sourceItemId,
+                position: row.position,
+                text: row.item.text.slice(0, 2_000),
+                createdAt: row.item.startedAt ?? row.item.updatedAt,
+                attachments: row.item.attachments.map(({ name, type }) => ({ name, type })),
+              },
+            ],
+      ),
+      total: page.totalItems,
+      nextPosition: page.hasMore ? (page.items.at(-1)?.position ?? null) : null,
+    };
+  });
   const getThreadTranscript = Effect.fn("orchestrationV2.threadManagement.getThreadTranscript")(
     function* (threadId: ThreadId) {
       const { projection } = yield* getThreadSnapshot(threadId);
@@ -1591,6 +1625,7 @@ const make = Effect.gen(function* () {
     getCheckpointContext,
     getThreadSnapshot,
     getThreadTranscript,
+    getQuestions,
     getThreadSnapshotWindow,
     getProjectThreadRecords,
     getAgentAwarenessSnapshot: orchestrator.getAgentAwarenessSnapshot,

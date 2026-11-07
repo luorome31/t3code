@@ -7573,6 +7573,18 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
       });
       assert.deepEqual(followingPage.items, targetAfterRollback.visibleTurnItems.slice(2));
       assert.isFalse(followingPage.hasMore);
+      const questionPage = yield* projectionStore.getTimelinePage(targetThreadId, {
+        view: "questions",
+        limit: 100,
+      });
+      const visibleQuestions = targetAfterRollback.visibleTurnItems.filter(
+        (row) =>
+          row.visibility === "local" &&
+          row.item.type === "user_message" &&
+          row.item.createdBy === "user",
+      );
+      assert.deepEqual(questionPage.items, visibleQuestions);
+      assert.equal(questionPage.totalItems, visibleQuestions.length);
       const tracedTimelinePage = (limit: number) =>
         Effect.gen(function* () {
           const { statements, tracer } = traceSqlStatements();

@@ -141,6 +141,9 @@ import { useThreadFindPositionReader } from "./useThreadFindPositionReader";
 import { ThreadActivityAnnouncer } from "./ThreadActivityAnnouncer";
 import { useStableHandoffRuns, useIncrementalTimelineRows, useStableRows } from "./useTimelineRows";
 import { useClientSettings } from "../../hooks/useSettings";
+import { useQuestionTimeline } from "./useQuestionTimeline";
+import { reportQuestionPosition } from "./questionOutlineStore";
+import { isQuestionMessage } from "./questionOutline.logic";
 
 function timelineListStateFor(identity: string): {
   readonly identity: string;
@@ -714,7 +717,16 @@ const ConversationTimeline = memo(function ConversationTimeline({
   );
   // Run status/timestamps change per stream event; keep them out of shared row context.
   const runs = useStableHandoffRuns(runsProp);
-  const minimapItems = deriveTimelineMinimapItems(rows);
+  const navigationMode = useClientSettings((settings) => settings.conversationNavigation);
+  const minimapItems = navigationMode === "timeline" ? deriveTimelineMinimapItems(rows) : [];
+  const questionRows =
+    navigationMode === "questions"
+      ? rows.flatMap((row, rowIndex) =>
+          row.kind === "message" && isQuestionMessage(row.message)
+            ? [{ rowIndex, messageId: row.message.id }]
+            : [],
+        )
+      : [];
   const minimapRowIndices = minimapItems.map((item) => item.rowIndex);
   const restoreRowIndex =
     restoringThreadPosition && rememberedPosition?.atEnd === false
@@ -772,6 +784,14 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const [timelineViewportElement, setTimelineViewportElement] = useState<HTMLDivElement | null>(
     null,
   );
+  const questionTargetKey = useQuestionTimeline({
+    enabled: navigationMode === "questions",
+    threadKey: listIdentityKey,
+    viewport: timelineViewportElement,
+    rows,
+    listRef,
+    navigate: navigateTimeline,
+  });
   const {
     target: readyCitationRequest,
     positioning: citationPositioning,
@@ -807,6 +827,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const firstMessageRow = rows.find(isMessageRow);
   const lastMessageRow = rows.findLast(isMessageRow);
   const alwaysRenderKeys = [
+    ...(questionTargetKey ? [questionTargetKey] : []),
     ...(firstMessageRow ? [firstMessageRow.id] : []),
     ...(lastMessageRow && lastMessageRow !== firstMessageRow ? [lastMessageRow.id] : []),
     ...(citationAlwaysRender?.keys ?? []),
@@ -856,7 +877,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const refreshMinimap = useStableCallback(() => {
     const state = listRef.current?.getState?.();
     if (restoringThreadPosition || state?.data !== rows) return;
-    if (!state || minimapItems.length === 0) {
+    if (!state || (minimapItems.length === 0 && navigationMode !== "questions")) {
       return;
     }
 
@@ -874,6 +895,18 @@ const ConversationTimeline = memo(function ConversationTimeline({
           firstBufferedRow.getBoundingClientRect().top
         : state.scroll;
     const visibleRange = resolveTimelineMinimapVisibleRange({ ...state, scroll });
+    if (navigationMode === "questions") {
+      const question = questionRows.findLast((row) => {
+        const top = state.positionAtIndex(row.rowIndex);
+        return top !== undefined && top <= scroll + 32;
+      });
+      const timestamp =
+        question || visibleRange.start == null
+          ? null
+          : (rows[visibleRange.start]?.createdAt ?? null);
+      reportQuestionPosition(listIdentityKey, question?.messageId ?? null, timestamp);
+      return;
+    }
     for (const item of minimapItems) {
       const strip = minimapStripMap.get(item.id);
       const inView = isTimelineMinimapRowVisible(
@@ -899,6 +932,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
 
   const minimapRefreshFrameRef = useRef<number | null>(null);
   const scheduleMinimapRefresh = () => {
+    if (navigationMode === "off") return;
     if (minimapRefreshFrameRef.current !== null) return;
     // LegendList recycles row containers before React commits their positions.
     minimapRefreshFrameRef.current = requestAnimationFrame(() => {
@@ -1349,6 +1383,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
               contentInsetEndAdjustment={anchoredEndSpace ? contentInsetEndAdjustment : 0}
               maintainScrollAtEnd={
                 citationPositioning ||
+                questionTargetKey !== null ||
                 (restoringThreadPosition && rememberedPosition?.atEnd === false) ||
                 anchoredEndSpace ||
                 !liveFollowEnabled ||
@@ -1362,6 +1397,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
               maintainVisibleContentPosition={
                 findActive ||
                 citationPositioning ||
+                questionTargetKey !== null ||
                 (restoringThreadPosition && rememberedPosition?.atEnd === false)
                   ? false
                   : maintainVisibleContentPosition
@@ -1376,22 +1412,24 @@ const ConversationTimeline = memo(function ConversationTimeline({
               ListHeaderComponent={listHeader}
               ListFooterComponent={timelineListFooter}
             />
-            <TimelineMinimap
-              items={minimapItems}
-              hasPersistentGutter={minimapHasPersistentGutter}
-              hitStripWidth={minimapHitStripWidth}
-              currentIndex={minimapCurrentIndex}
-              stripMap={minimapStripMap}
-              onWheel={forwardMinimapWheel}
-              onSelect={(item) => {
-                navigateTimeline();
-                void listRef.current?.scrollToIndex({
-                  index: item.rowIndex,
-                  animated: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-                  viewOffset: 24,
-                });
-              }}
-            />
+            {navigationMode === "timeline" ? (
+              <TimelineMinimap
+                items={minimapItems}
+                hasPersistentGutter={minimapHasPersistentGutter}
+                hitStripWidth={minimapHitStripWidth}
+                currentIndex={minimapCurrentIndex}
+                stripMap={minimapStripMap}
+                onWheel={forwardMinimapWheel}
+                onSelect={(item) => {
+                  navigateTimeline();
+                  void listRef.current?.scrollToIndex({
+                    index: item.rowIndex,
+                    animated: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+                    viewOffset: 24,
+                  });
+                }}
+              />
+            ) : null}
           </TooltipScrollDismissArea>
         </TimelineRowActivityCtx>
       </MarkdownFindContext>

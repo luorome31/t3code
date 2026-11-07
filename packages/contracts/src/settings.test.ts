@@ -42,6 +42,19 @@ const encodeServerSettingsPatch = Schema.encodeSync(ServerSettingsPatch);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
 describe("storage cleanup settings", () => {
+  it("defaults conversation navigation for old clients and preserves each explicit mode", () => {
+    expect(decodeClientSettings({}).conversationNavigation).toBe("timeline");
+    for (const mode of ["off", "timeline", "questions"] as const) {
+      const settings = decodeClientSettings({ conversationNavigation: mode });
+      expect(decodeClientSettings(encodeClientSettings(settings)).conversationNavigation).toBe(
+        mode,
+      );
+      expect(decodeClientSettingsPatch({ conversationNavigation: mode })).toEqual({
+        conversationNavigation: mode,
+      });
+    }
+    expect(() => decodeClientSettings({ conversationNavigation: "both" })).toThrow();
+  });
   it("keeps cleanup disabled for existing installations", () => {
     expect(decodeServerSettings({}).worktreeCleanup).toBeNull();
     expect(decodeServerSettings({}).storageCleanup).toEqual({

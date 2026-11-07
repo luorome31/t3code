@@ -14,6 +14,7 @@ import {
   selectThreadPanelVisibility,
   selectThreadRightPanelState,
   useRightPanelStore,
+  visibleRightPanelState,
 } from "./rightPanelStore";
 
 const refA = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-A"));
@@ -40,6 +41,35 @@ async function reloadRightPanelStore() {
 }
 
 describe("rightPanelStore", () => {
+  it("hides disabled question tabs and restores them without losing other panel state", () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "files");
+    store.open(refA, "questions");
+    const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(visibleRightPanelState(state, false)).toMatchObject({
+      isOpen: true,
+      activeSurfaceId: "files",
+      surfaces: [{ id: "files", kind: "files" }],
+    });
+    expect(visibleRightPanelState(state, true)).toBe(state);
+    store.closeSurface(refA, "files");
+    const questionsOnly = selectThreadRightPanelState(
+      useRightPanelStore.getState().byThreadKey,
+      refA,
+    );
+    expect(visibleRightPanelState(questionsOnly, false)).toMatchObject({
+      isOpen: true,
+      activeSurfaceId: null,
+      surfaces: [],
+    });
+    store.toggleVisibility(refA);
+    expect(
+      visibleRightPanelState(
+        selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA),
+        false,
+      ).isOpen,
+    ).toBe(false);
+  });
   it("opens a hosted side chat's panel actions in its parent's panel until unhosted", () => {
     const store = useRightPanelStore.getState();
     const unhost = hostRightPanel(refB, refA);

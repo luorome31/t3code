@@ -26,6 +26,7 @@ import { PullRequestDetailGhost } from "../pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "../pullRequest/PullRequestsUnavailableState";
 import { ThreadPullRequestsPanel } from "../pullRequest/ThreadPullRequestsPanel";
 import { ThreadHighlightsPanel } from "./ThreadHighlightsPanel";
+import { ThreadQuestionsPanel } from "./ThreadQuestionsPanel";
 
 const PreviewPanel = lazy(() =>
   import("../preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
@@ -178,6 +179,14 @@ export function RightPanelSurfaceContent(props: {
           key={scopedThreadKey(threadRef)}
           threadRef={threadRef}
           onInsertHighlights={props.onInsertHighlights}
+        />
+      );
+    case "questions":
+      return (
+        <ThreadQuestionsPanel
+          key={scopedThreadKey(threadRef)}
+          threadRef={threadRef}
+          visible={visible}
         />
       );
     case "side-chat":

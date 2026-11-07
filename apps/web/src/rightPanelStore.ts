@@ -23,6 +23,7 @@ const RIGHT_PANEL_KINDS = [
   "pull-requests",
   "side-chat",
   "highlights",
+  "questions",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -78,10 +79,11 @@ export type RightPanelSurface =
     }
   | { id: "pull-requests"; kind: "pull-requests" }
   | { id: `side-chat:${string}`; kind: "side-chat"; threadId: ThreadId }
-  | { id: "highlights"; kind: "highlights" };
+  | { id: "highlights"; kind: "highlights" }
+  | { id: "questions"; kind: "questions" };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
-const RIGHT_PANEL_STORAGE_VERSION = 14;
+const RIGHT_PANEL_STORAGE_VERSION = 15;
 
 export const PULL_REQUESTS_PANEL_REF = scopeThreadRef(
   EnvironmentId.make("pull-requests-panel"),
@@ -223,6 +225,8 @@ const singletonSurface = (
       return { id: "device", kind };
     case "highlights":
       return { id: "highlights", kind };
+    case "questions":
+      return { id: "questions", kind };
   }
 };
 
@@ -1216,6 +1220,18 @@ export function selectThreadRightPanelState(
 ): ThreadRightPanelState {
   if (!ref) return EMPTY_THREAD_STATE;
   return byThreadKey[scopedThreadKey(ref)] ?? EMPTY_THREAD_STATE;
+}
+
+export function visibleRightPanelState(
+  state: ThreadRightPanelState,
+  questionsEnabled: boolean,
+): ThreadRightPanelState {
+  if (questionsEnabled || !state.surfaces.some((surface) => surface.kind === "questions"))
+    return state;
+  const surfaces = state.surfaces.filter((surface) => surface.kind !== "questions");
+  const activeSurfaceId =
+    state.activeSurfaceId === "questions" ? (surfaces.at(-1)?.id ?? null) : state.activeSurfaceId;
+  return { ...state, surfaces, activeSurfaceId };
 }
 
 export function selectThreadPanelVisibility(
