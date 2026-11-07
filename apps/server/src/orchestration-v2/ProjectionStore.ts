@@ -398,7 +398,7 @@ export interface ProjectionTimelinePageOptions {
   readonly afterPosition?: number;
   readonly itemId?: TurnItemId;
   readonly attachmentId?: string;
-  readonly view?: "messages" | "activity";
+  readonly view?: "messages" | "activity" | "questions";
   readonly limit: number;
 }
 export interface ProjectionTimelinePage {
@@ -5706,6 +5706,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         { type: "user_message" }
       >["inputIntent"];
       readonly createdBy?: "user" | "agent" | "system";
+      readonly automatedInput?: boolean;
       readonly messageId?: MessageId;
       readonly runStatus?: string | undefined;
       readonly attemptId?: string | null;
@@ -5724,6 +5725,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       threadId: ThreadId,
       seen: ReadonlySet<ThreadId>,
       includePersistentOutput?: boolean,
+      includeQuestionProvenance?: boolean,
     ) => Effect.Effect<
       {
         readonly records: ProjectionRecords<"runs" | "attempts">;
@@ -5732,7 +5734,12 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       },
       ProjectionStoreV2Error
     > = Effect.fn("ProjectionStore.readTimelineIndex")(
-      function* (threadId: ThreadId, seen: ReadonlySet<ThreadId>, includePersistentOutput = false) {
+      function* (
+        threadId: ThreadId,
+        seen: ReadonlySet<ThreadId>,
+        includePersistentOutput = false,
+        includeQuestionProvenance = false,
+      ) {
         const records = yield* getThreadRecords(threadId, ["runs", "attempts"]);
         const rows = yield* sql<{
           turn_item_id: string;
@@ -5742,6 +5749,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           type: OrchestrationV2TurnItem["type"];
           input_intent: NonNullable<TimelineIndexItem["inputIntent"]> | null;
           created_by: "user" | "agent" | "system" | null;
+          automated_input: number;
           message_id: string | null;
           status: OrchestrationV2TurnItem["status"];
           ordinal: number;
@@ -5756,6 +5764,14 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           } AS persistent_output,
           CASE WHEN item.type = 'user_message' THEN json_extract(item.payload_json, '$.inputIntent') END AS input_intent,
           CASE WHEN item.type = 'user_message' THEN json_extract(item.payload_json, '$.createdBy') END AS created_by,
+          ${
+            includeQuestionProvenance
+              ? sql`CASE WHEN item.type = 'user_message' AND (
+            json_extract(item.payload_json, '$.scheduledTaskId') IS NOT NULL OR
+            json_extract(item.payload_json, '$.senderThreadId') IS NOT NULL
+          ) THEN 1 ELSE 0 END`
+              : sql`0`
+          } AS automated_input,
           CASE WHEN item.type IN ('user_message', 'assistant_message') THEN json_extract(item.payload_json, '$.messageId') END AS message_id
         FROM orchestration_v2_projection_turn_items AS item
         ${
@@ -5786,6 +5802,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           persistentOutput: row.persistent_output === 1,
           ...(row.input_intent === null ? {} : { inputIntent: row.input_intent }),
           ...(row.created_by === null ? {} : { createdBy: row.created_by }),
+          ...(row.automated_input === 1 ? { automatedInput: true } : {}),
           ...(row.message_id === null ? {} : { messageId: MessageId.make(row.message_id) }),
         }));
         const local: Array<TimelineIndexRow> = items.map((item) => ({
@@ -5806,6 +5823,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           fork.threadId,
           new Set([...seen, threadId]),
           includePersistentOutput,
+          includeQuestionProvenance,
         );
         const sourceRun = source.records.runs.find((run) => run.id === fork.runId);
         let inherited: Array<TimelineIndexRow> = [];
@@ -5994,7 +6012,15 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       sql
         .withTransaction(
           Effect.gen(function* () {
-            const index = yield* readTimelineIndex(threadId, new Set());
+            const index = yield* readTimelineIndex(
+              threadId,
+              new Set(),
+              false,
+              options.view === "questions",
+            );
+            if (options.view === "questions" && index.records.thread.deletedAt !== null) {
+              return yield* new ProjectionStoreThreadNotFoundError({ threadId });
+            }
             const attachmentOwners =
               options.attachmentId === undefined
                 ? undefined
@@ -6009,8 +6035,26 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                       (row) => `${row.thread_id}:${row.turn_item_id}`,
                     ),
                   );
-            const matching = index.visible
-              .map((row, position) => ({ ...row, position }))
+            const seenQuestions = new Set<string>();
+            const indexed = index.visible.map((row, position) => ({ ...row, position }));
+            const candidates =
+              options.view === "questions"
+                ? indexed.filter((row) => {
+                    const item = row.item;
+                    if (
+                      row.visibility !== "local" ||
+                      item.type !== "user_message" ||
+                      (item.createdBy !== "user" && item.createdBy !== undefined) ||
+                      item.automatedInput === true ||
+                      item.messageId === undefined ||
+                      seenQuestions.has(item.messageId)
+                    )
+                      return false;
+                    seenQuestions.add(item.messageId);
+                    return true;
+                  })
+                : indexed;
+            const matching = candidates
               .filter((row) =>
                 options.itemId === undefined
                   ? row.position > (options.afterPosition ?? -1) &&
@@ -6074,7 +6118,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             );
             return {
               items,
-              totalItems: index.visible.length,
+              totalItems: options.view === "questions" ? candidates.length : index.visible.length,
               hasMore: matching.length > page.length,
             };
           }),

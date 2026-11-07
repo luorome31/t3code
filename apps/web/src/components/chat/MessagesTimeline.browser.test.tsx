@@ -14,6 +14,7 @@ import {
   TurnItemId,
   ScheduledTaskId,
   ThreadId,
+  type OrchestrationV2Question,
   type OrchestrationV2Subagent,
 } from "@t3tools/contracts";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
@@ -26,12 +27,13 @@ import {
   type ReactElement,
 } from "react";
 import * as DateTime from "effect/DateTime";
-import { Atom } from "effect/reactivity";
+import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
+import { RegistryContext } from "@effect/atom-react";
 import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 
 import "~/index.css";
 
-import { environmentThreadDetails } from "../../state/threads";
+import { environmentThreadDetails, threadEnvironment } from "../../state/threads";
 import { act, fakeTimers, render, stubGlobal } from "../../../test/render";
 import { ChangedFilesCard } from "./ChangedFilesTree";
 import { MessagesTimeline } from "./MessagesTimeline";
@@ -47,6 +49,12 @@ import { toastManager } from "../ui/toast";
 import type { CitedHistory } from "./citationProcedure";
 import type { TimelineNavigation } from "./timelineViewport";
 import { rememberTimelinePosition } from "./timelineScrollAnchoring";
+import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
+import { __setClientSettingsForTests, updateClientSettings } from "../../hooks/useSettings";
+import { ThreadQuestionsPanel } from "./ThreadQuestionsPanel";
+import { ThreadQuestionsRow } from "./ThreadQuestionsRow";
+import { useQuestionOutlineStore } from "./questionOutlineStore";
+import { selectActiveRightPanel, useRightPanelStore } from "../../rightPanelStore";
 import {
   COMPOSER_CONTEXT_CLIPBOARD_MIME,
   decodeComposerContextFragment,
@@ -211,7 +219,173 @@ async function click(element: HTMLElement) {
 
 function setup({ scheduledTasks = [] as ReadonlyArray<{ id: string; title: string }> } = {}) {
   environmentQuery.data = { tasks: scheduledTasks };
+  environmentQuery.error = "Pull request not found";
 }
+
+function historyPageGate() {
+  type Result = Awaited<ReturnType<typeof threadEnvironment.loadEarlierHistory.run>>;
+  let resolve!: (result: Result) => void;
+  const promise = new Promise<Result>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
+}
+
+it("navigates questions from the viewport without opening a panel, then reveals directory targets", async () => {
+  setup();
+  __setClientSettingsForTests({ ...DEFAULT_CLIENT_SETTINGS, conversationNavigation: "questions" });
+  using _settings = {
+    [Symbol.dispose]: () => __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS),
+  };
+  const base = baseProps();
+  const threadRef = {
+    environmentId: ENVIRONMENT_ID,
+    threadId: ThreadId.make(base.routeThreadKey.split(":")[1]!),
+  };
+  const questions: OrchestrationV2Question[] = Array.from({ length: 4 }, (_, index) => ({
+    messageId: MessageId.make(`question-${index}`),
+    entryId: TurnItemId.make(`entry-question-${index}`),
+    position: index * 2,
+    text: `Question ${index + 1}: review the navigation`,
+    createdAt: DateTime.makeUnsafe(CREATED_AT),
+    attachments: [],
+  }));
+  const entries = questions.flatMap((question, index) => [
+    message(question.text, {}, question.messageId),
+    message(
+      `Answer ${index + 1}\n\n${"Some explanation.\n\n".repeat(30)}`,
+      { role: "assistant" },
+      `answer-${index}`,
+    ),
+  ]);
+  environmentQuery.data = { items: questions, total: questions.length };
+  environmentQuery.error = "";
+  const registry = AtomRegistry.make();
+  using _registry = { [Symbol.dispose]: () => registry.dispose() };
+  const history = Atom.make({
+    historyCursor: "older-questions",
+    hasMoreHistory: true,
+    loading: false,
+    error: null,
+    expanded: false,
+    latestLocalTurnOrdinal: null,
+  });
+  using _history = vi.spyOn(environmentThreadDetails, "historyAtom").mockReturnValue(history);
+  const historyLoad = historyPageGate();
+  const secondHistoryLoad = historyPageGate();
+  using loadHistory = vi
+    .spyOn(threadEnvironment.loadEarlierHistory, "run")
+    .mockReturnValueOnce(historyLoad.promise)
+    .mockReturnValue(secondHistoryLoad.promise);
+  function OutlineView({ visibleEntries }: { visibleEntries: Entry[] }) {
+    const open = useRightPanelStore(
+      (state) => selectActiveRightPanel(state.byThreadKey, threadRef) === "questions",
+    );
+    return (
+      <RegistryContext value={registry}>
+        <div className="flex h-full min-h-0">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <ThreadQuestionsRow threadRef={threadRef} separated={false} />
+            <div className="min-h-0 flex-1">
+              <MessagesTimeline
+                {...base}
+                timelineEntries={visibleEntries}
+                liveFollowEnabled={false}
+              />
+            </div>
+          </div>
+          {open ? (
+            <div className="w-80">
+              <ThreadQuestionsPanel threadRef={threadRef} visible />
+            </div>
+          ) : null}
+        </div>
+      </RegistryContext>
+    );
+  }
+  await using screen = await renderElement(<OutlineView visibleEntries={entries.slice(-2)} />);
+  await vi.waitFor(() =>
+    expect(
+      useQuestionOutlineStore.getState().byThreadKey[base.routeThreadKey]?.currentMessageId,
+    ).toBe("question-3"),
+  );
+  await expect
+    .element(screen.getByRole("button", { name: "Next question", exact: true }))
+    .toBeDisabled();
+  await screen.getByRole("button", { name: "Previous question", exact: true }).click();
+  await vi.waitFor(() => expect(loadHistory).toHaveBeenCalledOnce());
+  expect(
+    useQuestionOutlineStore.getState().byThreadKey[base.routeThreadKey]?.request?.question
+      .messageId,
+  ).toBe("question-2");
+  await screen.rerender(
+    <OutlineView
+      visibleEntries={[
+        ...entries.slice(-2),
+        message("New streaming content", { role: "assistant" }, "streaming"),
+      ]}
+    />,
+  );
+  expect(
+    useQuestionOutlineStore.getState().byThreadKey[base.routeThreadKey]?.request?.question
+      .messageId,
+  ).toBe("question-2");
+  historyLoad.resolve(AsyncResult.success({ _tag: "loaded" }));
+  await act(() =>
+    registry.set(history, {
+      ...registry.get(history),
+      historyCursor: "second-page",
+    }),
+  );
+  await screen.rerender(<OutlineView visibleEntries={entries.slice(-2)} />);
+  await vi.waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(2));
+  await screen.rerender(<OutlineView visibleEntries={entries} />);
+  secondHistoryLoad.resolve(AsyncResult.success({ _tag: "loaded" }));
+  await vi.waitFor(() =>
+    expect(
+      useQuestionOutlineStore.getState().byThreadKey[base.routeThreadKey]?.currentMessageId,
+    ).toBe("question-2"),
+  );
+  expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, threadRef)).toBeNull();
+  expect(screen.container.querySelector("[data-question-outline-panel]")).toBeNull();
+  await screen.getByRole("button", { name: /Question outline/ }).click();
+  await expect
+    .element(
+      screen.getByRole("button", {
+        name: "Question 3: Question 3: review the navigation",
+        exact: true,
+      }),
+    )
+    .toHaveAttribute("aria-current", "location");
+  await screen
+    .getByRole("button", { name: "Question 1: Question 1: review the navigation", exact: true })
+    .click();
+  await vi.waitFor(() =>
+    expect(
+      useQuestionOutlineStore.getState().byThreadKey[base.routeThreadKey]?.currentMessageId,
+    ).toBe("question-0"),
+  );
+  await expect
+    .element(screen.getByRole("button", { name: "Previous question", exact: true }))
+    .toBeDisabled();
+  const viewport = base.listRef.current!.getScrollableNode()!;
+  await vi.waitFor(() => {
+    expect(useQuestionOutlineStore.getState().byThreadKey[base.routeThreadKey]?.request).toBeNull();
+    const target = screen.container.querySelector('[data-message-id="question-0"]')!;
+    const targetTop = target.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
+    expect(targetTop).toBeGreaterThanOrEqual(0);
+    expect(targetTop).toBeLessThanOrEqual(28);
+  });
+  expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, threadRef)).toBe(
+    "questions",
+  );
+  await act(() => updateClientSettings({ conversationNavigation: "off" }));
+  await expect
+    .element(screen.getByRole("region", { name: "Question outline", exact: true }))
+    .not.toBeInTheDocument();
+  expect(screen.container.querySelector("[data-question-outline-panel]")).toBeNull();
+  expect(screen.container.querySelector('[data-testid="timeline-minimap"]')).toBeNull();
+});
 
 const TASK_ID = ScheduledTaskId.make("task-1");
 const AUTOMATION_PROMPT = "Triage the inbox\n\nLabel every new issue and close duplicates.";

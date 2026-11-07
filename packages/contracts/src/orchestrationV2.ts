@@ -2103,6 +2103,22 @@ export const OrchestrationV2ThreadTranscript = Schema.Struct({
 });
 export type OrchestrationV2ThreadTranscript = typeof OrchestrationV2ThreadTranscript.Type;
 
+export const OrchestrationV2Question = Schema.Struct({
+  messageId: MessageId,
+  entryId: TurnItemId,
+  position: NonNegativeInt,
+  text: Schema.String,
+  createdAt: Schema.DateTimeUtc,
+  attachments: Schema.Array(Schema.Struct({ name: Schema.String, type: Schema.String })),
+});
+export type OrchestrationV2Question = typeof OrchestrationV2Question.Type;
+
+export const OrchestrationV2QuestionPage = Schema.Struct({
+  items: Schema.Array(OrchestrationV2Question),
+  total: NonNegativeInt,
+  nextPosition: Schema.NullOr(NonNegativeInt),
+});
+
 export const OrchestrationV2ShellThreadStatus = Schema.Union([
   Schema.Literal("idle"),
   OrchestrationV2RunStatus,

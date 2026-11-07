@@ -33,6 +33,7 @@ import type { useDeviceState } from "../../state/device";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { openDeviceSetupDialog } from "./ChatOverlayHosts";
 import { previewEnvironment } from "../../state/preview";
+import { getClientSettings } from "../../hooks/useSettings";
 import { useAtomCommand } from "../../state/use-atom-command";
 import type { ChatShortcutCommands } from "./useChatShortcuts";
 interface RightPanelActionsInput {
@@ -152,6 +153,16 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     useRightPanelStore.getState().open(activeThreadRef, "highlights");
   };
   const addHighlightsSurfaceStable = useStableCallback(addHighlightsSurface);
+  const addQuestionsSurface = () => {
+    if (
+      !activeThreadRef ||
+      !isServerThread ||
+      getClientSettings().conversationNavigation !== "questions"
+    )
+      return;
+    useRightPanelStore.getState().open(activeThreadRef, "questions");
+  };
+  const addQuestionsSurfaceStable = useStableCallback(addQuestionsSurface);
   const addPullRequestsSurface = () => {
     if (!activeThreadRef || !pullRequestsSurfaceAvailable) return;
     useRightPanelStore.getState().open(activeThreadRef, "pull-requests");
@@ -352,6 +363,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     addDiffSurfaceStable,
     addFilesSurfaceStable,
     addHighlightsSurfaceStable,
+    addQuestionsSurfaceStable,
     addPullRequestSurfaceStable,
     addPullRequestsSurfaceStable,
     closePreviewPanelStable,

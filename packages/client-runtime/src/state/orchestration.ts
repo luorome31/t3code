@@ -3,6 +3,7 @@ import {
   type EnvironmentId,
   type ThreadId,
   type OrchestrationGetTurnDiffResult,
+  type OrchestrationV2Question,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -18,6 +19,7 @@ import {
   createEnvironmentRpcQueryAtomFamily,
   createEnvironmentRpcSubscriptionAtomFamily,
   createEnvironmentCommand,
+  createEnvironmentQueryAtomFamily,
   type QueryAnswerHandler,
 } from "./runtime.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
@@ -27,6 +29,7 @@ import * as ManagedRelayDpopSigner from "../relay/managedRelay.ts";
 import { EnvironmentRpcUnavailableError } from "../rpc/client.ts";
 import type { EnvironmentShellState } from "./shell.ts";
 import { fetchEnvironmentThreadTranscript } from "./threadTranscriptHttp.ts";
+import { fetchEnvironmentThreadQuestions } from "./threadQuestionsHttp.ts";
 
 export function createOrchestrationEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | HttpClient.HttpClient | R, E>,
@@ -48,6 +51,48 @@ export function createOrchestrationEnvironmentAtoms<R, E>(
       : { onAnswer: options.onCheckpointDiffAnswer };
   const shellState = options.shellState;
   return {
+    threadQuestions: createEnvironmentQueryAtomFamily(runtime, {
+      label: "environment-data:orchestration:questions",
+      staleTimeMs: 0,
+      idleTtlMs: 0,
+      execute: Effect.fn("orchestration.questions")(function* (input: {
+        readonly threadId: ThreadId;
+        readonly revision: string;
+      }) {
+        const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
+        const prepared = yield* SubscriptionRef.get(supervisor.prepared);
+        if (Option.isNone(prepared)) {
+          return yield* new EnvironmentRpcUnavailableError({
+            environmentId: supervisor.target.environmentId,
+            message: "The environment is not connected.",
+          });
+        }
+        const signer = yield* Effect.serviceOption(ManagedRelayDpopSigner.ManagedRelayDpopSigner);
+        const remoteAuthorization = yield* Effect.serviceOption(
+          RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization,
+        );
+        const items: OrchestrationV2Question[] = [];
+        let after: number | undefined;
+        for (;;) {
+          const page = yield* fetchEnvironmentThreadQuestions({
+            prepared: prepared.value,
+            threadId: input.threadId,
+            signer,
+            remoteAuthorization,
+            ...(after === undefined ? {} : { after }),
+          });
+          items.push(...page.items);
+          if (page.nextPosition === null) return { items, total: page.total };
+          if (after !== undefined && page.nextPosition <= after) {
+            return yield* new EnvironmentRpcUnavailableError({
+              environmentId: supervisor.target.environmentId,
+              message: "Question history did not advance. Try again.",
+            });
+          }
+          after = page.nextPosition;
+        }
+      }),
+    }),
     threadTitles: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:orchestration:thread-titles",
       tag: ORCHESTRATION_V2_WS_METHODS.getThreadTitles,

@@ -710,6 +710,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["composer rich text tiptap bold italic markdown styled wysiwyg"],
   },
   {
+    id: "conversation-navigation",
+    title: "Conversation navigation",
+    to: "/settings/chat",
+    searchTerms: ["timeline minimap questions outline previous next prompts sidebar navigation"],
+  },
+  {
     id: "send-shortcut",
     title: "Send shortcut",
     to: "/settings/chat",

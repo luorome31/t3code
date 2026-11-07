@@ -162,6 +162,27 @@ export const layer = HttpApiBuilder.group(
 
     return handlers
       .handle(
+        "threadQuestions",
+        Effect.fn("environment.orchestration.threadQuestions")(function* (args) {
+          yield* annotateEnvironmentRequest(args.endpoint.name);
+          yield* requireEnvironmentScope(AuthOrchestrationReadScope);
+          const after = args.query.after === undefined ? undefined : Number(args.query.after);
+          if (after !== undefined && (!Number.isSafeInteger(after) || after < 0)) {
+            return yield* failEnvironmentInvalidRequest("invalid_history_cursor");
+          }
+          return yield* threadManagement.getQuestions(args.params.threadId, after).pipe(
+            traceLocalHandlerWork,
+            Effect.catch(
+              Effect.fnUntraced(function* (error) {
+                if (isThreadNotFound(error))
+                  return yield* failEnvironmentNotFound("thread_not_found");
+                return yield* failEnvironmentInternal("orchestration_thread_history_failed", error);
+              }),
+            ),
+          );
+        }),
+      )
+      .handle(
         "shellSnapshot",
         Effect.fn("environment.orchestration.shellSnapshot")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);

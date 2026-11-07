@@ -44,6 +44,7 @@ import {
   Files,
   Globe2,
   HighlighterIcon,
+  ListOrderedIcon,
   MessagesSquare,
   Plus,
   TerminalSquare,
@@ -143,6 +144,7 @@ export interface RightPanelTabsProps {
   onAddPullRequests: () => void;
   onAddDevice: () => void;
   onAddHighlights: () => void;
+  onAddQuestions?: (() => void) | undefined;
   /** Absent where side chats are not offered. */
   onAddSideChat?: (() => void) | undefined;
   browserAvailable: boolean;
@@ -328,6 +330,7 @@ function RightPanelEmptyState(props: {
   onAddPullRequests: () => void;
   onAddDevice: () => void;
   onAddHighlights: () => void;
+  onAddQuestions?: (() => void) | undefined;
   /** Absent where side chats are not offered. */
   onAddSideChat?: (() => void) | undefined;
   browserAvailable: boolean;
@@ -409,6 +412,18 @@ function RightPanelEmptyState(props: {
       disabledReason: SURFACE_UNAVAILABLE_HINTS.highlights,
       onClick: props.onAddHighlights,
     },
+    ...(props.onAddQuestions
+      ? [
+          {
+            label: "Question outline",
+            icon: ListOrderedIcon,
+            shortcut: "Q",
+            available: true,
+            disabledReason: "",
+            onClick: props.onAddQuestions,
+          },
+        ]
+      : []),
     ...(props.onAddSideChat
       ? [
           {
@@ -611,6 +626,8 @@ function surfaceTitle(
       return "Smalltalk";
     case "highlights":
       return "Highlights";
+    case "questions":
+      return "Question outline";
     case "side-chat":
       return "Side chat";
     case "preview": {
@@ -707,6 +724,8 @@ function SurfaceIcon({
       return <HighlighterIcon className="size-3 shrink-0" />;
     case "highlights":
       return <HighlighterIcon className="size-3 shrink-0" />;
+    case "questions":
+      return <ListOrderedIcon className="size-3 shrink-0" />;
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />
@@ -1178,6 +1197,18 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       disabledReason: SURFACE_DISABLED_REASONS.highlights,
       onClick: props.onAddHighlights,
     },
+    ...(props.onAddQuestions
+      ? [
+          {
+            label: "Question outline",
+            icon: ListOrderedIcon,
+            shortcut: "Q",
+            available: true,
+            disabledReason: "",
+            onClick: props.onAddQuestions,
+          },
+        ]
+      : []),
     ...(props.onAddSideChat
       ? [
           {
@@ -1565,6 +1596,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddPullRequests={props.onAddPullRequests}
             onAddDevice={props.onAddDevice}
             onAddHighlights={props.onAddHighlights}
+            onAddQuestions={props.onAddQuestions}
             onAddSideChat={props.onAddSideChat}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}

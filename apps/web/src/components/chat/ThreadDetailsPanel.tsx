@@ -36,6 +36,7 @@ import { SlidersHorizontalIcon } from "lucide-react";
 import { useThreadHighlightCount } from "~/highlightStore";
 import { ThreadSmalltalkRow } from "./Smalltalk";
 import { ThreadHighlightsRow } from "./ThreadHighlightsRow";
+import { ThreadQuestionsRow } from "./ThreadQuestionsRow";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import {
   THREAD_DETAILS_PANEL_ICON_CLASS,
@@ -255,7 +256,10 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               ) : null}
 
               {props.isServerThread && !props.draftId ? (
-                <ThreadSmalltalkRow threadRef={activeThreadRef} />
+                <>
+                  <ThreadSmalltalkRow threadRef={activeThreadRef} />
+                  <ThreadQuestionsRow threadRef={activeThreadRef} separated={density === "full"} />
+                </>
               ) : null}
 
               {density === "full" && !props.draftId && visible.servers ? (

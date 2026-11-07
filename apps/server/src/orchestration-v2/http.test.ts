@@ -11,8 +11,10 @@ import {
   OrchestrationV2AppThread,
   OrchestrationV2TurnItem,
   OrchestrationV2ThreadTranscript,
+  OrchestrationV2QuestionPage,
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
   ThreadId,
+  TurnItemId,
 } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import { threadTranscriptHeader } from "@t3tools/shared/threadTranscript";
@@ -46,6 +48,10 @@ class TranscriptTestApi extends HttpApi.make("environment").add(
 ) {}
 const decodeTranscript = Schema.decodeUnknownEffect(
   Schema.toCodecJson(OrchestrationV2ThreadTranscript),
+);
+const decodeTurnItems = Schema.decodeUnknownEffect(Schema.Array(OrchestrationV2TurnItem));
+const decodeQuestionPage = Schema.decodeUnknownEffect(
+  Schema.toCodecJson(OrchestrationV2QuestionPage),
 );
 
 const now = DateTime.makeUnsafe("2026-09-29T00:00:00.000Z");
@@ -247,6 +253,71 @@ it.effect("exports full history with size, scope, and missing-thread checks", ()
     expect((yield* read(ThreadId.make("missing"))).status).toBe(404);
     allowed = false;
     expect((yield* read(thread.id)).status).toBe(403);
+  }),
+);
+
+it.effect("pages a bounded human-question outline without assistant or tool bodies", () =>
+  Effect.gen(function* () {
+    let allowed = true;
+    const { eventSink, handler } = yield* serveOrchestrationHttp(() => allowed);
+    const questions = yield* decodeTurnItems(
+      Array.from({ length: 105 }, (_, ordinal) => ({
+        ...items[0],
+        id: `question-${ordinal}`,
+        ordinal,
+        type: "user_message",
+        messageId: `message-${ordinal}`,
+        createdBy: ordinal === 1 ? "agent" : ordinal === 2 ? "system" : "user",
+        creationSource: "web",
+        inputIntent: "turn_start",
+        text: ordinal === 0 ? "界".repeat(10_000) : `Question ${ordinal}`,
+        attachments: [],
+        ...(ordinal === 3 ? { scheduledTaskId: "scheduled" } : {}),
+        ...(ordinal === 4 ? { senderThreadId: "sender" } : {}),
+      })),
+    );
+    yield* eventSink.write({
+      events: [
+        ...questions,
+        { ...items[0]!, id: TurnItemId.make("tool"), ordinal: 105 },
+        { ...questions[0]!, id: TurnItemId.make("duplicate-question"), ordinal: 106 },
+      ].map((item) => ({
+        id: EventId.make(`outline-${item.id}`),
+        type: "turn-item.updated" as const,
+        threadId: thread.id,
+        occurredAt: now,
+        payload: item,
+      })),
+    });
+    const read = (suffix = "", id: ThreadId = thread.id) =>
+      Effect.promise(() =>
+        handler(
+          new Request(`http://localhost/api/orchestration/threads/${id}/questions${suffix}`, {
+            headers: { [ORCHESTRATION_PROTOCOL_HEADER]: ORCHESTRATION_PROTOCOL_VERSION_TEXT },
+          }),
+        ),
+      );
+    const response = yield* read();
+    expect(response.status).toBe(200);
+    const page = yield* decodeQuestionPage(yield* Effect.promise(() => response.json()));
+    expect(page.total).toBe(101);
+    expect(page.items).toHaveLength(100);
+    expect(page.items[0]?.text).toHaveLength(2_000);
+    expect(page.items.slice(0, 2).map((item) => item.messageId)).toEqual([
+      "message-0",
+      "message-5",
+    ]);
+    expect(page.items[0]).not.toHaveProperty("output");
+    expect(page.nextPosition).toBe(103);
+    const nextResponse = yield* read(`?after=${page.nextPosition}`);
+    const next = yield* decodeQuestionPage(yield* Effect.promise(() => nextResponse.json()));
+    expect(next.items.map((item) => item.messageId)).toEqual(["message-104"]);
+    expect(next.nextPosition).toBeNull();
+    expect((yield* read("?after=invalid")).status).toBe(400);
+    expect((yield* read("?after=-1")).status).toBe(400);
+    expect((yield* read("", ThreadId.make("missing"))).status).toBe(404);
+    allowed = false;
+    expect((yield* read()).status).toBe(403);
   }),
 );
 
