@@ -24,12 +24,14 @@ export function useQuestionTimeline(input: {
   readonly navigate: () => void;
 }) {
   const { enabled, threadKey, viewport, rows, listRef } = input;
-  const ref = enabled ? parseScopedThreadKey(threadKey) : null;
-  const history = useThreadHistory(ref);
   const request = useQuestionOutlineStore((state) =>
     enabled ? (state.byThreadKey[threadKey]?.request ?? null) : null,
   );
-  const thread = useQuietThreadProjection(request ? ref : null);
+  // A draft's thread id is reserved before the server creates it. Reading its history
+  // or projection here would 404 and leave the later real thread stuck as deleted.
+  const ref = request === null ? null : parseScopedThreadKey(threadKey);
+  const history = useThreadHistory(ref);
+  const thread = useQuietThreadProjection(ref);
   const targetLoaded =
     request !== null &&
     (thread?.projection.visibleTurnItems.some(
