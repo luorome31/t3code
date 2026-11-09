@@ -1477,6 +1477,7 @@ export function PullRequestsPage() {
             defaultWidth={typeof window === "undefined" ? 640 : Math.floor(window.innerWidth / 2)}
             surfaces={renderedRightPanelSurfaces}
             environmentId={panelEnvironmentId}
+            threadRef={rightPanelRef}
             activeSurfaceId={renderedPullRequestSurface.id}
             pendingSurfaceIds={EMPTY_PENDING_SURFACES}
             previewSessions={EMPTY_PREVIEW_SESSIONS}

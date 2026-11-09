@@ -426,6 +426,41 @@ export function resolveTimelineMinimapCurrentIndex(input: {
   return precedingIndex;
 }
 
+/** The assistant reply occupying the most of the viewport, or the nearest one around it. */
+export function resolveActiveAssistantMessageId(input: {
+  readonly rows: ReadonlyArray<MessagesTimelineRow>;
+  readonly visibleStart: number | null | undefined;
+  readonly visibleEnd: number | null | undefined;
+  readonly scroll: number;
+  readonly scrollLength: number;
+  readonly atEnd?: boolean | undefined;
+  readonly positionAtIndex: (index: number) => number | undefined;
+  readonly sizeAtIndex: (index: number) => number | undefined;
+}): MessageId | null {
+  const { rows, visibleStart, visibleEnd, scroll } = input;
+  if (visibleStart == null || visibleEnd == null || visibleStart < 0) return null;
+  const viewportEnd = scroll + Math.max(1, input.scrollLength);
+  let best: { readonly id: MessageId; readonly overlap: number; readonly top: number } | null =
+    null;
+  let lastVisibleId: MessageId | null = null;
+  for (let index = visibleStart; index <= visibleEnd; index += 1) {
+    const row = rows[index];
+    if (row?.kind !== "message" || row.message.role !== "assistant") continue;
+    const top = input.positionAtIndex(index);
+    if (top == null) continue;
+    const bottom = top + Math.max(1, input.sizeAtIndex(index) ?? 1);
+    const overlap = Math.min(bottom, viewportEnd) - Math.max(top, scroll);
+    if (overlap <= 0) continue;
+    lastVisibleId = row.message.id;
+    if (best === null || overlap > best.overlap || (overlap === best.overlap && top < best.top)) {
+      best = { id: row.message.id, overlap, top };
+    }
+  }
+  // At the end of the conversation, the latest reply is the one being read.
+  if (input.atEnd === true && lastVisibleId !== null) return lastVisibleId;
+  return best?.id ?? null;
+}
+
 function resolveTimelineSideGutter(viewportWidth: number, contentWidth: number): number {
   if (!Number.isFinite(viewportWidth) || viewportWidth <= 0 || !Number.isFinite(contentWidth)) {
     return 0;

@@ -81,6 +81,7 @@ import { useAssistantCitationTarget } from "./useAssistantCitationTarget";
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
 import { resolveCitationPhase, type CitedHistory } from "./citationProcedure";
 import {
+  resolveActiveAssistantMessageId,
   resolveTimelineIsAtEnd,
   resolveTimelineMinimapHasPersistentGutter,
   resolveTimelineMinimapCurrentIndex,
@@ -144,6 +145,8 @@ import { useClientSettings } from "../../hooks/useSettings";
 import { useQuestionTimeline } from "./useQuestionTimeline";
 import { reportQuestionPosition } from "./questionOutlineStore";
 import { isQuestionMessage } from "./questionOutline.logic";
+import { useOutlineTimeline } from "./useOutlineTimeline";
+import { reportOutlineActiveMessage } from "./outlineStore";
 
 function timelineListStateFor(identity: string): {
   readonly identity: string;
@@ -229,6 +232,8 @@ interface MessagesTimelineProps {
   onRespondToApproval?: TimelineRowSharedState["onRespondToApproval"];
   citationRequest?: AssistantCitationRequest | null;
   citationHistory?: CitedHistory;
+  /** Tracks which assistant reply is being read for the Outline panel. */
+  outlineTrackingEnabled?: boolean;
   onCiteAssistantText?: (
     citation: AssistantCitation,
     sourceAnchor: AssistantCitationSourceAnchor,
@@ -346,6 +351,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onRespondToApproval,
   citationRequest = null,
   citationHistory = CITED_HISTORY_LOADING,
+  outlineTrackingEnabled = false,
   onCiteAssistantText,
   isWorking,
   runlessWorkActive = false,
@@ -792,6 +798,14 @@ const ConversationTimeline = memo(function ConversationTimeline({
     listRef,
     navigate: navigateTimeline,
   });
+  const outlineTargetKey = useOutlineTimeline({
+    enabled: outlineTrackingEnabled,
+    threadKey: listIdentityKey,
+    viewport: timelineViewportElement,
+    rows,
+    listRef,
+    navigate: navigateTimeline,
+  });
   const {
     target: readyCitationRequest,
     positioning: citationPositioning,
@@ -828,6 +842,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const lastMessageRow = rows.findLast(isMessageRow);
   const alwaysRenderKeys = [
     ...(questionTargetKey ? [questionTargetKey] : []),
+    ...(outlineTargetKey ? [outlineTargetKey] : []),
     ...(firstMessageRow ? [firstMessageRow.id] : []),
     ...(lastMessageRow && lastMessageRow !== firstMessageRow ? [lastMessageRow.id] : []),
     ...(citationAlwaysRender?.keys ?? []),
@@ -877,7 +892,10 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const refreshMinimap = useStableCallback(() => {
     const state = listRef.current?.getState?.();
     if (restoringThreadPosition || state?.data !== rows) return;
-    if (!state || (minimapItems.length === 0 && navigationMode !== "questions")) {
+    if (
+      !state ||
+      (minimapItems.length === 0 && navigationMode !== "questions" && !outlineTrackingEnabled)
+    ) {
       return;
     }
 
@@ -895,6 +913,21 @@ const ConversationTimeline = memo(function ConversationTimeline({
           firstBufferedRow.getBoundingClientRect().top
         : state.scroll;
     const visibleRange = resolveTimelineMinimapVisibleRange({ ...state, scroll });
+    if (outlineTrackingEnabled) {
+      reportOutlineActiveMessage(
+        listIdentityKey,
+        resolveActiveAssistantMessageId({
+          rows,
+          visibleStart: visibleRange.start,
+          visibleEnd: visibleRange.end,
+          scroll,
+          scrollLength: state.scrollLength,
+          atEnd: resolveTimelineIsAtEnd(state),
+          positionAtIndex: (index) => state.positionAtIndex(index),
+          sizeAtIndex: (index) => state.sizeAtIndex(index),
+        }),
+      );
+    }
     if (navigationMode === "questions") {
       const question = questionRows.findLast((row) => {
         const top = state.positionAtIndex(row.rowIndex);
@@ -907,6 +940,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       reportQuestionPosition(listIdentityKey, question?.messageId ?? null, timestamp);
       return;
     }
+    if (navigationMode === "off") return;
     for (const item of minimapItems) {
       const strip = minimapStripMap.get(item.id);
       const inView = isTimelineMinimapRowVisible(
@@ -932,7 +966,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
 
   const minimapRefreshFrameRef = useRef<number | null>(null);
   const scheduleMinimapRefresh = () => {
-    if (navigationMode === "off") return;
+    if (navigationMode === "off" && !outlineTrackingEnabled) return;
     if (minimapRefreshFrameRef.current !== null) return;
     // LegendList recycles row containers before React commits their positions.
     minimapRefreshFrameRef.current = requestAnimationFrame(() => {
@@ -940,6 +974,16 @@ const ConversationTimeline = memo(function ConversationTimeline({
       refreshMinimap();
     });
   };
+  const scheduleMinimapRefreshStable = useStableCallback(scheduleMinimapRefresh);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reports the active reply when Outline tracking starts or changes thread
+  useLayoutEffect(() => {
+    if (outlineTrackingEnabled) scheduleMinimapRefreshStable();
+  }, [
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- a thread switch must re-report even when tracking stays enabled
+    listIdentityKey,
+    outlineTrackingEnabled,
+    scheduleMinimapRefreshStable,
+  ]);
 
   // The measurement the last remember wrote, so a follow release can rewrite
   // it without reading render state from a listener.

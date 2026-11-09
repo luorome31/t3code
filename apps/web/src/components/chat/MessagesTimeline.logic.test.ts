@@ -31,10 +31,107 @@ import {
   liveAnswerPreview,
   deriveMessagesTimelineRowsWithState,
   shouldCollapseUserMessage,
+  resolveActiveAssistantMessageId,
   resolveAssistantMessageCopyState,
   type MessagesTimelineRow,
   workEntryDisplayLabel,
 } from "./MessagesTimeline.logic";
+
+function outlineMessageRow(id: string, role: "user" | "assistant"): MessagesTimelineRow {
+  return {
+    kind: "message",
+    id: `row-${id}`,
+    createdAt: "2026-01-01T00:00:00Z",
+    message: {
+      id: MessageId.make(id),
+      role,
+      text: "",
+      runId: null,
+      streaming: false,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    },
+  } as unknown as MessagesTimelineRow;
+}
+
+describe("resolveActiveAssistantMessageId", () => {
+  const rows = [
+    outlineMessageRow("user-1", "user"),
+    outlineMessageRow("assistant-1", "assistant"),
+    outlineMessageRow("user-2", "user"),
+    outlineMessageRow("assistant-2", "assistant"),
+  ];
+  const positions = [0, 50, 200, 260];
+  const sizes = [50, 120, 40, 120];
+  const input = {
+    rows,
+    positionAtIndex: (index: number) => positions[index],
+    sizeAtIndex: (index: number) => sizes[index],
+  };
+
+  it("prefers the assistant reply occupying the most of the viewport", () => {
+    expect(
+      resolveActiveAssistantMessageId({
+        ...input,
+        visibleStart: 1,
+        visibleEnd: 3,
+        scroll: 100,
+        scrollLength: 100,
+      }),
+    ).toBe(MessageId.make("assistant-1"));
+  });
+
+  it("prefers the latest visible reply when the conversation is at the end", () => {
+    expect(
+      resolveActiveAssistantMessageId({
+        ...input,
+        visibleStart: 1,
+        visibleEnd: 3,
+        scroll: 100,
+        scrollLength: 200,
+        atEnd: true,
+      }),
+    ).toBe(MessageId.make("assistant-2"));
+  });
+
+  it("returns null when the viewport is on a message between replies", () => {
+    expect(
+      resolveActiveAssistantMessageId({
+        ...input,
+        visibleStart: 2,
+        visibleEnd: 2,
+        scroll: 210,
+        scrollLength: 40,
+      }),
+    ).toBeNull();
+  });
+
+  it("returns null when the viewport is before every reply", () => {
+    expect(
+      resolveActiveAssistantMessageId({
+        ...input,
+        visibleStart: 0,
+        visibleEnd: 0,
+        scroll: 0,
+        scrollLength: 30,
+      }),
+    ).toBeNull();
+  });
+
+  it("returns null when the thread has no assistant reply", () => {
+    expect(
+      resolveActiveAssistantMessageId({
+        rows: [outlineMessageRow("user-only", "user")],
+        visibleStart: 0,
+        visibleEnd: 0,
+        scroll: 0,
+        scrollLength: 30,
+        positionAtIndex: () => 0,
+        sizeAtIndex: () => 30,
+      }),
+    ).toBeNull();
+  });
+});
 
 describe("resolveAssistantMessageCopyState", () => {
   it("copies the rendered representation of Codex directives", () => {

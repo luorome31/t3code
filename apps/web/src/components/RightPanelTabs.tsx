@@ -21,6 +21,7 @@ import type {
   ProjectId,
   PullRequestState,
   ResolvedKeybindingsConfig,
+  ScopedThreadRef,
   ThreadId,
 } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
@@ -45,6 +46,7 @@ import {
   Globe2,
   HighlighterIcon,
   ListOrderedIcon,
+  ListTreeIcon,
   MessagesSquare,
   Plus,
   TerminalSquare,
@@ -102,6 +104,7 @@ import { PreviewPanelShell, type PreviewPanelMode } from "./preview/PreviewPanel
 import { FaviconImage } from "./preview/PreviewFaviconIcon";
 import { previewBridge } from "./preview/previewBridge";
 import { PierreEntryIcon } from "./chat/PierreEntryIcon";
+import { OutlineTabPreview } from "./chat/OutlineTabPreview";
 import { resolvePullRequestState } from "./pullRequest/pullRequestPresentation";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { observeResize } from "~/lib/observeResize";
@@ -119,6 +122,7 @@ export interface RightPanelTabsProps {
   layoutControls?: ReactNode;
   surfaces: readonly RightPanelSurface[];
   environmentId: EnvironmentId | null;
+  threadRef: ScopedThreadRef | null;
   activeSurfaceId: string | null;
   pendingSurfaceIds: ReadonlySet<string>;
   previewSessions: Readonly<Record<string, PreviewSessionSnapshot>>;
@@ -145,6 +149,7 @@ export interface RightPanelTabsProps {
   onAddDevice: () => void;
   onAddHighlights: () => void;
   onAddQuestions?: (() => void) | undefined;
+  onAddOutline?: (() => void) | undefined;
   /** Absent where side chats are not offered. */
   onAddSideChat?: (() => void) | undefined;
   browserAvailable: boolean;
@@ -331,6 +336,7 @@ function RightPanelEmptyState(props: {
   onAddDevice: () => void;
   onAddHighlights: () => void;
   onAddQuestions?: (() => void) | undefined;
+  onAddOutline?: (() => void) | undefined;
   /** Absent where side chats are not offered. */
   onAddSideChat?: (() => void) | undefined;
   browserAvailable: boolean;
@@ -421,6 +427,18 @@ function RightPanelEmptyState(props: {
             available: true,
             disabledReason: "",
             onClick: props.onAddQuestions,
+          },
+        ]
+      : []),
+    ...(props.onAddOutline
+      ? [
+          {
+            label: "Outline",
+            icon: ListTreeIcon,
+            shortcut: "O",
+            available: true,
+            disabledReason: "",
+            onClick: props.onAddOutline,
           },
         ]
       : []),
@@ -628,6 +646,8 @@ function surfaceTitle(
       return "Highlights";
     case "questions":
       return "Question outline";
+    case "outline":
+      return "Outline";
     case "side-chat":
       return "Side chat";
     case "preview": {
@@ -726,6 +746,8 @@ function SurfaceIcon({
       return <HighlighterIcon className="size-3 shrink-0" />;
     case "questions":
       return <ListOrderedIcon className="size-3 shrink-0" />;
+    case "outline":
+      return <ListTreeIcon className="size-3 shrink-0" />;
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />
@@ -921,6 +943,7 @@ function RightPanelTab(
     previewCapturedUrl: string | null;
     theme: "light" | "dark";
     environmentId: EnvironmentId | null;
+    threadRef: ScopedThreadRef | null;
     pullRequestStatusSeed: PullRequestTabStatusSeed | undefined;
     renaming: boolean;
     canRename: boolean;
@@ -1026,7 +1049,9 @@ function RightPanelTab(
             }
           />
           <TooltipPopup>
-            {surface.kind === "device" ? (
+            {surface.kind === "outline" ? (
+              <OutlineTabPreview threadRef={props.threadRef} />
+            ) : surface.kind === "device" ? (
               <DeviceTabTooltip
                 surface={surface}
                 environmentId={props.environmentId}
@@ -1206,6 +1231,18 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             available: true,
             disabledReason: "",
             onClick: props.onAddQuestions,
+          },
+        ]
+      : []),
+    ...(props.onAddOutline
+      ? [
+          {
+            label: "Outline",
+            icon: ListTreeIcon,
+            shortcut: "O",
+            available: true,
+            disabledReason: "",
+            onClick: props.onAddOutline,
           },
         ]
       : []),
@@ -1438,6 +1475,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     previewCapturedUrl={favicon.capturedUrl}
                     theme={resolvedTheme}
                     environmentId={props.environmentId}
+                    threadRef={props.threadRef}
                     pullRequestStatusSeed={props.pullRequestStatusSeeds?.[surface.id]}
                     renaming={renamingDevice === surface.id}
                     canRename={props.onRenameDevice !== undefined}
@@ -1597,6 +1635,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddDevice={props.onAddDevice}
             onAddHighlights={props.onAddHighlights}
             onAddQuestions={props.onAddQuestions}
+            onAddOutline={props.onAddOutline}
             onAddSideChat={props.onAddSideChat}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}

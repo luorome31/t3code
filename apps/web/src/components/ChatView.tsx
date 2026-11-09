@@ -1118,6 +1118,8 @@ export default function ChatView(props: ChatViewProps) {
     panelAnimationDurationMs,
   );
   const rightPanelPresent = rightPanelPresence.present;
+  const outlineTrackingEnabled =
+    rightPanelPresent && rightPanelState.surfaces.some((surface) => surface.kind === "outline");
   const rightPanelControlsInPanel =
     shouldUsePlanSidebarSheet && rightPanelPresent && rightPanelOpen;
   const rightPanelControlsAtRoot = rightPanelPresent && !shouldUsePlanSidebarSheet;
@@ -2399,6 +2401,7 @@ export default function ChatView(props: ChatViewProps) {
     addFilesSurfaceStable,
     addHighlightsSurfaceStable,
     addQuestionsSurfaceStable,
+    addOutlineSurfaceStable,
     addPullRequestSurfaceStable,
     addPullRequestsSurfaceStable,
     closePreviewPanelStable,
@@ -3484,6 +3487,7 @@ export default function ChatView(props: ChatViewProps) {
                   detailLoading={threadDetailLoading}
                   citationRequest={citationRequest}
                   citationHistory={citationHistory}
+                  outlineTrackingEnabled={!embedded && outlineTrackingEnabled}
                   onCiteAssistantText={citeAssistantTextStable}
                   {...(activeProject
                     ? { onRunShellCommand: parentPanel?.runShellCommand ?? runShellCommandStable }
@@ -4058,6 +4062,7 @@ export default function ChatView(props: ChatViewProps) {
           }
           surfaces={renderedRightPanelSurfaces}
           environmentId={activeThreadRef.environmentId}
+          threadRef={activeThreadRef}
           activeSurfaceId={renderedRightPanelSurface?.id ?? null}
           pendingSurfaceIds={pendingFileSurfaceIds}
           previewSessions={activePreviewState.sessions}
@@ -4089,6 +4094,7 @@ export default function ChatView(props: ChatViewProps) {
               ? addQuestionsSurfaceStable
               : undefined
           }
+          onAddOutline={isServerThread ? addOutlineSurfaceStable : undefined}
           onAddSideChat={sideChatsOffered ? openSideChatStable : undefined}
           browserAvailable={canOperatePreview && browserAvailable}
           terminalAvailable={activeProject !== null && canOperateTerminal}

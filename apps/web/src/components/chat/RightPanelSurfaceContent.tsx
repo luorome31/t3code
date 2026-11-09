@@ -28,6 +28,7 @@ import { PullRequestsUnavailableState } from "../pullRequest/PullRequestsUnavail
 import { ThreadPullRequestsPanel } from "../pullRequest/ThreadPullRequestsPanel";
 import { SmalltalkPanel } from "./Smalltalk";
 import { ThreadHighlightsPanel } from "./ThreadHighlightsPanel";
+import { ThreadOutlinePanel } from "./ThreadOutlinePanel";
 import { ThreadQuestionsPanel } from "./ThreadQuestionsPanel";
 
 const PreviewPanel = lazy(() =>
@@ -189,6 +190,8 @@ export function RightPanelSurfaceContent(props: {
           onInsertMarkdownFileHighlights={props.onInsertMarkdownFileHighlights}
         />
       );
+    case "outline":
+      return <ThreadOutlinePanel key={scopedThreadKey(threadRef)} threadRef={threadRef} />;
     case "questions":
       return (
         <ThreadQuestionsPanel

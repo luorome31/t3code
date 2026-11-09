@@ -25,6 +25,7 @@ const RIGHT_PANEL_KINDS = [
   "highlights",
   "smalltalk",
   "questions",
+  "outline",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -82,7 +83,8 @@ export type RightPanelSurface =
   | { id: `side-chat:${string}`; kind: "side-chat"; threadId: ThreadId }
   | { id: "highlights"; kind: "highlights" }
   | { id: "smalltalk"; kind: "smalltalk" }
-  | { id: "questions"; kind: "questions" };
+  | { id: "questions"; kind: "questions" }
+  | { id: "outline"; kind: "outline" };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 const RIGHT_PANEL_STORAGE_VERSION = 15;
@@ -231,6 +233,8 @@ const singletonSurface = (
       return { id: "highlights", kind };
     case "questions":
       return { id: "questions", kind };
+    case "outline":
+      return { id: "outline", kind };
   }
 };
 

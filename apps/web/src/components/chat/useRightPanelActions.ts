@@ -163,6 +163,11 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     useRightPanelStore.getState().open(activeThreadRef, "questions");
   };
   const addQuestionsSurfaceStable = useStableCallback(addQuestionsSurface);
+  const addOutlineSurface = () => {
+    if (!activeThreadRef || !isServerThread) return;
+    useRightPanelStore.getState().open(activeThreadRef, "outline");
+  };
+  const addOutlineSurfaceStable = useStableCallback(addOutlineSurface);
   const addPullRequestsSurface = () => {
     if (!activeThreadRef || !pullRequestsSurfaceAvailable) return;
     useRightPanelStore.getState().open(activeThreadRef, "pull-requests");
@@ -364,6 +369,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     addFilesSurfaceStable,
     addHighlightsSurfaceStable,
     addQuestionsSurfaceStable,
+    addOutlineSurfaceStable,
     addPullRequestSurfaceStable,
     addPullRequestsSurfaceStable,
     closePreviewPanelStable,
