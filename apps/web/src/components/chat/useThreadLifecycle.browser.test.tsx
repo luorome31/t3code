@@ -131,7 +131,7 @@ function RestoreBranchHarness(props: {
     clearUsageLimitsFor: () => undefined,
     beginLocalDispatch: () => undefined,
     resetLocalDispatch: () => undefined,
-    scrollToEnd: () => undefined,
+    prepareSend: () => true,
     persistThreadSettingsForNextTurn: async () => ({ _tag: "Success", value: undefined }) as never,
   });
   return (

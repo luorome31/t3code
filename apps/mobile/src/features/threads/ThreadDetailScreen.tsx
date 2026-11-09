@@ -74,6 +74,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-execution";
 import { formatModelSlugName, resolveSelectableModel } from "@t3tools/shared/model";
 import { isProviderNativeSubagentThread } from "@t3tools/contracts";
+import { shouldJumpAfterSend, type SendScrollBehavior } from "@t3tools/contracts/settings";
 import type { QueuedRunEdit } from "../../state/queued-run-edit";
 import type { FollowUpBehavior } from "../../lib/followUpBehavior";
 import type { ActiveTurnComposerAction } from "@t3tools/client-runtime/state/composer-dispatch";
@@ -266,6 +267,7 @@ export interface ThreadDetailScreenProps {
   readonly queuedRunEdit: QueuedRunEdit | null;
   readonly composerDraftKey: string | null;
   readonly followUpBehavior: FollowUpBehavior;
+  readonly sendScrollBehavior: SendScrollBehavior;
   readonly canSteerActiveTurn: boolean;
   readonly isSavingQueuedEdit: boolean;
   readonly onCancelQueuedRunEdit: () => void;
@@ -1339,18 +1341,30 @@ function ThreadDetailBody(
 
     clearUsageLimitsFor(targetThreadKey);
 
-    const nextAnchorMessageId = resolveThreadFeedSubmissionAnchor({
-      currentAnchorMessageId: anchorMessageId,
-      submittedMessageId: messageId,
-      hasStartedTurn: props.selectedThread.latestRun !== null,
-      hasUserMessage,
-      queuedMessageCount: props.selectedThreadQueueCount,
-      deliveryDeferred: props.connectionStateLabel !== "connected",
-    });
-    feedRef.current?.resetEndFollow();
+    const listAtEnd = listRef.current?.getState().isAtEnd;
+    const jumpAfterSend = shouldJumpAfterSend(
+      props.sendScrollBehavior,
+      listAtEnd ?? endFollowEnabledRef.current,
+    );
+    const nextAnchorMessageId = jumpAfterSend
+      ? resolveThreadFeedSubmissionAnchor({
+          currentAnchorMessageId: anchorMessageId,
+          submittedMessageId: messageId,
+          hasStartedTurn: props.selectedThread.latestRun !== null,
+          hasUserMessage,
+          queuedMessageCount: props.selectedThreadQueueCount,
+          deliveryDeferred: props.connectionStateLabel !== "connected",
+        })
+      : null;
+    if (jumpAfterSend) {
+      feedRef.current?.resetEndFollow();
+    } else {
+      feedRef.current?.releaseEndFollow();
+    }
     setAnchorMessageId(nextAnchorMessageId);
     if (!dismissingKeyboard) composerEditorRef.current?.blur();
     const followSubmission =
+      jumpAfterSend &&
       contentPresentationKind === "ready" &&
       (dismissingKeyboard || nextAnchorMessageId === messageId);
     if (dismissingKeyboard || followSubmission) {
@@ -1409,6 +1423,7 @@ function ThreadDetailBody(
 
   const handleScrollToEnd = () => {
     void Haptics.selectionAsync();
+    feedRef.current?.resetEndFollow();
     void scrollMessageToEnd({ animated: !reduceMotion, closeKeyboard: false }).catch(() => {
       freeze.set(false);
     });

@@ -11,6 +11,8 @@ import { scopedProjectKey } from "../../lib/scopedEntities";
 import { connectionTone } from "../connection/connectionTone";
 import { AppBar } from "../../components/ui/AppBar";
 import { ThreadId } from "@t3tools/contracts";
+import { DEFAULT_SEND_SCROLL_BEHAVIOR } from "@t3tools/contracts/settings";
+import { mobilePreferencesAtom } from "../../state/preferences";
 
 import * as Dialog from "../../components/ui/Dialog";
 import { useAtomValue } from "@effect/atom-react";
@@ -161,6 +163,10 @@ export function NewTaskDraftScreen(props: {
   const flowKey = newTaskFlowKey(currentRoute);
   const { getShare, isLoading: isIncomingShareInboxLoading } = useIncomingShare();
   const { projectScopes, selectedProject, selectedProjectKey, setProject } = flow;
+  const preferencesResult = useAtomValue(mobilePreferencesAtom);
+  const sendScrollBehavior = AsyncResult.isSuccess(preferencesResult)
+    ? (preferencesResult.value.sendScrollBehavior ?? DEFAULT_SEND_SCROLL_BEHAVIOR)
+    : DEFAULT_SEND_SCROLL_BEHAVIOR;
   // selectedProject falls back to the environment's first project; remember only a chosen one.
   useRememberThreadProject(
     selectedProject &&
@@ -947,6 +953,7 @@ export function NewTaskDraftScreen(props: {
         queuedRunEdit={null}
         composerDraftKey={flow.draftKey}
         followUpBehavior="queue"
+        sendScrollBehavior={sendScrollBehavior}
         canSteerActiveTurn={false}
         isSavingQueuedEdit={false}
         onCancelQueuedRunEdit={() => {}}

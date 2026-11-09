@@ -8,6 +8,7 @@ import {
   resolveThreadFeedSubmissionAnchor,
   resolveThreadWorkGroupInitialScroll,
   shouldFollowThreadWorkGroupAppend,
+  threadFeedSendReleaseSurvivesEvent,
 } from "./thread-feed-live-follow";
 
 describe("tool-group scroll restoration", () => {
@@ -196,6 +197,37 @@ describe("resolveThreadFeedLiveFollow", () => {
         userScrollSessionActive: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("thread feed send release", () => {
+  const scroll = {
+    type: "scroll",
+    isAtEnd: true,
+    userScrollSessionActive: false,
+  } as const;
+
+  it("survives programmatic scrolls at the end", () => {
+    expect(threadFeedSendReleaseSurvivesEvent(scroll)).toBe(true);
+    expect(
+      threadFeedSendReleaseSurvivesEvent({
+        type: "disclosure-settled",
+        isAtEnd: true,
+        userScrollSessionActive: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("ends on a user scroll or a send reset", () => {
+    expect(threadFeedSendReleaseSurvivesEvent({ type: "user-scroll-begin" })).toBe(false);
+    expect(
+      threadFeedSendReleaseSurvivesEvent({
+        type: "user-scroll-end",
+        isAtEnd: false,
+        userScrollSessionActive: true,
+      }),
+    ).toBe(false);
+    expect(threadFeedSendReleaseSurvivesEvent({ type: "reset" })).toBe(false);
   });
 });
 

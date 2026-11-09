@@ -62,6 +62,7 @@ function ResumeButton(props: {
     composerRef: props.composerRef,
     persistThreadSettingsForNextTurn: props.persistSettings,
     clearUsageLimitsFor: () => undefined,
+    prepareSend: () => true,
     scrollToEnd: () => undefined,
     setThreadError: () => undefined,
   });

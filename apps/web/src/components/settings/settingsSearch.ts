@@ -722,6 +722,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["enter return command ctrl multiline prompt new line composer"],
   },
   {
+    id: "send-scroll-behavior",
+    title: "After sending",
+    to: "/settings/chat",
+    searchTerms: ["scroll jump send message history follow position bottom timeline"],
+  },
+  {
     id: "follow-up-behavior",
     title: "Follow-up behavior",
     to: "/settings/chat",

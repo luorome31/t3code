@@ -1,5 +1,6 @@
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { type MessageId, type RunId } from "@t3tools/contracts";
+import { shouldJumpAfterSend, type SendScrollBehavior } from "@t3tools/contracts/settings";
 import { CHAT_LIST_ANCHOR_OFFSET } from "@t3tools/shared/chatList";
 import { Debouncer } from "@tanstack/react-pacer";
 import {
@@ -157,6 +158,7 @@ interface TimelineFollowInput {
   readonly timelineEntries: ReadonlyArray<TimelineEntry>;
   readonly timelineAnchorMessageId: MessageId | null;
   readonly setTimelineAnchor: Dispatch<SetStateAction<TimelineAnchor>>;
+  readonly sendScrollBehavior?: SendScrollBehavior;
 }
 
 /**
@@ -179,6 +181,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     timelineEntries,
     timelineAnchorMessageId,
     setTimelineAnchor,
+    sendScrollBehavior = "always",
   } = input;
   const [visitState, setVisit] = useState<TimelineFollowVisit>({
     threadKey: activeThreadKey,
@@ -210,6 +213,10 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     followSnapshot.visit === visit ? followSnapshot.follow : initialTimelineFollow(visit.followEnd);
   const timelineLiveFollowEnabled = follow.mode === "following";
   const readFollow = () => followStore.read(visit);
+  const isTimelineLiveEnd = () => {
+    const current = readFollow();
+    return current.mode === "following" || current.atEnd;
+  };
   // Async settles outlive their render; this reads the visit shown now.
   const readCurrentFollow = useStableCallback(readFollow);
   const isTimelineAtLogicalEnd = () => {
@@ -550,6 +557,38 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     setTimelineAnchor({ threadKey, messageId });
   };
 
+  /** A stay send at the end leaves its message below the viewport without a scroll event. */
+  const showScrollToBottomAfterStay = () => {
+    requestAnimationFrame(() => {
+      if (isTimelineAtLogicalEnd() && !timelineRealContentOverflowsViewport()) return;
+      setShowScrollToBottom(true);
+    });
+  };
+
+  /**
+   * Applies the send scroll preference. New turns anchor their message; sends
+   * that land in the footer scroll to the end instead. Staying releases follow
+   * so neither the anchor nor streamed growth moves the viewport.
+   */
+  const prepareSend = (input: {
+    readonly threadKey: string;
+    readonly messageId: MessageId | null;
+    readonly jump?: "anchor" | "end";
+    readonly animated?: boolean;
+  }) => {
+    if (!shouldJumpAfterSend(sendScrollBehavior, isTimelineLiveEnd())) {
+      releaseFollowForNavigation();
+      showScrollToBottomAfterStay();
+      return false;
+    }
+    if (input.jump === "end" || input.messageId === null) {
+      scrollToEndStable(input.animated ?? false);
+      return true;
+    }
+    anchorNewTurn(input.threadKey, input.messageId);
+    return true;
+  };
+
   return {
     showScrollToBottom,
     timelineLiveFollowEnabled,
@@ -561,7 +600,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     onTimelineAnchorSizeChangedStable,
     onTimelineFooterGrowStable,
     onIsAtEndChangeStable,
-    anchorNewTurn,
+    prepareSend,
     attachTimelineViewport,
     attachComposerOverlay: followStore.attachComposerOverlay,
   };

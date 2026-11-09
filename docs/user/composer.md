@@ -37,6 +37,12 @@ at the end, leave the block. **Backspace** at the start of a code block turns it
 back into plain lines. Choose the language in a code block's corner to change
 it. Very large code blocks are shown without syntax highlighting.
 
+When you send while reading earlier messages, T3 Code can jump to the message
+you just sent. Choose **Settings → Chat → After sending**: **Always jump**
+follows it even from history, **Only at the end** jumps only when the timeline
+is already at the end, and **Never jump** keeps your reading position. With
+**Never jump**, use the **Scroll to end** button to return to the live end.
+
 ## Attach files
 
 Attach up to 100 files per message. Each image can be up to 10 MiB, with at most

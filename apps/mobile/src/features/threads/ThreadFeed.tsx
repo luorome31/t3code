@@ -218,6 +218,7 @@ import {
   resolveThreadFeedReflowAnchor,
   resolveThreadFeedReflowOffset,
   resolveThreadFeedReflowScroll,
+  threadFeedSendReleaseSurvivesEvent,
   type ThreadFeedLiveFollowEvent,
   type ThreadFeedReflowAnchor,
   type ThreadWorkGroupScrollPosition,
@@ -338,6 +339,8 @@ export interface ThreadFeedHistoryControls {
 export interface ThreadFeedHandle {
   /** A send re-arms following the end, whatever the reader had scrolled to. */
   readonly resetEndFollow: () => void;
+  /** A send that keeps its place stops following the end. */
+  readonly releaseEndFollow: () => void;
 }
 
 export interface ThreadFeedProps {
@@ -2722,6 +2725,8 @@ export const ThreadFeed = memo(function ThreadFeed({
   const endFollowEnabledRef = useRef(true);
   // Only user scrolls from drag through momentum break follow; ignore MVCP and programmatic adjustments.
   const userScrollSessionRef = useRef(false);
+  // A send that keeps its place survives programmatic scrolls at the end.
+  const sendReleaseRef = useRef(false);
   const setEndFollow = (enabled: boolean) => {
     if (endFollowEnabledRef.current === enabled) {
       return;
@@ -2731,6 +2736,12 @@ export const ThreadFeed = memo(function ThreadFeed({
     onEndFollowEnabledChange?.(enabled);
   };
   const transitionEndFollow = (event: ThreadFeedLiveFollowEvent) => {
+    if (sendReleaseRef.current && threadFeedSendReleaseSurvivesEvent(event)) {
+      return;
+    }
+    if (!threadFeedSendReleaseSurvivesEvent(event)) {
+      sendReleaseRef.current = false;
+    }
     setEndFollow(resolveThreadFeedLiveFollow(endFollowEnabledRef.current, event));
   };
   // Capture the reader's anchor before width reflow; LegendList thresholds see only new geometry.
@@ -3311,7 +3322,16 @@ export const ThreadFeed = memo(function ThreadFeed({
       userScrollSessionRef.current = false;
       setDisclosureGap(null);
       cancelReflow();
+      sendReleaseRef.current = false;
       transitionEndFollow({ type: "reset" });
+    },
+    releaseEndFollow: () => {
+      clearUserScrollSettle();
+      userScrollSessionRef.current = false;
+      setDisclosureGap(null);
+      cancelReflow();
+      setEndFollow(false);
+      sendReleaseRef.current = true;
     },
   }));
 

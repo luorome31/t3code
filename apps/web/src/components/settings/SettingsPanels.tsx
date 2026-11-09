@@ -533,6 +533,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.followUpBehavior !== DEFAULT_UNIFIED_SETTINGS.followUpBehavior
       ? ["Follow-up behavior"]
       : []),
+    ...(settings.sendScrollBehavior !== DEFAULT_UNIFIED_SETTINGS.sendScrollBehavior
+      ? ["After sending"]
+      : []),
     ...(settings.contextWindowMeterEnabled !== DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled
       ? ["Context window indicator"]
       : []),
@@ -651,6 +654,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       composerRichTextEnabled: DEFAULT_UNIFIED_SETTINGS.composerRichTextEnabled,
       sendShortcut: DEFAULT_UNIFIED_SETTINGS.sendShortcut,
       followUpBehavior: DEFAULT_UNIFIED_SETTINGS.followUpBehavior,
+      sendScrollBehavior: DEFAULT_UNIFIED_SETTINGS.sendScrollBehavior,
       contextWindowMeterEnabled: DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
@@ -1089,6 +1093,11 @@ export function ChatSettingsPanel() {
     { value: "mod-enter-multiline", label: `${modifierLabel} + Enter for multiline prompts` },
     { value: "mod-enter", label: `${modifierLabel} + Enter always` },
   ] as const;
+  const sendScrollBehaviorOptions = [
+    { value: "always", label: "Always jump" },
+    { value: "at-end", label: "Only at the end" },
+    { value: "never", label: "Never jump" },
+  ] as const;
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
 
@@ -1161,6 +1170,57 @@ export function ChatSettingsPanel() {
                     <span className="flex items-center justify-between gap-4">
                       {option.label}
                       {settings.sendShortcut === option.value && <CheckIcon aria-hidden="true" />}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("send-scroll-behavior")}
+          description="Choose whether sending a message moves the timeline to your message"
+          resetAction={
+            settings.sendScrollBehavior !== DEFAULT_UNIFIED_SETTINGS.sendScrollBehavior ? (
+              <SettingResetButton
+                label="send scroll behavior"
+                onClick={() =>
+                  updateSettings({
+                    sendScrollBehavior: DEFAULT_UNIFIED_SETTINGS.sendScrollBehavior,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.sendScrollBehavior}
+              onValueChange={(value) => {
+                const option = sendScrollBehaviorOptions.find((option) => option.value === value);
+                if (option) updateSettings({ sendScrollBehavior: option.value });
+              }}
+            >
+              <SelectTrigger
+                size="sm"
+                className="w-auto min-w-0 max-w-full"
+                aria-label="After sending"
+              >
+                <SelectValue>
+                  {
+                    sendScrollBehaviorOptions.find(
+                      (option) => option.value === settings.sendScrollBehavior,
+                    )?.label
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {sendScrollBehaviorOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    <span className="flex items-center justify-between gap-4">
+                      {option.label}
+                      {settings.sendScrollBehavior === option.value && (
+                        <CheckIcon aria-hidden="true" />
+                      )}
                     </span>
                   </SelectItem>
                 ))}

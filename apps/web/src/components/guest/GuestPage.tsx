@@ -27,6 +27,7 @@ import { createQuestionHistoryProjector } from "@t3tools/client-runtime/state/th
 import { ArrowUpIcon, PaperclipIcon, XIcon } from "lucide-react";
 import {
   useEffect,
+  useLayoutEffect,
   useReducer,
   useRef,
   useState,
@@ -37,6 +38,7 @@ import {
 
 import { useIncrementalTimelineEntries } from "~/hooks/useIncrementalTimelineEntries";
 import { useNowMinute } from "~/hooks/useNowMinute";
+import { useClientSettings } from "~/hooks/useSettings";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { useTheme } from "~/hooks/useTheme";
 import { observeResize } from "~/lib/observeResize";
@@ -451,6 +453,7 @@ function GuestThread({
   const workStartedAt =
     deriveActiveWorkStartedAt(activityRun, runtime, null) ?? runlessWorkStartedAt;
   const runningRunId = runtime?.activeRunId ?? null;
+  const sendScrollBehavior = useClientSettings((settings) => settings.sendScrollBehavior);
   const follow = useTimelineFollow({
     legendListRef: listRef,
     composerTimelineInset: 0,
@@ -465,6 +468,7 @@ function GuestThread({
     timelineEntries: entries,
     timelineAnchorMessageId: null,
     setTimelineAnchor: ignore,
+    sendScrollBehavior,
   });
   const renderHtmlRender = useStableCallback(
     (row: Extract<TimelineRow, { kind: "html-render" }>) => (
@@ -474,19 +478,29 @@ function GuestThread({
   const unplaced = unplacedGuestMessages(messages, items, awaitingRowIds);
   // The guest's waiting messages sit in the list footer, which the list does not follow on its
   // own (the owner's view does the same in ChatView). A new one is the guest's own send, so it
-  // comes into view even if they had scrolled up, as the owner's send does. While following, the
-  // footer stays in view as it grows, such as when its images load.
+  // follows the After sending preference. While following, the footer stays in view as it grows,
+  // such as when its images load.
   const unplacedKey = unplaced.map((message) => message.id).join(",");
   const previousUnplacedKey = useRef(unplacedKey);
   const following = useRef(follow.timelineLiveFollowEnabled);
   const scrollToEnd = useStableCallback(follow.scrollToEnd);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls the timeline to the end after commit when new unplaced messages appear
-  useEffect(() => {
-    following.current = follow.timelineLiveFollowEnabled;
+  const prepareSend = useStableCallback(follow.prepareSend);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- decides the send before the footer resize observer reads the follow flag
+  useLayoutEffect(() => {
     const previous = new Set(previousUnplacedKey.current.split(","));
     previousUnplacedKey.current = unplacedKey;
-    if (unplacedKey.split(",").some((id) => id !== "" && !previous.has(id))) scrollToEnd(true);
-  }, [follow.timelineLiveFollowEnabled, unplacedKey, scrollToEnd, following, previousUnplacedKey]);
+    const hasNewMessage = unplacedKey.split(",").some((id) => id !== "" && !previous.has(id));
+    following.current = hasNewMessage
+      ? prepareSend({ threadKey, messageId: null, jump: "end", animated: true })
+      : follow.timelineLiveFollowEnabled;
+  }, [
+    follow.timelineLiveFollowEnabled,
+    following,
+    prepareSend,
+    previousUnplacedKey,
+    threadKey,
+    unplacedKey,
+  ]);
   const footerRef = useRef<HTMLOListElement>(null);
   const hasFooter = unplaced.length > 0;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- ResizeObserver on the footer keeps it scrolled into view while following

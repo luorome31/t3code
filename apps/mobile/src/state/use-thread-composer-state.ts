@@ -1,6 +1,7 @@
 import { useComposerAttachmentActions } from "./use-composer-attachment-actions";
 import * as Dialog from "../components/ui/Dialog";
 import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
+import { DEFAULT_SEND_SCROLL_BEHAVIOR } from "@t3tools/contracts/settings";
 import { readEnvironmentScope } from "./session";
 import { useAtomValue } from "@effect/atom-react";
 import { shouldCompactBeforeSend } from "@t3tools/client-runtime/state/context-window";
@@ -298,6 +299,9 @@ export function useThreadComposerState(input: {
   const followUpBehavior = AsyncResult.isSuccess(preferencesResult)
     ? (preferencesResult.value.followUpBehavior ?? DEFAULT_FOLLOW_UP_BEHAVIOR)
     : DEFAULT_FOLLOW_UP_BEHAVIOR;
+  const sendScrollBehavior = AsyncResult.isSuccess(preferencesResult)
+    ? (preferencesResult.value.sendScrollBehavior ?? DEFAULT_SEND_SCROLL_BEHAVIOR)
+    : DEFAULT_SEND_SCROLL_BEHAVIOR;
   const queueWorkflow = useAtomValue(
     selectedThreadDetailRef === null
       ? EMPTY_QUEUE_WORKFLOW_ATOM
@@ -882,6 +886,7 @@ export function useThreadComposerState(input: {
     isCompacting,
     composerDraftKey,
     followUpBehavior,
+    sendScrollBehavior,
     canSteerActiveTurn,
     queueHeld,
     resumableRunId,

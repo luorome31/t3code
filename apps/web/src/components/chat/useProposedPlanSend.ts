@@ -63,7 +63,7 @@ interface PlanFollowUpSendInput extends PlanSendBase {
   readonly localCheckoutBranchMismatch: { readonly currentBranch: string } | null;
   readonly setOptimisticUserMessages: Dispatch<SetStateAction<ChatMessage[]>>;
   readonly setThreadError: ReturnType<typeof makeThreadErrorSetter>;
-  readonly anchorNewTurn: ReturnType<typeof useTimelineFollow>["anchorNewTurn"];
+  readonly prepareSend: ReturnType<typeof useTimelineFollow>["prepareSend"];
   readonly persistThreadSettingsForNextTurn: (input: {
     threadId: EnvironmentThreadShell["id"];
     createdAt: string;
@@ -92,7 +92,7 @@ export function usePlanFollowUpSend(input: PlanFollowUpSendInput) {
     localCheckoutBranchMismatch,
     setOptimisticUserMessages,
     setThreadError,
-    anchorNewTurn,
+    prepareSend,
     persistThreadSettingsForNextTurn,
   } = input;
   const startThreadTurn = useOrchestrationCommand(threadEnvironment.startTurn, {
@@ -147,10 +147,11 @@ export function usePlanFollowUpSend(input: PlanFollowUpSendInput) {
     beginLocalDispatch({ preparingWorktree: false });
     setThreadError(threadIdForSend, null);
 
-    anchorNewTurn(
-      scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
-      messageIdForSend,
-    );
+    prepareSend({
+      threadKey: scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
+      messageId: messageIdForSend,
+      jump: "anchor",
+    });
 
     setOptimisticUserMessages((existing) => [
       ...existing,

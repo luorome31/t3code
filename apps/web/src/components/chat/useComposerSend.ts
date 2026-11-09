@@ -241,7 +241,7 @@ interface ComposerSendInput {
   >;
   readonly setThreadError: ReturnType<typeof makeThreadErrorSetter>;
   readonly setKeepFullHistory: (threadKey: string, keep: boolean) => void;
-  readonly anchorNewTurn: TimelineFollow["anchorNewTurn"];
+  readonly prepareSend: TimelineFollow["prepareSend"];
   readonly acknowledgeActiveThreadWoke: () => void;
   readonly handleInteractionModeChange: (mode: ProviderInteractionMode) => void;
   /** Resolves true once the side chat started and got the prompt. */
@@ -331,7 +331,7 @@ export function useComposerSend(input: ComposerSendInput) {
     setFeedbackSubmissionsByThreadKey,
     setThreadError,
     setKeepFullHistory,
-    anchorNewTurn,
+    prepareSend,
     acknowledgeActiveThreadWoke,
     handleInteractionModeChange,
     onSideChat,
@@ -391,7 +391,7 @@ export function useComposerSend(input: ComposerSendInput) {
     localCheckoutBranchMismatch,
     setOptimisticUserMessages,
     setThreadError,
-    anchorNewTurn,
+    prepareSend,
     persistThreadSettingsForNextTurn,
   });
   const { sendInFlight: sendInFlightRef } = draftSendState(routeThreadKey);
@@ -1208,12 +1208,11 @@ export function useComposerSend(input: ComposerSendInput) {
       return;
     }
     const optimisticAttachments = optimisticMessageAttachments(composerAttachmentsSnapshot);
-    if (!shouldQueueBehindActiveRun) {
-      anchorNewTurn(
-        scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
-        messageIdForSend,
-      );
-    }
+    prepareSend({
+      threadKey: scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
+      messageId: messageIdForSend,
+      jump: shouldQueueBehindActiveRun ? "end" : "anchor",
+    });
     const optimisticMessage: ChatMessage = {
       id: messageIdForSend,
       role: "user",
