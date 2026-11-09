@@ -1,67 +1,15 @@
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { MessageId, ScopedThreadRef } from "@t3tools/contracts";
 import { useEffect, useState } from "react";
 
 import { resolveAssistantCitationRanges } from "~/lib/assistantTextSelection";
-import { setHighlightPriority } from "~/lib/cssHighlights";
 import {
-  HIGHLIGHT_COLORS,
-  highlightRegistryName,
-  type HighlightColor,
-} from "~/lib/highlightColors";
+  registerHighlightContribution,
+  removeHighlightContribution,
+} from "~/lib/highlightPainting";
+import type { HighlightColor } from "~/lib/highlightColors";
 import type { ThreadHighlight } from "~/highlightStore";
 
 const SOURCE_SELECTOR = "[data-assistant-citation-source]";
-
-interface HighlightContribution {
-  readonly rangesByColor: ReadonlyMap<HighlightColor, readonly Range[]>;
-  readonly priorityByColor: ReadonlyMap<HighlightColor, number>;
-}
-
-const contributions = new Map<object, HighlightContribution>();
-
-function paintContributions(): void {
-  if (typeof CSS === "undefined" || !CSS.highlights || typeof Highlight === "undefined") return;
-  const registry = CSS.highlights;
-  const rangesByColor = new Map<HighlightColor, Range[]>();
-  const priorityByColor = new Map<HighlightColor, number>();
-  for (const contribution of contributions.values()) {
-    for (const [color, ranges] of contribution.rangesByColor) {
-      const merged = rangesByColor.get(color);
-      if (merged) merged.push(...ranges);
-      else rangesByColor.set(color, [...ranges]);
-    }
-    for (const [color, priority] of contribution.priorityByColor) {
-      priorityByColor.set(color, Math.max(priorityByColor.get(color) ?? 0, priority));
-    }
-  }
-  for (const color of HIGHLIGHT_COLORS) {
-    if ((rangesByColor.get(color.id)?.length ?? 0) === 0) {
-      registry.delete(highlightRegistryName(color.id));
-    }
-  }
-  const ordered = [...HIGHLIGHT_COLORS].sort(
-    (left, right) => (priorityByColor.get(left.id) ?? 0) - (priorityByColor.get(right.id) ?? 0),
-  );
-  for (const color of ordered) {
-    const ranges = rangesByColor.get(color.id);
-    if (ranges === undefined || ranges.length === 0) continue;
-    const name = highlightRegistryName(color.id);
-    const highlight = new Highlight(...ranges);
-    setHighlightPriority(highlight, priorityByColor.get(color.id) ?? 1);
-    registry.delete(name);
-    registry.set(name, highlight);
-  }
-}
-
-function registerContribution(owner: object, contribution: HighlightContribution): void {
-  contributions.set(owner, contribution);
-  paintContributions();
-}
-
-function removeContribution(owner: object): void {
-  if (!contributions.delete(owner)) return;
-  paintContributions();
-}
 
 function sourceElementForMutation(record: MutationRecord): Element | null {
   const target =
@@ -76,6 +24,19 @@ function sourceElementForMutation(record: MutationRecord): Element | null {
     if (nested) return nested;
   }
   return null;
+}
+
+type AssistantMessageHighlight = ThreadHighlight & {
+  readonly source: { readonly kind: "assistant-message"; readonly messageId: MessageId };
+};
+
+function assistantHighlightsOf(
+  highlights: readonly ThreadHighlight[],
+): AssistantMessageHighlight[] {
+  return highlights.filter(
+    (highlight): highlight is AssistantMessageHighlight =>
+      highlight.source.kind === "assistant-message",
+  );
 }
 
 export function useAssistantHighlights(input: {
@@ -98,22 +59,23 @@ export function useAssistantHighlights(input: {
       !CSS.highlights ||
       typeof Highlight === "undefined"
     ) {
-      removeContribution(owner);
+      removeHighlightContribution(owner);
       return;
     }
-    if (highlights.length === 0) {
-      removeContribution(owner);
+    const assistantHighlights = assistantHighlightsOf(highlights);
+    if (assistantHighlights.length === 0) {
+      removeHighlightContribution(owner);
       return;
     }
 
     const messageIds = new Set<string>();
     const byMessage = new Map<string, ThreadHighlight[]>();
     const priorityByColor = new Map<HighlightColor, number>();
-    for (const highlight of highlights) {
-      messageIds.add(highlight.messageId);
-      const messageHighlights = byMessage.get(highlight.messageId);
+    for (const highlight of assistantHighlights) {
+      messageIds.add(highlight.source.messageId);
+      const messageHighlights = byMessage.get(highlight.source.messageId);
       if (messageHighlights) messageHighlights.push(highlight);
-      else byMessage.set(highlight.messageId, [highlight]);
+      else byMessage.set(highlight.source.messageId, [highlight]);
       const createdAt = Date.parse(highlight.createdAt);
       const priority = 1 + (Number.isFinite(createdAt) ? createdAt / 1e13 : 0);
       priorityByColor.set(
@@ -147,7 +109,7 @@ export function useAssistantHighlights(input: {
           else rangesByColor.set(color, [range]);
         }
       }
-      registerContribution(owner, { rangesByColor, priorityByColor });
+      registerHighlightContribution(owner, { rangesByColor, priorityByColor });
     };
 
     paint();
@@ -162,7 +124,7 @@ export function useAssistantHighlights(input: {
     observer.observe(container, { subtree: true, childList: true, characterData: true });
     return () => {
       observer.disconnect();
-      removeContribution(owner);
+      removeHighlightContribution(owner);
     };
   }, [container, environmentId, highlights, owner, threadId]);
 }

@@ -13,7 +13,7 @@ const threadKey = `${EnvironmentId.make("environment-1")}:${ThreadId.make("threa
 
 const validHighlight: ThreadHighlight = {
   id: "highlight-1",
-  messageId: MessageId.make("message-1"),
+  source: { kind: "assistant-message", messageId: MessageId.make("message-1") },
   selector: { text: "quote", start: 0, end: 5, prefix: "", suffix: "" },
   color: "blue",
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -44,7 +44,7 @@ describe("highlightStore persistence", () => {
             },
             defaultColor: "not-a-color",
           },
-          version: 1,
+          version: 2,
         }),
       );
       localStorage.setItem(HIGHLIGHT_COLOR_STORAGE_KEY, "blue");
@@ -55,6 +55,40 @@ describe("highlightStore persistence", () => {
       expect(state.byThreadKey[threadKey]).toHaveLength(1);
       expect(state.byThreadKey[threadKey]?.[0]?.id).toBe("highlight-1");
       expect(state.defaultColor).toBe("blue");
+    } finally {
+      resetStore();
+    }
+  });
+
+  it("migrates version 1 message highlights to the source model", async () => {
+    resetStore();
+    try {
+      localStorage.setItem(
+        HIGHLIGHT_STORAGE_KEY,
+        JSON.stringify({
+          state: {
+            byThreadKey: {
+              [threadKey]: [
+                {
+                  id: "legacy-highlight",
+                  messageId: "message-legacy",
+                  selector: { text: "quote", start: 0, end: 5, prefix: "", suffix: "" },
+                  color: "green",
+                  createdAt: "2026-01-01T00:00:00.000Z",
+                },
+              ],
+            },
+          },
+          version: 1,
+        }),
+      );
+
+      await useHighlightStore.persist.rehydrate();
+
+      expect(useHighlightStore.getState().byThreadKey[threadKey]?.[0]?.source).toEqual({
+        kind: "assistant-message",
+        messageId: MessageId.make("message-legacy"),
+      });
     } finally {
       resetStore();
     }

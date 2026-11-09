@@ -3,9 +3,16 @@ import type { AssistantCitation, ScopedThreadRef } from "@t3tools/contracts";
 import { HighlighterIcon, MoreHorizontalIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
+import { requestFileHighlightReveal } from "~/fileHighlightRevealStore";
+import {
+  useHighlightStore,
+  useThreadHighlights,
+  type MarkdownFileHighlightExcerpt,
+  type ThreadHighlight,
+} from "~/highlightStore";
 import { assistantCitationNavigation } from "~/lib/assistantCitationNavigation";
 import { HIGHLIGHT_COLORS, type HighlightColorDefinition } from "~/lib/highlightColors";
-import { useHighlightStore, useThreadHighlights, type ThreadHighlight } from "~/highlightStore";
+import { useRightPanelStore } from "~/rightPanelStore";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import {
@@ -25,14 +32,64 @@ import {
   MenuRadioItemIndicator,
   MenuTrigger,
 } from "../ui/menu";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
 
-function citationOf(threadRef: ScopedThreadRef, highlight: ThreadHighlight): AssistantCitation {
+type HighlightTab = "messages" | "files";
+
+interface HighlightGroup {
+  readonly key: string;
+  readonly label: string;
+  readonly highlights: ThreadHighlight[];
+}
+
+function messageCitationOf(
+  threadRef: ScopedThreadRef,
+  highlight: ThreadHighlight,
+): AssistantCitation | null {
+  if (highlight.source.kind !== "assistant-message") return null;
   return {
     version: 1,
     ...threadRef,
-    messageId: highlight.messageId,
+    messageId: highlight.source.messageId,
     ...highlight.selector,
   };
+}
+
+function highlightGroupIdentity(
+  highlight: ThreadHighlight,
+  tab: HighlightTab,
+): { readonly key: string; readonly label: string } | null {
+  if (tab === "messages") {
+    return highlight.source.kind === "assistant-message"
+      ? { key: highlight.source.messageId, label: "Assistant message" }
+      : null;
+  }
+  return highlight.source.kind === "markdown-file"
+    ? {
+        key: `${highlight.source.workspaceRoot}\u0000${highlight.source.relativePath}`,
+        label: highlight.source.relativePath,
+      }
+    : null;
+}
+
+function groupedHighlights(
+  highlights: readonly ThreadHighlight[],
+  tab: HighlightTab,
+): HighlightGroup[] {
+  const groups = new Map<string, HighlightGroup>();
+  for (const highlight of [...highlights].sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt),
+  )) {
+    const identity = highlightGroupIdentity(highlight, tab);
+    if (identity === null) continue;
+    const group = groups.get(identity.key);
+    if (group) group.highlights.push(highlight);
+    else groups.set(identity.key, { ...identity, highlights: [highlight] });
+  }
+  return [...groups.values()].map((group) => ({
+    ...group,
+    highlights: group.highlights.sort((left, right) => left.selector.start - right.selector.start),
+  }));
 }
 
 function ColorDot({ color }: { color: HighlightColorDefinition }) {
@@ -48,36 +105,48 @@ function ColorDot({ color }: { color: HighlightColorDefinition }) {
 export function ThreadHighlightsPanel({
   threadRef,
   onInsertHighlights,
+  onInsertMarkdownFileHighlights,
 }: {
   readonly threadRef: ScopedThreadRef;
   readonly onInsertHighlights: (citations: readonly AssistantCitation[]) => boolean;
+  readonly onInsertMarkdownFileHighlights: (
+    excerpts: readonly MarkdownFileHighlightExcerpt[],
+  ) => boolean;
 }) {
   const navigate = useNavigate();
   const highlights = useThreadHighlights(threadRef);
+  const [tab, setTab] = useState<HighlightTab>(() =>
+    highlights.length > 0 &&
+    highlights.every((highlight) => highlight.source.kind === "markdown-file")
+      ? "files"
+      : "messages",
+  );
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set());
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
-  const exists = new Set(highlights.map((highlight) => highlight.id));
-  const groupsByMessage = new Map<string, ThreadHighlight[]>();
-  for (const highlight of [...highlights].sort((left, right) =>
-    left.createdAt.localeCompare(right.createdAt),
-  )) {
-    const group = groupsByMessage.get(highlight.messageId);
-    if (group) group.push(highlight);
-    else groupsByMessage.set(highlight.messageId, [highlight]);
-  }
-  const groups = [...groupsByMessage].map(([messageId, group]) => ({
-    messageId,
-    highlights: group.sort((left, right) => left.selector.start - right.selector.start),
-  }));
+  const messageHighlights = highlights.filter(
+    (highlight) => highlight.source.kind === "assistant-message",
+  );
+  const fileHighlights = highlights.filter(
+    (highlight) => highlight.source.kind === "markdown-file",
+  );
+  const activeHighlights = tab === "messages" ? messageHighlights : fileHighlights;
+  const groups = groupedHighlights(activeHighlights, tab);
   const orderedHighlights = groups.flatMap((group) => group.highlights);
+  const exists = new Set(activeHighlights.map((highlight) => highlight.id));
   const positionById = new Map(
     orderedHighlights.map((highlight, index) => [highlight.id, index + 1]),
   );
   const selected = orderedHighlights.filter((highlight) => selectedIds.has(highlight.id));
-  const allSelected = highlights.length > 0 && selected.length === highlights.length;
+  const allSelected = activeHighlights.length > 0 && selected.length === activeHighlights.length;
   const someSelected = selected.length > 0 && !allSelected;
 
+  const selectTab = (next: HighlightTab) => {
+    if (next === tab) return;
+    setTab(next);
+    setSelectedIds(new Set());
+    setConfirmDeleteOpen(false);
+  };
   const setSelected = (id: string, checked: boolean) => {
     setSelectedIds((current) => {
       const next = new Set(current);
@@ -92,11 +161,43 @@ export function ThreadHighlightsPanel({
     );
   };
   const jumpTo = (highlight: ThreadHighlight) => {
-    void navigate(assistantCitationNavigation(citationOf(threadRef, highlight)));
+    if (highlight.source.kind === "assistant-message") {
+      const citation = messageCitationOf(threadRef, highlight);
+      if (citation) void navigate(assistantCitationNavigation(citation));
+      return;
+    }
+    useRightPanelStore.getState().openFile(threadRef, highlight.source.relativePath);
+    requestFileHighlightReveal({
+      environmentId: threadRef.environmentId,
+      workspaceRoot: highlight.source.workspaceRoot,
+      relativePath: highlight.source.relativePath,
+      selector: highlight.selector,
+    });
   };
   const insertSelected = () => {
     if (selected.length === 0) return;
-    if (onInsertHighlights(selected.map((highlight) => citationOf(threadRef, highlight)))) {
+    if (tab === "messages") {
+      const citations = selected.flatMap((highlight) => {
+        const citation = messageCitationOf(threadRef, highlight);
+        return citation === null ? [] : [citation];
+      });
+      if (citations.length > 0 && onInsertHighlights(citations)) {
+        setSelectedIds(new Set());
+      }
+      return;
+    }
+    const excerpts = selected.flatMap((highlight) =>
+      highlight.source.kind === "markdown-file"
+        ? [
+            {
+              workspaceRoot: highlight.source.workspaceRoot,
+              relativePath: highlight.source.relativePath,
+              text: highlight.selector.text,
+            },
+          ]
+        : [],
+    );
+    if (excerpts.length > 0 && onInsertMarkdownFileHighlights(excerpts)) {
       setSelectedIds(new Set());
     }
   };
@@ -125,6 +226,19 @@ export function ThreadHighlightsPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      <div className="border-b border-border/60 px-3 py-2">
+        <ToggleGroup
+          aria-label="Highlight source"
+          value={[tab]}
+          onValueChange={(next) => {
+            const value = next[0];
+            if (value === "messages" || value === "files") selectTab(value);
+          }}
+        >
+          <Toggle value="messages">Messages</Toggle>
+          <Toggle value="files">Markdown files</Toggle>
+        </ToggleGroup>
+      </div>
       <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
         <Checkbox
           aria-label="Select all highlights"
@@ -133,7 +247,7 @@ export function ThreadHighlightsPanel({
           onCheckedChange={(checked) => setAllSelected(checked === true)}
         />
         <span className="text-xs text-muted-foreground">
-          {highlights.length} {highlights.length === 1 ? "highlight" : "highlights"}
+          {activeHighlights.length} {activeHighlights.length === 1 ? "highlight" : "highlights"}
         </span>
       </div>
       {selected.length > 0 ? (
@@ -149,20 +263,28 @@ export function ThreadHighlightsPanel({
           </div>
         </div>
       ) : null}
-      {highlights.length === 0 ? (
+      {activeHighlights.length === 0 ? (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
           <HighlighterIcon aria-hidden className="size-6 text-muted-foreground" />
-          <p className="text-sm font-medium">No highlights yet</p>
+          <p className="text-sm font-medium">
+            {highlights.length === 0
+              ? "No highlights yet"
+              : tab === "messages"
+                ? "No message highlights yet"
+                : "No Markdown highlights yet"}
+          </p>
           <p className="max-w-64 text-xs text-muted-foreground">
-            Select text in an assistant message and choose Highlight.
+            {tab === "messages"
+              ? "Select text in an assistant message and choose Highlight."
+              : "Select text in a rendered Markdown file and choose Highlight."}
           </p>
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {groups.map((group) => (
-            <div key={group.messageId} className="mb-2 last:mb-0">
-              <div className="px-2 py-1 text-2xs font-medium text-muted-foreground">
-                Assistant message
+            <div key={group.key} className="mb-2 last:mb-0">
+              <div className="truncate px-2 py-1 text-2xs font-medium text-muted-foreground">
+                {group.label}
               </div>
               {group.highlights.map((highlight) => {
                 const position = positionById.get(highlight.id) ?? 0;

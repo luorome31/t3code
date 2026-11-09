@@ -11,7 +11,12 @@ import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
 
-import { readThreadHighlights, useHighlightStore, type ThreadHighlight } from "~/highlightStore";
+import {
+  readThreadHighlights,
+  useHighlightStore,
+  type MarkdownFileHighlightExcerpt,
+  type ThreadHighlight,
+} from "~/highlightStore";
 import { DEFAULT_HIGHLIGHT_COLOR } from "~/lib/highlightColors";
 import { render } from "../../../test/render";
 import { ThreadHighlightsPanel } from "./ThreadHighlightsPanel";
@@ -28,24 +33,41 @@ const otherThreadRef: ScopedThreadRef = scopeThreadRef(
 const entries: ThreadHighlight[] = [
   {
     id: "highlight-1",
-    messageId: MessageId.make("message-1"),
+    source: { kind: "assistant-message", messageId: MessageId.make("message-1") },
     selector: { text: "alpha", start: 0, end: 5, prefix: "", suffix: " beta" },
     color: "amber",
     createdAt: "2026-01-01T00:00:00.000Z",
   },
   {
     id: "highlight-2",
-    messageId: MessageId.make("message-1"),
+    source: { kind: "assistant-message", messageId: MessageId.make("message-1") },
     selector: { text: "beta", start: 6, end: 10, prefix: "alpha ", suffix: " gamma" },
     color: "blue",
     createdAt: "2026-01-01T00:00:01.000Z",
   },
   {
     id: "highlight-3",
-    messageId: MessageId.make("message-2"),
+    source: { kind: "assistant-message", messageId: MessageId.make("message-2") },
     selector: { text: "delta", start: 0, end: 5, prefix: "", suffix: "" },
     color: "green",
     createdAt: "2026-01-01T00:00:02.000Z",
+  },
+];
+
+const fileEntries: ThreadHighlight[] = [
+  {
+    id: "file-highlight-1",
+    source: { kind: "markdown-file", workspaceRoot: "/repo", relativePath: "docs/design.md" },
+    selector: { text: "rendered quote", start: 0, end: 14, prefix: "", suffix: "" },
+    color: "purple",
+    createdAt: "2026-01-01T00:00:03.000Z",
+  },
+  {
+    id: "file-highlight-2",
+    source: { kind: "markdown-file", workspaceRoot: "/repo", relativePath: "docs/design.md" },
+    selector: { text: "second quote", start: 20, end: 32, prefix: "", suffix: "" },
+    color: "amber",
+    createdAt: "2026-01-01T00:00:04.000Z",
   },
 ];
 
@@ -71,6 +93,7 @@ function KeyedPanel({ threadRef }: { threadRef: ScopedThreadRef }) {
       key={scopedThreadKey(threadRef)}
       threadRef={threadRef}
       onInsertHighlights={() => true}
+      onInsertMarkdownFileHighlights={() => true}
     />
   );
 }
@@ -80,7 +103,11 @@ describe("ThreadHighlightsPanel", () => {
     setup();
     const onInsertHighlights = vi.fn((_citations: readonly AssistantCitation[]) => true);
     await using _screen = await render(
-      <ThreadHighlightsPanel threadRef={threadRef} onInsertHighlights={onInsertHighlights} />,
+      <ThreadHighlightsPanel
+        threadRef={threadRef}
+        onInsertHighlights={onInsertHighlights}
+        onInsertMarkdownFileHighlights={() => true}
+      />,
     );
 
     await expect.element(page.getByText("3 highlights")).toBeVisible();
@@ -107,7 +134,11 @@ describe("ThreadHighlightsPanel", () => {
     setup();
     const onInsertHighlights = vi.fn(() => true);
     await using _screen = await render(
-      <ThreadHighlightsPanel threadRef={threadRef} onInsertHighlights={onInsertHighlights} />,
+      <ThreadHighlightsPanel
+        threadRef={threadRef}
+        onInsertHighlights={onInsertHighlights}
+        onInsertMarkdownFileHighlights={() => true}
+      />,
     );
 
     await userEvent.click(page.getByRole("button", { name: "Highlight actions for highlight 1" }));
@@ -122,7 +153,11 @@ describe("ThreadHighlightsPanel", () => {
     setup();
     const onInsertHighlights = vi.fn(() => true);
     await using _screen = await render(
-      <ThreadHighlightsPanel threadRef={threadRef} onInsertHighlights={onInsertHighlights} />,
+      <ThreadHighlightsPanel
+        threadRef={threadRef}
+        onInsertHighlights={onInsertHighlights}
+        onInsertMarkdownFileHighlights={() => true}
+      />,
     );
 
     await select(entries[0]!);
@@ -142,7 +177,11 @@ describe("ThreadHighlightsPanel", () => {
   it("shows an empty state", async () => {
     setup([]);
     await using _screen = await render(
-      <ThreadHighlightsPanel threadRef={threadRef} onInsertHighlights={() => true} />,
+      <ThreadHighlightsPanel
+        threadRef={threadRef}
+        onInsertHighlights={() => true}
+        onInsertMarkdownFileHighlights={() => true}
+      />,
     );
 
     await expect.element(page.getByText("No highlights yet")).toBeVisible();
@@ -151,7 +190,11 @@ describe("ThreadHighlightsPanel", () => {
   it("keeps one group per message even when highlights interleave", async () => {
     setup([entries[0]!, { ...entries[2]!, createdAt: "2026-01-01T00:00:00.500Z" }, entries[1]!]);
     await using _screen = await render(
-      <ThreadHighlightsPanel threadRef={threadRef} onInsertHighlights={() => true} />,
+      <ThreadHighlightsPanel
+        threadRef={threadRef}
+        onInsertHighlights={() => true}
+        onInsertMarkdownFileHighlights={() => true}
+      />,
     );
 
     await expect.poll(() => page.getByText("Assistant message").elements().length).toBe(2);
@@ -160,7 +203,11 @@ describe("ThreadHighlightsPanel", () => {
   it("selects all highlights and clears the selection", async () => {
     setup();
     await using _screen = await render(
-      <ThreadHighlightsPanel threadRef={threadRef} onInsertHighlights={() => true} />,
+      <ThreadHighlightsPanel
+        threadRef={threadRef}
+        onInsertHighlights={() => true}
+        onInsertMarkdownFileHighlights={() => true}
+      />,
     );
 
     const selectAll = page.getByRole("checkbox", { name: "Select all highlights" });
@@ -174,7 +221,11 @@ describe("ThreadHighlightsPanel", () => {
   it("keeps the selection when the composer insert fails", async () => {
     setup();
     await using _screen = await render(
-      <ThreadHighlightsPanel threadRef={threadRef} onInsertHighlights={() => false} />,
+      <ThreadHighlightsPanel
+        threadRef={threadRef}
+        onInsertHighlights={() => false}
+        onInsertMarkdownFileHighlights={() => true}
+      />,
     );
 
     await select(entries[0]!);
@@ -186,7 +237,11 @@ describe("ThreadHighlightsPanel", () => {
   it("deletes a single highlight from its menu", async () => {
     setup();
     await using _screen = await render(
-      <ThreadHighlightsPanel threadRef={threadRef} onInsertHighlights={() => true} />,
+      <ThreadHighlightsPanel
+        threadRef={threadRef}
+        onInsertHighlights={() => true}
+        onInsertMarkdownFileHighlights={() => true}
+      />,
     );
 
     await userEvent.click(page.getByRole("button", { name: "Highlight actions for highlight 1" }));
@@ -195,6 +250,40 @@ describe("ThreadHighlightsPanel", () => {
     expect(readThreadHighlights(threadRef).map((highlight) => highlight.id)).toEqual([
       "highlight-2",
       "highlight-3",
+    ]);
+  });
+
+  it("switches to Markdown file highlights and inserts excerpts", async () => {
+    setup([...entries, ...fileEntries]);
+    const onInsertMarkdownFileHighlights = vi.fn(
+      (_excerpts: readonly MarkdownFileHighlightExcerpt[]) => true,
+    );
+    await using _screen = await render(
+      <ThreadHighlightsPanel
+        threadRef={threadRef}
+        onInsertHighlights={() => true}
+        onInsertMarkdownFileHighlights={onInsertMarkdownFileHighlights}
+      />,
+    );
+
+    await select(entries[0]!);
+    await expect.element(page.getByText("1 selected")).toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: "Markdown files" }));
+
+    await expect.element(page.getByText("docs/design.md")).toBeVisible();
+    await expect.element(page.getByText("2 highlights")).toBeVisible();
+    await expect.element(page.getByText("1 selected")).not.toBeInTheDocument();
+
+    await select(fileEntries[0]!);
+    await userEvent.click(page.getByRole("button", { name: "Insert into chat" }));
+
+    expect(onInsertMarkdownFileHighlights).toHaveBeenCalledOnce();
+    expect(onInsertMarkdownFileHighlights.mock.calls[0]?.[0]).toEqual([
+      {
+        workspaceRoot: "/repo",
+        relativePath: "docs/design.md",
+        text: "rendered quote",
+      },
     ]);
   });
 

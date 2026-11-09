@@ -11,6 +11,7 @@ import type {
 } from "@t3tools/contracts";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { lazy, Suspense } from "react";
+import type { MarkdownFileHighlightExcerpt } from "~/highlightStore";
 import SideChatPane from "./SideChatPane";
 import type { ComposerImageAttachment, DraftId } from "../../composerDraftStore";
 import type { ShortcutMatchContext } from "../../keybindings";
@@ -79,6 +80,9 @@ export function RightPanelSurfaceContent(props: {
     image: ComposerImageAttachment | null,
   ) => void;
   readonly onInsertHighlights: (citations: readonly AssistantCitation[]) => boolean;
+  readonly onInsertMarkdownFileHighlights: (
+    excerpts: readonly MarkdownFileHighlightExcerpt[],
+  ) => boolean;
   readonly onCloseSurface: (surface: RightPanelSurface) => void;
   readonly terminal: RightPanelTerminalProps;
   readonly pullRequest: RightPanelPullRequestProps;
@@ -182,6 +186,7 @@ export function RightPanelSurfaceContent(props: {
           key={scopedThreadKey(threadRef)}
           threadRef={threadRef}
           onInsertHighlights={props.onInsertHighlights}
+          onInsertMarkdownFileHighlights={props.onInsertMarkdownFileHighlights}
         />
       );
     case "questions":

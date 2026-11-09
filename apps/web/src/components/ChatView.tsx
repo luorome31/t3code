@@ -38,6 +38,8 @@ import { useQueuedRunEdit } from "./chat/useQueuedRunEdit";
 import { recallCheckoutIsRepo, rememberCheckoutIsRepo } from "./ChatView.logic";
 import { useLogicalProjectEnvironments } from "../hooks/useLogicalProjectEnvironments";
 import { useStableCallback } from "../hooks/useStableCallback";
+import type { MarkdownFileHighlightExcerpt } from "../highlightStore";
+import { formatMarkdownFileHighlightExcerpts } from "../lib/highlightExcerpt";
 import { useProjectScriptEditing } from "./chat/useProjectScriptEditing";
 import { RightPanelSurfaceContent } from "./chat/RightPanelSurfaceContent";
 import { usePendingThreadRequests } from "./chat/usePendingThreadRequests";
@@ -654,6 +656,21 @@ export default function ChatView(props: ChatViewProps) {
     return inserted;
   };
   const insertAssistantHighlightsStable = useStableCallback(insertAssistantHighlights);
+  const insertMarkdownFileHighlights = (excerpts: readonly MarkdownFileHighlightExcerpt[]) => {
+    const inserted =
+      composerRef.current?.insertTextAtEnd(formatMarkdownFileHighlightExcerpts(excerpts), {
+        ensureLeadingBoundary: true,
+      }) ?? false;
+    if (!inserted) {
+      toastManager.add({
+        type: "warning",
+        title: "The composer is not ready",
+        description: "Try inserting the highlights after pending input is resolved.",
+      });
+    }
+    return inserted;
+  };
+  const insertMarkdownFileHighlightsStable = useStableCallback(insertMarkdownFileHighlights);
   const [isWorkspaceFileDragActive, setIsWorkspaceFileDragActive] = useState(false);
   const [optimisticBlobPreviews] = useState(createOptimisticBlobPreviews);
   const [heldOptimisticUserMessages, setHeldOptimisticUserMessages] = useState(() =>
@@ -3264,6 +3281,7 @@ export default function ChatView(props: ChatViewProps) {
       getShortcutContext={getShortcutContextStable}
       onSendAnnotation={sendPreviewAnnotationStable}
       onInsertHighlights={insertAssistantHighlightsStable}
+      onInsertMarkdownFileHighlights={insertMarkdownFileHighlightsStable}
       onCloseSurface={closeRightPanelSurface}
       sideChatParentPanel={sideChatParentPanel}
       terminal={{

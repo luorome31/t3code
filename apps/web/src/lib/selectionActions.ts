@@ -28,7 +28,7 @@ export function resolveSelectionActionPosition(options: {
 
 type SelectionRect = { left: number; top: number; right: number; bottom: number };
 
-export function isSelectionRectVisible(rect: SelectionRect, clips: readonly SelectionRect[]) {
+function isSelectionRectVisible(rect: SelectionRect, clips: readonly SelectionRect[]) {
   let { left, top, right, bottom } = rect;
   for (const clip of clips) {
     left = Math.max(left, clip.left);
@@ -37,6 +37,55 @@ export function isSelectionRectVisible(rect: SelectionRect, clips: readonly Sele
     bottom = Math.min(bottom, clip.bottom);
   }
   return right > left && bottom > top;
+}
+
+/** A selection can cross blocks with different clipping ancestors. */
+export function isSelectionRangeVisible(range: Range, viewport: HTMLElement): boolean {
+  const viewportRect = viewport.getBoundingClientRect();
+  const rect = range.getBoundingClientRect();
+  if (!isSelectionRectVisible(rect, [viewportRect])) return false;
+
+  const common = range.commonAncestorContainer;
+  const walker = viewport.ownerDocument.createTreeWalker(common, NodeFilter.SHOW_TEXT);
+  let node = common.nodeType === Node.TEXT_NODE ? common : walker.nextNode();
+  let visible = false;
+  for (; node && !visible; node = walker.nextNode()) {
+    if (!range.intersectsNode(node)) continue;
+    if (node.parentElement && getComputedStyle(node.parentElement).userSelect === "none") continue;
+    const fragment = viewport.ownerDocument.createRange();
+    fragment.selectNodeContents(node);
+    if (node === range.startContainer) {
+      fragment.setStart(node, range.startOffset);
+    }
+    if (node === range.endContainer) {
+      fragment.setEnd(node, range.endOffset);
+    }
+    if (!fragment.toString().trim()) continue;
+    const lines = Array.from(fragment.getClientRects());
+    if (!lines.some((line) => isSelectionRectVisible(line, [viewportRect]))) continue;
+    const clips: Pick<DOMRect, "left" | "right" | "top" | "bottom">[] = [viewportRect];
+    for (
+      let element = node.parentElement;
+      element && element !== viewport;
+      element = element.parentElement
+    ) {
+      const style = getComputedStyle(element);
+      const clipX = style.overflowX !== "visible";
+      const clipY = style.overflowY !== "visible";
+      if (!clipX && !clipY) continue;
+      const bounds = element.getBoundingClientRect();
+      const left = bounds.left + element.clientLeft;
+      const top = bounds.top + element.clientTop;
+      clips.push({
+        left: clipX ? left : -Infinity,
+        right: clipX ? left + element.clientWidth : Infinity,
+        top: clipY ? top : -Infinity,
+        bottom: clipY ? top + element.clientHeight : Infinity,
+      });
+    }
+    visible = lines.some((line) => isSelectionRectVisible(line, clips));
+  }
+  return visible;
 }
 
 /**

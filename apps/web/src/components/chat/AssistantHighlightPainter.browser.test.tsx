@@ -70,7 +70,7 @@ function highlight(
 ): ThreadHighlight {
   return {
     id,
-    messageId: MessageId.make("message-1"),
+    source: { kind: "assistant-message", messageId: MessageId.make("message-1") },
     selector: { text, start, end: start + text.length, prefix, suffix },
     color,
     createdAt,

@@ -32,7 +32,7 @@ function selector(text = "highlight me", start = 0): AssistantTextSelector {
 
 function add(text = "highlight me", start = 0) {
   return useHighlightStore.getState().addHighlight(threadRef, {
-    messageId: MessageId.make("message-1"),
+    source: { kind: "assistant-message", messageId: MessageId.make("message-1") },
     selector: selector(text, start),
   });
 }
@@ -49,7 +49,10 @@ describe("highlightStore", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.highlight.color).toBe(DEFAULT_HIGHLIGHT_COLOR);
-    expect(result.highlight.messageId).toBe(MessageId.make("message-1"));
+    expect(result.highlight.source).toEqual({
+      kind: "assistant-message",
+      messageId: MessageId.make("message-1"),
+    });
     expect(useHighlightStore.getState().byThreadKey["environment-1:thread-1"]).toHaveLength(1);
   });
 
@@ -63,11 +66,37 @@ describe("highlightStore", () => {
     expect(add().ok).toBe(true);
 
     const result = useHighlightStore.getState().addHighlight(threadRef, {
-      messageId: MessageId.make("message-2"),
+      source: { kind: "assistant-message", messageId: MessageId.make("message-2") },
       selector: selector(),
     });
 
     expect(result.ok).toBe(true);
+  });
+
+  it("scopes Markdown file highlights to their workspace file", () => {
+    const source = {
+      kind: "markdown-file" as const,
+      workspaceRoot: "/repo",
+      relativePath: "docs/design.md",
+    };
+    expect(
+      useHighlightStore.getState().addHighlight(threadRef, { source, selector: selector() }).ok,
+    ).toBe(true);
+    expect(
+      useHighlightStore.getState().addHighlight(threadRef, { source, selector: selector() }),
+    ).toEqual({ ok: false, reason: "duplicate" });
+    expect(
+      useHighlightStore.getState().addHighlight(threadRef, {
+        source: { ...source, relativePath: "docs/other.md" },
+        selector: selector(),
+      }).ok,
+    ).toBe(true);
+    expect(
+      useHighlightStore.getState().addHighlight(threadRef, {
+        source: { ...source, workspaceRoot: "/other" },
+        selector: selector(),
+      }).ok,
+    ).toBe(true);
   });
 
   it("accepts a selection exactly at the text limit", () => {
@@ -119,7 +148,7 @@ describe("highlightStore", () => {
   it("isolates highlights by thread", () => {
     expect(add().ok).toBe(true);
     const other = useHighlightStore.getState().addHighlight(otherThreadRef, {
-      messageId: MessageId.make("message-1"),
+      source: { kind: "assistant-message", messageId: MessageId.make("message-1") },
       selector: selector(),
     });
 
@@ -131,7 +160,7 @@ describe("highlightStore", () => {
   it("isolates the same thread id in another environment", () => {
     expect(add().ok).toBe(true);
     const other = useHighlightStore.getState().addHighlight(otherEnvironmentThreadRef, {
-      messageId: MessageId.make("message-1"),
+      source: { kind: "assistant-message", messageId: MessageId.make("message-1") },
       selector: selector(),
     });
 
@@ -155,7 +184,7 @@ describe("highlightStore", () => {
   it("clears one thread without touching another", () => {
     expect(add().ok).toBe(true);
     useHighlightStore.getState().addHighlight(otherThreadRef, {
-      messageId: MessageId.make("message-1"),
+      source: { kind: "assistant-message", messageId: MessageId.make("message-1") },
       selector: selector(),
     });
 

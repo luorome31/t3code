@@ -1,5 +1,5 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { MessageId, ScopedThreadRef } from "@t3tools/contracts";
+import { MessageId, type ScopedThreadRef } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -18,9 +18,23 @@ export const MAX_HIGHLIGHTS_PER_THREAD = 500;
 export const MAX_HIGHLIGHT_TEXT_LENGTH = 4000;
 const MAX_TOTAL_HIGHLIGHT_TEXT_LENGTH = 2_000_000;
 
+export type ThreadHighlightSource =
+  | { readonly kind: "assistant-message"; readonly messageId: MessageId }
+  | {
+      readonly kind: "markdown-file";
+      readonly workspaceRoot: string;
+      readonly relativePath: string;
+    };
+
+export interface MarkdownFileHighlightExcerpt {
+  readonly workspaceRoot: string;
+  readonly relativePath: string;
+  readonly text: string;
+}
+
 export interface ThreadHighlight {
   readonly id: string;
-  readonly messageId: MessageId;
+  readonly source: ThreadHighlightSource;
   readonly selector: AssistantTextSelector;
   readonly color: HighlightColor;
   readonly createdAt: string;
@@ -31,7 +45,7 @@ export type AddHighlightResult =
   | { readonly ok: false; readonly reason: "too_long" | "limit" | "duplicate" };
 
 interface AddHighlightInput {
-  readonly messageId: MessageId;
+  readonly source: ThreadHighlightSource;
   readonly selector: AssistantTextSelector;
   readonly color?: HighlightColor;
 }
@@ -72,6 +86,20 @@ export function sameHighlightSelector(
   return left.text === right.text && left.start === right.start && left.end === right.end;
 }
 
+export function sameHighlightSource(
+  left: ThreadHighlightSource,
+  right: ThreadHighlightSource,
+): boolean {
+  if (left.kind === "assistant-message") {
+    return right.kind === "assistant-message" && left.messageId === right.messageId;
+  }
+  return (
+    right.kind === "markdown-file" &&
+    left.workspaceRoot === right.workspaceRoot &&
+    left.relativePath === right.relativePath
+  );
+}
+
 function isSelector(value: unknown): value is AssistantTextSelector {
   if (!value || typeof value !== "object") return false;
   const selector = value as Partial<AssistantTextSelector>;
@@ -89,16 +117,58 @@ function isSelector(value: unknown): value is AssistantTextSelector {
   );
 }
 
-function isThreadHighlight(value: unknown): value is ThreadHighlight {
+function isHighlightSource(value: unknown): value is ThreadHighlightSource {
   if (!value || typeof value !== "object") return false;
-  const highlight = value as Partial<ThreadHighlight>;
-  return (
-    typeof highlight.id === "string" &&
+  const source = value as Partial<ThreadHighlightSource>;
+  if (source.kind === "assistant-message") {
+    return typeof source.messageId === "string" && source.messageId.length > 0;
+  }
+  if (source.kind === "markdown-file") {
+    return (
+      typeof source.workspaceRoot === "string" &&
+      source.workspaceRoot.length > 0 &&
+      typeof source.relativePath === "string" &&
+      source.relativePath.length > 0
+    );
+  }
+  return false;
+}
+
+// Version 1 stored the assistant message id at the top level.
+function normalizeThreadHighlight(value: unknown): ThreadHighlight | null {
+  if (!value || typeof value !== "object") return null;
+  const highlight = value as Partial<ThreadHighlight> & { messageId?: unknown };
+  if (
+    typeof highlight.id !== "string" ||
+    typeof highlight.createdAt !== "string" ||
+    !isHighlightColor(highlight.color) ||
+    !isSelector(highlight.selector)
+  ) {
+    return null;
+  }
+  let source: ThreadHighlightSource | null = isHighlightSource(highlight.source)
+    ? highlight.source
+    : null;
+  if (
+    source === null &&
     typeof highlight.messageId === "string" &&
-    typeof highlight.createdAt === "string" &&
-    isHighlightColor(highlight.color) &&
-    isSelector(highlight.selector)
-  );
+    highlight.messageId.length > 0
+  ) {
+    try {
+      source = { kind: "assistant-message", messageId: MessageId.make(highlight.messageId) };
+    } catch {
+      return null;
+    }
+  }
+  return source === null
+    ? null
+    : {
+        id: highlight.id,
+        source,
+        selector: highlight.selector,
+        color: highlight.color,
+        createdAt: highlight.createdAt,
+      };
 }
 
 function sanitizeThreadHighlights(value: unknown): Record<string, ThreadHighlight[]> {
@@ -107,10 +177,11 @@ function sanitizeThreadHighlights(value: unknown): Record<string, ThreadHighligh
   for (const [threadKey, entries] of Object.entries(value)) {
     if (!Array.isArray(entries)) continue;
     const seen = new Set<string>();
-    const highlights = entries.filter((entry): entry is ThreadHighlight => {
-      if (!isThreadHighlight(entry) || seen.has(entry.id)) return false;
-      seen.add(entry.id);
-      return true;
+    const highlights = entries.flatMap((entry) => {
+      const highlight = normalizeThreadHighlight(entry);
+      if (highlight === null || seen.has(highlight.id)) return [];
+      seen.add(highlight.id);
+      return [highlight];
     });
     if (highlights.length > 0) {
       sanitized[threadKey] = highlights.slice(0, MAX_HIGHLIGHTS_PER_THREAD);
@@ -154,7 +225,7 @@ export const useHighlightStore = create<HighlightStoreState>()(
         if (
           highlights.some(
             (highlight) =>
-              highlight.messageId === input.messageId &&
+              sameHighlightSource(highlight.source, input.source) &&
               sameHighlightSelector(highlight.selector, input.selector),
           )
         ) {
@@ -162,7 +233,7 @@ export const useHighlightStore = create<HighlightStoreState>()(
         }
         const highlight: ThreadHighlight = {
           id: randomUUID(),
-          messageId: input.messageId,
+          source: input.source,
           selector: input.selector,
           color:
             input.color !== undefined && isHighlightColor(input.color)
@@ -225,7 +296,7 @@ export const useHighlightStore = create<HighlightStoreState>()(
     }),
     {
       name: HIGHLIGHT_STORAGE_KEY,
-      version: 1,
+      version: 2,
       storage: createJSONStorage(() =>
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),

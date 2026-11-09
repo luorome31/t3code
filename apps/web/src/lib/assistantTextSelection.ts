@@ -16,13 +16,19 @@ export type AssistantCitationSourceAnchor = {
   viewport: HTMLElement;
 };
 
+export type CapturedTextSelection = {
+  readonly source: HTMLElement;
+  readonly selector: AssistantTextSelector;
+  readonly range: Range;
+};
+
+const ASSISTANT_SOURCE_SELECTOR = "[data-assistant-citation-source]";
+
 export function findAssistantCitationSourceAnchor(
   document: Document,
   citation: AssistantCitation,
 ): AssistantCitationSourceAnchor | null {
-  const source = [
-    ...document.querySelectorAll<HTMLElement>("[data-assistant-citation-source]"),
-  ].find(
+  const source = [...document.querySelectorAll<HTMLElement>(ASSISTANT_SOURCE_SELECTOR)].find(
     (element) =>
       element.dataset.assistantCitationSource === citation.messageId &&
       element.dataset.assistantCitationEnvironment === citation.environmentId &&
@@ -209,16 +215,17 @@ function selectedTextBoundary(range: Range, node: Node, last: boolean): Text | n
   return null;
 }
 
-export function captureAssistantTextSelection(
+function captureTextSelection(
   viewport: HTMLElement,
   selection: Selection | null,
-): { source: HTMLElement; selector: AssistantTextSelector; range: Range } | null {
+  findSource: (first: Text) => HTMLElement | null,
+): CapturedTextSelection | null {
   if (selection === null || selection.isCollapsed || selection.rangeCount !== 1) return null;
   const range = selection.getRangeAt(0).cloneRange();
   const first = selectedTextBoundary(range, range.commonAncestorContainer, false);
   const last = selectedTextBoundary(range, range.commonAncestorContainer, true);
   if (first === null || last === null) return null;
-  const source = first.parentElement?.closest<HTMLElement>("[data-assistant-citation-source]");
+  const source = findSource(first);
   if (!source || !viewport.contains(source)) return null;
 
   // Paragraph selection can end at the next block's offset 0 or a parent
@@ -246,6 +253,25 @@ export function captureAssistantTextSelection(
   if (rawStart === null) return null;
   const selector = createAssistantTextSelector(stream.text, rawStart, rawEnd);
   return selector === null ? null : { source, selector, range };
+}
+
+export function captureAssistantTextSelection(
+  viewport: HTMLElement,
+  selection: Selection | null,
+): CapturedTextSelection | null {
+  return captureTextSelection(
+    viewport,
+    selection,
+    (first) => first.parentElement?.closest<HTMLElement>(ASSISTANT_SOURCE_SELECTOR) ?? null,
+  );
+}
+
+/** One rendered surface, such as a Markdown file, is a source in its entirety. */
+export function captureViewportTextSelection(
+  viewport: HTMLElement,
+  selection: Selection | null,
+): CapturedTextSelection | null {
+  return captureTextSelection(viewport, selection, () => viewport);
 }
 
 function rawTextOffset(text: string, normalizedOffset: number): number {

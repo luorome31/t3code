@@ -88,7 +88,8 @@ import FileBrowserPanel from "./FileBrowserPanel";
 import { FileExplorerPane } from "./FileExplorerPane";
 import { FileBreadcrumbs } from "./FileBreadcrumbs";
 import { breadcrumbPathOf, retainedBreadcrumbTrail, trailChildOf } from "./filePath";
-import { FileMarkdownPreview } from "./FileMarkdownPreview";
+import { FileMarkdownPreview, type MarkdownFileHighlightReveal } from "./FileMarkdownPreview";
+import { consumeFileHighlightReveal, useFileHighlightReveal } from "~/fileHighlightRevealStore";
 import {
   type FileCommentAnnotationEntry,
   type FileCommentAnnotationGroup,
@@ -935,6 +936,8 @@ function RenderedMarkdownSurface({
   threadRef,
   workspaceMutationId,
   readOnly,
+  revealHighlight,
+  onHighlightRevealHandled,
   onPendingChange,
 }: Omit<
   EditableFileSurfaceProps,
@@ -948,6 +951,8 @@ function RenderedMarkdownSurface({
   threadRef: ScopedThreadRef;
   readOnly: boolean;
   workspaceMutationId: string | null;
+  revealHighlight: MarkdownFileHighlightReveal | null;
+  onHighlightRevealHandled: (id: number) => void;
 }) {
   const saveTarget = { environmentId, cwd, relativePath };
   useFileSaveSession(saveTarget, onPendingChange);
@@ -960,6 +965,8 @@ function RenderedMarkdownSurface({
         relativePath={relativePath}
         threadRef={threadRef}
         workspaceMutationId={workspaceMutationId}
+        revealHighlight={revealHighlight}
+        onHighlightRevealHandled={onHighlightRevealHandled}
         onTaskListChange={
           readOnly
             ? undefined
@@ -1108,6 +1115,17 @@ export default function FilePreviewPanel({
   );
   const breadcrumbRef = useRef<HTMLDivElement>(null);
   const isMarkdown = previewPath ? isMarkdownPreviewFile(previewPath) : false;
+  const highlightReveal = useFileHighlightReveal({
+    environmentId,
+    workspaceRoot: cwd,
+    relativePath,
+  });
+  const [revealRenderedPath, setRevealRenderedPath] = useState<string | null>(null);
+  if (highlightReveal !== null && relativePath !== null && revealRenderedPath !== relativePath) {
+    setRevealRenderedPath(relativePath);
+  }
+  const forceRendered =
+    highlightReveal !== null || (relativePath !== null && revealRenderedPath === relativePath);
   const isMermaid = previewPath !== null && /\.(mmd|mermaid)$/i.test(previewPath);
   const [renderMermaidPreferred, setRenderMermaidPreferred] = useLocalStorage(
     "t3code.renderMermaid",
@@ -1119,7 +1137,7 @@ export default function FilePreviewPanel({
   const revealHandled =
     revealLine === null ||
     (handledReveal?.path === relativePath && handledReveal.requestId === revealRequestId);
-  const renderMarkdown = isMarkdown && renderMarkdownPreferred && revealHandled;
+  const renderMarkdown = isMarkdown && (renderMarkdownPreferred || forceRendered) && revealHandled;
   const renderMermaid = isMermaid && renderMermaidPreferred && revealHandled;
   const renderBrowserFile = isPdf || (isHtml && renderBrowserFilePreferred && revealHandled);
   const renderTable = tableDelimiter !== null && renderTablePreferred && revealHandled;
@@ -1302,6 +1320,7 @@ export default function FilePreviewPanel({
               onPress={() => {
                 const pressed = !rendered;
                 setRenderedPreferred(pressed);
+                setRevealRenderedPath(null);
                 setHandledReveal(
                   pressed && relativePath !== null
                     ? { path: relativePath, requestId: revealRequestId }
@@ -1502,6 +1521,15 @@ export default function FilePreviewPanel({
                 contents={file.data.contents}
                 workspaceMutationId={workspaceMutationId}
                 readOnly={file.data.truncated || isHostFile || !canWriteFiles}
+                revealHighlight={highlightReveal}
+                onHighlightRevealHandled={(id) => {
+                  consumeFileHighlightReveal({
+                    environmentId,
+                    workspaceRoot: cwd,
+                    relativePath,
+                    id,
+                  });
+                }}
                 onPendingChange={onPendingChange}
               />
             ) : tableDelimiter && renderTable ? (
