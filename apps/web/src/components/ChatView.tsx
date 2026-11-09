@@ -1310,6 +1310,7 @@ export default function ChatView(props: ChatViewProps) {
     loadBalancingEnabled: settings.loadBalancingEnabled,
     loadBalancingWeights: settings.loadBalancingWeights,
   }));
+  const sendScrollBehavior = useClientSettings((settings) => settings.sendScrollBehavior);
   const automaticEnvironment = Boolean(
     clientSettingsHydrated &&
     draftId &&
@@ -1910,26 +1911,6 @@ export default function ChatView(props: ChatViewProps) {
     scheduleComposerFocus();
   };
   const insertArtifactTemplateStable = useStableCallback(insertArtifactTemplate);
-  const sendAppMessage = async (text: string) => {
-    if (!isServerThread || activeThreadId === null) {
-      throw new Error("Messages from apps need a started thread.");
-    }
-    const result = await startThreadTurn({
-      environmentId,
-      input: {
-        threadId: activeThreadId,
-        message: { messageId: newMessageId(), role: "user", text, attachments: [] },
-        runtimeMode,
-        interactionMode,
-        dispatchMode: "queue",
-      },
-    });
-    if (result._tag === "Failure") {
-      const error = squashAtomCommandFailure(result);
-      throw error instanceof Error ? error : new Error("Could not send the app's message.");
-    }
-  };
-  const sendAppMessageStable = useStableCallback(sendAppMessage);
   const queuedRunsControlRef = useRef<QueuedRunsControlHandle>(null);
 
   const {
@@ -2156,7 +2137,7 @@ export default function ChatView(props: ChatViewProps) {
     onTimelineAnchorSizeChangedStable,
     onTimelineFooterGrowStable,
     onIsAtEndChangeStable,
-    anchorNewTurn,
+    prepareSend,
     attachTimelineViewport,
     attachComposerOverlay: attachFollowComposerOverlay,
   } = useTimelineFollow({
@@ -2172,7 +2153,35 @@ export default function ChatView(props: ChatViewProps) {
     timelineEntries,
     timelineAnchorMessageId,
     setTimelineAnchor,
+    sendScrollBehavior,
   });
+
+  const sendAppMessage = async (text: string) => {
+    if (!isServerThread || activeThreadId === null) {
+      throw new Error("Messages from apps need a started thread.");
+    }
+    const messageId = newMessageId();
+    prepareSend({
+      threadKey: scopedThreadKey(scopeThreadRef(environmentId, activeThreadId)),
+      messageId,
+      jump: "anchor",
+    });
+    const result = await startThreadTurn({
+      environmentId,
+      input: {
+        threadId: activeThreadId,
+        message: { messageId, role: "user", text, attachments: [] },
+        runtimeMode,
+        interactionMode,
+        dispatchMode: "queue",
+      },
+    });
+    if (result._tag === "Failure") {
+      const error = squashAtomCommandFailure(result);
+      throw error instanceof Error ? error : new Error("Could not send the app's message.");
+    }
+  };
+  const sendAppMessageStable = useStableCallback(sendAppMessage);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- schedules a frame to focus the composer DOM element when a thread opens with the terminal closed
   useEffect(() => {
@@ -2491,7 +2500,7 @@ export default function ChatView(props: ChatViewProps) {
     clearUsageLimitsFor,
     beginLocalDispatch,
     resetLocalDispatch,
-    scrollToEnd,
+    prepareSend,
     persistThreadSettingsForNextTurn,
   });
   const activeThreadHasCompactableConversation = serverVisibleTurnItems.some(
@@ -2944,6 +2953,7 @@ export default function ChatView(props: ChatViewProps) {
     composerRef,
     persistThreadSettingsForNextTurn,
     clearUsageLimitsFor,
+    prepareSend,
     scrollToEnd,
     setThreadError,
   });
@@ -3031,7 +3041,7 @@ export default function ChatView(props: ChatViewProps) {
     setFeedbackSubmissionsByThreadKey,
     setThreadError,
     setKeepFullHistory,
-    anchorNewTurn,
+    prepareSend,
     acknowledgeActiveThreadWoke,
     handleInteractionModeChange,
     onSideChat: sideChat.available ? sendSideChatStable : undefined,

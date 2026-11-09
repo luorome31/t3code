@@ -342,6 +342,16 @@ export type ChatWidth = typeof ChatWidth.Type;
 
 export const ConversationNavigation = Schema.Literals(["off", "timeline", "questions"]);
 
+/** Where a send leaves the timeline: at the new message, only when already at the end, or in place. */
+export const SendScrollBehavior = Schema.Literals(["always", "at-end", "never"]);
+export type SendScrollBehavior = typeof SendScrollBehavior.Type;
+export const DEFAULT_SEND_SCROLL_BEHAVIOR: SendScrollBehavior = "always";
+
+/** Whether a send should move the timeline under the chosen preference. */
+export function shouldJumpAfterSend(behavior: SendScrollBehavior, atLiveEnd: boolean): boolean {
+  return behavior === "always" || (behavior === "at-end" && atLiveEnd);
+}
+
 /** How the composer shows reasoning effort: the level's name, or rising bars. */
 export const EffortDisplay = Schema.Literals(["label", "bars"]);
 export type EffortDisplay = typeof EffortDisplay.Type;
@@ -503,6 +513,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   followUpBehavior: Schema.Literals(["queue", "steer"]).pipe(
     Schema.withDecodingDefault(Effect.succeed("steer")),
+  ),
+  sendScrollBehavior: SendScrollBehavior.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SEND_SCROLL_BEHAVIOR)),
   ),
   proactivePanelsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   showSkillsInSlashMenu: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
@@ -1908,6 +1921,7 @@ export const ClientSettingsPatch = Schema.Struct({
   composerRichTextEnabled: Schema.optionalKey(Schema.Boolean),
   sendShortcut: Schema.optionalKey(Schema.Literals(["enter", "mod-enter-multiline", "mod-enter"])),
   followUpBehavior: Schema.optionalKey(Schema.Literals(["queue", "steer"])),
+  sendScrollBehavior: Schema.optionalKey(SendScrollBehavior),
   proactivePanelsEnabled: Schema.optionalKey(Schema.Boolean),
   showSkillsInSlashMenu: Schema.optionalKey(Schema.Boolean),
   boringSidebarEnabled: Schema.optionalKey(Schema.Boolean),

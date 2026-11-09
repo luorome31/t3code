@@ -13,6 +13,7 @@ import {
   type OrchestrationV2Run,
   type OrchestrationV2TurnItem,
 } from "@t3tools/contracts";
+import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -20,6 +21,7 @@ import { userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
 
+import { __setClientSettingsForTests, persistClientSettingsPatch } from "~/hooks/useSettings";
 import { render } from "../../../test/render";
 import { makeThreadProjectionFixture } from "../../test-fixtures";
 import { GuestPage } from "./GuestPage";
@@ -396,5 +398,68 @@ describe("GuestPage", () => {
       await expectAtEnd();
       await expect.element(screen.getByText("Logout reply")).toBeInTheDocument();
     }
+  });
+
+  it("keeps a guest's place when After sending is Never", async () => {
+    using _page = visit(`/guest?share=${SHARE_ID}`);
+    using _session = vi
+      .spyOn(window, "fetch")
+      .mockImplementation(async () => new Response(null, { status: 204 }));
+    using _restoreSettings = {
+      [Symbol.dispose]: () => __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS),
+    };
+    const sources: Array<EventTarget> = [];
+    const longItems = Array.from({ length: 12 }, (_, index) =>
+      reply(
+        `reply-${index}`,
+        index,
+        `Reply ${index}\n\n${"A long paragraph about the change. ".repeat(20)}`,
+      ),
+    );
+    using _stream = vi
+      .spyOn(window, "EventSource")
+      .mockImplementation(
+        fakeEventSource(opening([run("run-1", 1, "running")], longItems), sources) as never,
+      );
+    const send = (event: GuestStreamEvent) =>
+      sources.at(-1)!.dispatchEvent(new MessageEvent("message", { data: encodeEvent(event) }));
+    const container = document.createElement("div");
+    container.style.cssText = "height: 600px; width: 900px; display: flex; flex-direction: column;";
+    await using screen = await render(<GuestPage />, { container });
+    await expect.element(screen.getByText("Reply 11")).toBeInTheDocument();
+    const scroller = () =>
+      screen.container.querySelector<HTMLElement>(".messages-timeline-scroll")!;
+    await vi.waitFor(() => {
+      const node = scroller();
+      expect(node.scrollHeight - node.scrollTop - node.clientHeight).toBeLessThan(2);
+    });
+
+    // The footer already exists and the guest is following when the preference turns off.
+    const first = {
+      id: GuestMessageId.make("guest-first"),
+      text: "First message",
+      status: "pending" as const,
+      submittedAt: "2026-10-23T10:01:00.000Z",
+    };
+    send({ type: "view", view: { ...view, messages: [first] } });
+    await expect.element(screen.getByText(first.text)).toBeInTheDocument();
+    await vi.waitFor(() => {
+      const node = scroller();
+      expect(node.scrollHeight - node.scrollTop - node.clientHeight).toBeLessThan(2);
+    });
+    await persistClientSettingsPatch({ sendScrollBehavior: "never" }, async () => {});
+    await screen.rerender(<GuestPage />);
+
+    const before = scroller().scrollTop;
+    const second = {
+      id: GuestMessageId.make("guest-second"),
+      text: "Second message",
+      status: "pending" as const,
+      submittedAt: "2026-10-23T10:02:00.000Z",
+    };
+    send({ type: "view", view: { ...view, messages: [first, second] } });
+    await expect.element(screen.getByText(second.text)).toBeInTheDocument();
+    await expect.element(screen.getByRole("button", { name: /scroll to/i })).toBeVisible();
+    expect(scroller().scrollTop).toBe(before);
   });
 });

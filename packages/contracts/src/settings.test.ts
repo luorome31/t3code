@@ -21,6 +21,7 @@ import {
   resolveProviderInstanceEnabled,
   ServerSettings,
   ServerSettingsPatch,
+  shouldJumpAfterSend,
   withIdleCompaction,
 } from "./settings.ts";
 
@@ -54,6 +55,27 @@ describe("storage cleanup settings", () => {
       });
     }
     expect(() => decodeClientSettings({ conversationNavigation: "both" })).toThrow();
+  });
+  it("defaults send scroll behavior and preserves each explicit mode", () => {
+    expect(decodeClientSettings({}).sendScrollBehavior).toBe("always");
+    for (const behavior of ["always", "at-end", "never"] as const) {
+      const settings = decodeClientSettings({ sendScrollBehavior: behavior });
+      expect(decodeClientSettings(encodeClientSettings(settings)).sendScrollBehavior).toBe(
+        behavior,
+      );
+      expect(decodeClientSettingsPatch({ sendScrollBehavior: behavior })).toEqual({
+        sendScrollBehavior: behavior,
+      });
+    }
+    expect(() => decodeClientSettings({ sendScrollBehavior: "sometimes" })).toThrow();
+  });
+  it("jumps after a send always, only at the live end, or never", () => {
+    expect(shouldJumpAfterSend("always", false)).toBe(true);
+    expect(shouldJumpAfterSend("always", true)).toBe(true);
+    expect(shouldJumpAfterSend("at-end", false)).toBe(false);
+    expect(shouldJumpAfterSend("at-end", true)).toBe(true);
+    expect(shouldJumpAfterSend("never", false)).toBe(false);
+    expect(shouldJumpAfterSend("never", true)).toBe(false);
   });
   it("keeps cleanup disabled for existing installations", () => {
     expect(decodeServerSettings({}).worktreeCleanup).toBeNull();

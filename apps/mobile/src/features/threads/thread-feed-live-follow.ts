@@ -68,6 +68,11 @@ export function resolveThreadFeedSubmissionAnchor<AnchorId>(input: {
   return input.queuedMessageCount > 0 ? null : input.submittedMessageId;
 }
 
+/** A send that stays put ignores follow events it did not cause. */
+export function threadFeedSendReleaseSurvivesEvent(event: ThreadFeedLiveFollowEvent): boolean {
+  return event.type === "scroll" || event.type === "disclosure-settled";
+}
+
 export function resolveThreadFeedLiveFollow(
   current: boolean,
   event: ThreadFeedLiveFollowEvent,

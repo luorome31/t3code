@@ -43,6 +43,7 @@ interface ComposerResumeInput {
     interactionMode: ProviderInteractionMode;
   }) => Promise<AtomCommandResult<void, unknown>>;
   readonly clearUsageLimitsFor: ReturnType<typeof useUsageLimitsPanel>["clearFor"];
+  readonly prepareSend: ReturnType<typeof useTimelineFollow>["prepareSend"];
   readonly scrollToEnd: ReturnType<typeof useTimelineFollow>["scrollToEnd"];
   readonly setThreadError: ReturnType<typeof makeThreadErrorSetter>;
 }
@@ -69,6 +70,7 @@ export function useComposerResume(input: ComposerResumeInput) {
     composerRef,
     persistThreadSettingsForNextTurn,
     clearUsageLimitsFor,
+    prepareSend,
     scrollToEnd,
     setThreadError,
   } = input;
@@ -98,6 +100,7 @@ export function useComposerResume(input: ComposerResumeInput) {
       return;
     }
     const threadId = activeThread.id;
+    const resumedMessageId = newMessageId();
     sendInFlightRef.current = true;
     setResumingThreadKeys((current) => new Set(current).add(routeThreadKey));
     setThreadError(threadId, null);
@@ -127,7 +130,7 @@ export function useComposerResume(input: ComposerResumeInput) {
           manualContinuationOfRunId: resumableRunId,
           ...(modelSelection ? { modelSelection } : {}),
           message: {
-            messageId: newMessageId(),
+            messageId: resumedMessageId,
             role: "user",
             text: "Continue where you left off.",
             attachments: [],
@@ -152,7 +155,17 @@ export function useComposerResume(input: ComposerResumeInput) {
       }
     } else {
       clearUsageLimitsFor(routeThreadKey);
-      if (currentRouteThreadKeyRef.current === routeThreadKey) scrollToEnd();
+      if (currentRouteThreadKeyRef.current === routeThreadKey) {
+        if (resumableRunId === null) {
+          scrollToEnd();
+        } else {
+          prepareSend({
+            threadKey: routeThreadKey,
+            messageId: resumedMessageId,
+            jump: "anchor",
+          });
+        }
+      }
     }
     sendInFlightRef.current = false;
     setResumingThreadKeys((current) => {

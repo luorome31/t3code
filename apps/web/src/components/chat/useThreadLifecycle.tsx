@@ -18,6 +18,7 @@ import {
   AuthOrchestrationOperateScope,
   AuthSourceControlWriteScope,
   type EnvironmentId,
+  type MessageId,
   type ScopedThreadRef,
   type ThreadId,
   ProviderInteractionMode,
@@ -123,7 +124,12 @@ interface ThreadLifecycleInput {
   readonly clearUsageLimitsFor: (threadKey: string) => void;
   readonly beginLocalDispatch: LocalDispatchState["beginLocalDispatch"];
   readonly resetLocalDispatch: LocalDispatchState["resetLocalDispatch"];
-  readonly scrollToEnd: (animated?: boolean) => void;
+  readonly prepareSend: (input: {
+    readonly threadKey: string;
+    readonly messageId: MessageId;
+    readonly jump?: "anchor" | "end";
+    readonly animated?: boolean;
+  }) => void;
   readonly persistThreadSettingsForNextTurn: (input: {
     threadId: ThreadId;
     createdAt: string;
@@ -172,7 +178,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     clearUsageLimitsFor,
     beginLocalDispatch,
     resetLocalDispatch,
-    scrollToEnd,
+    prepareSend,
     persistThreadSettingsForNextTurn,
   } = input;
   const navigate = useNavigate();
@@ -529,7 +535,11 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         streaming: false,
       },
     ]);
-    scrollToEnd();
+    prepareSend({
+      threadKey: scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadId)),
+      messageId,
+      jump: "end",
+    });
     // Commands settle into a result, so this always runs.
     const settingsResult = await persistThreadSettingsForNextTurn({
       threadId,
