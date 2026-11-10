@@ -435,7 +435,7 @@ function RightPanelEmptyState(props: {
     ...(props.onAddOutline
       ? [
           {
-            label: "Outline",
+            label: "Reply outline",
             icon: ListTreeIcon,
             shortcut: "O",
             available: true,
@@ -649,7 +649,7 @@ function surfaceTitle(
     case "questions":
       return "Question outline";
     case "outline":
-      return "Outline";
+      return "Reply outline";
     case "side-chat":
       return "Side chat";
     case "preview": {
@@ -1244,7 +1244,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     ...(props.onAddOutline
       ? [
           {
-            label: "Outline",
+            label: "Reply outline",
             icon: ListTreeIcon,
             shortcut: "O",
             available: true,

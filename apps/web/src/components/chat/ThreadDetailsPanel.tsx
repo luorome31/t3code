@@ -42,6 +42,7 @@ import { useThreadHighlightCount } from "~/highlightStore";
 import { ThreadSmalltalkRow } from "./Smalltalk";
 import { ThreadHighlightsRow } from "./ThreadHighlightsRow";
 import { ThreadQuestionsRow } from "./ThreadQuestionsRow";
+import { ThreadReplyOutlineRow } from "./ThreadReplyOutlineRow";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import {
   THREAD_DETAILS_PANEL_ICON_CLASS,
@@ -283,6 +284,10 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
 
               {props.isServerThread && !props.draftId ? (
                 <>
+                  <ThreadReplyOutlineRow
+                    threadRef={activeThreadRef}
+                    separated={density === "full"}
+                  />
                   <ThreadSmalltalkRow threadRef={activeThreadRef} />
                   <ThreadQuestionsRow threadRef={activeThreadRef} separated={density === "full"} />
                 </>

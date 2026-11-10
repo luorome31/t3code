@@ -14,6 +14,11 @@ import { useOutlineStore } from "./outlineStore";
 const NO_HEADINGS: readonly MessageOutlineHeading[] = [];
 
 export type ActiveOutline =
+  | {
+      readonly status: "no-replies";
+      readonly messageId: null;
+      readonly headings: typeof NO_HEADINGS;
+    }
   | { readonly status: "no-reply"; readonly messageId: null; readonly headings: typeof NO_HEADINGS }
   | { readonly status: "working"; readonly messageId: null; readonly headings: typeof NO_HEADINGS }
   | {
@@ -103,8 +108,9 @@ export function useActiveOutline(threadRef: ScopedThreadRef | null): ActiveOutli
   ]);
 
   if (activeMessageId === null || activeItem === undefined) {
-    return threadWorking
-      ? { status: "working", messageId: null, headings: NO_HEADINGS }
+    if (threadWorking) return { status: "working", messageId: null, headings: NO_HEADINGS };
+    return lastAssistant === undefined
+      ? { status: "no-replies", messageId: null, headings: NO_HEADINGS }
       : { status: "no-reply", messageId: null, headings: NO_HEADINGS };
   }
   if (streaming || (threadWorking && activeMessageId === lastAssistantMessageId)) {
