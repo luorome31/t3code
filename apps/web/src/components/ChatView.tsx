@@ -1118,8 +1118,6 @@ export default function ChatView(props: ChatViewProps) {
     panelAnimationDurationMs,
   );
   const rightPanelPresent = rightPanelPresence.present;
-  const outlineTrackingEnabled =
-    rightPanelPresent && rightPanelState.surfaces.some((surface) => surface.kind === "outline");
   const rightPanelControlsInPanel =
     shouldUsePlanSidebarSheet && rightPanelPresent && rightPanelOpen;
   const rightPanelControlsAtRoot = rightPanelPresent && !shouldUsePlanSidebarSheet;
@@ -1990,6 +1988,9 @@ export default function ChatView(props: ChatViewProps) {
       threadPanelPresentation,
     ),
   );
+  const outlineTrackingEnabled =
+    threadPanelOpen ||
+    (rightPanelPresent && rightPanelState.surfaces.some((surface) => surface.kind === "outline"));
   const supportsThreadPullRequests = serverConfig !== null;
   const visiblePullRequests = visibleThreadPullRequests(
     (activeThreadShell ?? activeThread)?.pullRequests ?? [],

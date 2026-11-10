@@ -26,7 +26,7 @@ export function OutlineTabPreview({ threadRef }: { threadRef: ScopedThreadRef | 
   const visibleHeadings = topHeadings.slice(0, PREVIEW_HEADING_LIMIT);
   return (
     <div className="flex max-w-64 flex-col gap-1">
-      <span className="font-medium text-foreground">Outline</span>
+      <span className="font-medium text-foreground">Reply outline</span>
       <ul className="flex flex-col gap-0.5">
         {visibleHeadings.map((heading) => (
           <li key={heading.index} className="truncate text-muted-foreground">
