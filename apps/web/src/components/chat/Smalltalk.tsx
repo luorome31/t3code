@@ -18,7 +18,7 @@ import {
   LoaderCircle,
   MessageCircleMoreIcon,
   RotateCw,
-  Sparkles,
+  MessageSquareQuote,
   Trash2,
   X,
 } from "lucide-react";
@@ -358,7 +358,7 @@ function SmalltalkContent({
               />
             }
           >
-            <Sparkles aria-hidden className="size-3" />
+            <MessageSquareQuote aria-hidden className="size-3" />
           </TooltipTrigger>
           <TooltipPopup>{record.preset.name}</TooltipPopup>
         </Tooltip>
@@ -386,6 +386,7 @@ function SmalltalkContent({
                             prefix: "",
                             suffix: "",
                           },
+                          null,
                           { silent: true },
                         ),
                       );
