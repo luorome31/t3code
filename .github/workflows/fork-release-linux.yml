@@ -109,9 +109,9 @@ jobs:
             fi
             echo "## Downloads"
             echo
-            echo "- Debian/Ubuntu: the `.deb` asset."
-            echo "- Other Linux distributions: the `.AppImage` asset."
-            echo "- Verify downloads against `SHA256SUMS`."
+            echo '- Debian/Ubuntu: the `.deb` asset.'
+            echo '- Other Linux distributions: the `.AppImage` asset.'
+            echo '- Verify downloads against `SHA256SUMS`.'
             echo
             echo "## Qoder CN provider preset"
             echo
