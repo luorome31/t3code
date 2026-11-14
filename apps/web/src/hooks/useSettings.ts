@@ -524,7 +524,11 @@ export function useEnvironmentModelPreferences(environmentId: EnvironmentId | nu
     environmentId ? serverEnvironment.settingsValueAtom(environmentId) : noEnvironmentSettingsAtom,
   );
   const legacy = useClientSettings(selectLegacyModelPreferences);
-  return resolveModelPreferences(settings ?? DEFAULT_SERVER_SETTINGS, legacy);
+  return {
+    ...resolveModelPreferences(settings ?? DEFAULT_SERVER_SETTINGS, legacy),
+    providerOrder: settings?.providerOrder ?? DEFAULT_SERVER_SETTINGS.providerOrder,
+    favoriteModelOrder: settings?.favoriteModelOrder ?? DEFAULT_SERVER_SETTINGS.favoriteModelOrder,
+  };
 }
 
 export function useEnvironmentSettings<T = UnifiedSettings>(

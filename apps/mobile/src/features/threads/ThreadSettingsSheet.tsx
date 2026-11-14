@@ -6,6 +6,7 @@ import * as Dialog from "../../components/ui/Dialog";
 import { createV5StackNavigator as createNativeStackNavigator } from "../../native/createV5StackNavigator";
 import { useSheetStackOptions } from "../layout/nested-stacks";
 import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
+import { sortByPreferredOrder } from "@t3tools/shared/Array";
 import {
   modelPreferencesMigrationPatch,
   resolveModelPreferences,
@@ -285,6 +286,7 @@ type ThreadSettingsSessionValue = {
   readonly providerInstanceId?: ProviderInstanceId;
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
   readonly favoriteKeys: ReadonlySet<string>;
+  readonly favoriteModelOrder: ReadonlyArray<string>;
   readonly favoritesLoaded: boolean;
   readonly toggleFavorite: (option: ModelOption) => void;
   readonly toggleHidden: (option: ModelOption) => void;
@@ -335,7 +337,7 @@ function ThreadSettingsSessionProvider(
     new Map<string, { favorite: boolean; settings: ServerSettings; pending: boolean }>(),
   );
   const [pendingHiddenKeys, setPendingHiddenKeys] = useState<ReadonlySet<string>>(() => new Set());
-  const providerGroups =
+  const providerGroups = sortByPreferredOrder(
     manageHidden && config
       ? groupByProvider(
           buildModelOptions(
@@ -346,7 +348,10 @@ function ThreadSettingsSessionProvider(
             true,
           ),
         )
-      : props.providerGroups;
+      : props.providerGroups,
+    settings?.providerOrder ?? [],
+    (group) => group.providerKey,
+  );
   const legacyFavorites = AsyncResult.isSuccess(preferences)
     ? (preferences.value.modelFavorites ?? EMPTY_MODEL_FAVORITES)
     : EMPTY_MODEL_FAVORITES;
@@ -608,6 +613,9 @@ function ThreadSettingsSessionProvider(
     displayedModelSelection: pendingModel?.selection ?? props.selectedModel,
     reportedModelSelection: pendingModel ? null : (props.reportedModelSelection ?? null),
     favoriteKeys,
+    favoriteModelOrder: (settings?.favoriteModelOrder ?? []).map((favorite) =>
+      modelFavoriteKey(favorite.provider, favorite.model),
+    ),
     favoritesLoaded,
     providerExpansionOverrides,
     hasLegacyModels,
@@ -703,6 +711,7 @@ function ThreadSettingsModelListRow(props: {
       }
       hiddenUpdatePending={session.pendingHiddenKeys.has(props.option.key)}
       option={props.option}
+      showProvider={session.providerFilter === FAVORITES_PROVIDER_FILTER}
       selected={session.isDisplayed(props.option)}
     />
   );
@@ -730,6 +739,30 @@ function ThreadSettingsProviderListHeader(props: {
 function buildThreadSettingsCatalogItems(
   session: ThreadSettingsSessionValue,
 ): ReadonlyArray<ThreadSettingsCatalogItem> {
+  if (session.providerFilter === FAVORITES_PROVIDER_FILTER) {
+    const models = sortByPreferredOrder(
+      session.providerGroups.flatMap((group) =>
+        group.models.filter(
+          (model) =>
+            session.favoriteKeys.has(model.key) &&
+            modelMatchesCatalogQuery({
+              model,
+              providerLabel: group.providerLabel,
+              query: session.searchQuery,
+            }),
+        ),
+      ),
+      session.favoriteModelOrder,
+      (model) => model.key,
+    );
+    return models.map((option, index) => ({
+      kind: "model" as const,
+      key: `model:${option.key}`,
+      option,
+      isFirst: index === 0,
+      isLast: index === models.length - 1,
+    }));
+  }
   return session.providerGroups.flatMap((group) => {
     if (
       session.providerFilter !== null &&

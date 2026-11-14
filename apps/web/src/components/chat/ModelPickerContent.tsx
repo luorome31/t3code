@@ -64,6 +64,7 @@ import {
   type ProviderInstanceEntry,
 } from "../../providerInstances";
 import { providerModelKey, sortProviderModelItems } from "../../modelOrdering";
+import { sortByPreferredOrder } from "@t3tools/shared/Array";
 
 type ModelPickerItem = {
   slug: string;
@@ -373,7 +374,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     searchInputRef,
     keybindings: providedKeybindings,
     modelOptionsByInstance,
-    instanceEntries,
+    instanceEntries: unorderedInstanceEntries,
     getModelDisabledReason,
     onInstanceModelChange,
     onToggleModel,
@@ -386,7 +387,14 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes this picker's mount to global keydown handlers
   useLayoutEffect(() => registerModelPickerContent(), []);
   const highlightedModelKeyRef = useRef<string | null>(null);
-  const { favorites } = useEnvironmentModelPreferences(props.environmentId);
+  const { favorites, favoriteModelOrder, providerOrder } = useEnvironmentModelPreferences(
+    props.environmentId,
+  );
+  const instanceEntries = sortByPreferredOrder(
+    unorderedInstanceEntries,
+    providerOrder,
+    (entry) => entry.instanceId,
+  );
   const activeEntry = props.instanceEntries.find(
     (entry) => entry.instanceId === props.activeInstanceId,
   );
@@ -673,6 +681,12 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       favoriteModelKeys: favoritesSet,
       groupFavorites: selectedInstanceId !== "favorites",
       instanceOrder: selectedInstanceId === "favorites" ? instanceOrder : [],
+      favoriteModelOrder:
+        selectedInstanceId === "favorites"
+          ? favoriteModelOrder.map((favorite) =>
+              providerModelKey(favorite.provider, favorite.model),
+            )
+          : [],
     });
   })();
 

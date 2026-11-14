@@ -959,6 +959,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "model-picker-order",
+    title: "Model picker order",
+    to: "/settings/providers",
+    searchTerms: ["provider priority sort reorder favorites models display order"],
+    providerSettingsOnly: true,
+  },
+  {
     id: "usage-providers",
     title: "Usage providers",
     to: "/settings/providers",

@@ -7,6 +7,7 @@ import type { ModelOption } from "../../lib/modelOptions";
 
 export type ModelRowProps = {
   readonly option: ModelOption;
+  readonly showProvider?: boolean;
   readonly selected: boolean;
   readonly onPress: () => void;
   readonly isFavorite: boolean;
@@ -87,12 +88,14 @@ export function ModelRowContent(
               <Text className="text-xs text-foreground">Unavailable</Text>
             ) : null}
           </View>
-          {props.option.subtitle ? (
+          {props.showProvider || props.option.subtitle ? (
             <Text
               className="text-xs text-foreground-muted"
               numberOfLines={props.labelNumberOfLines}
             >
-              {props.option.subtitle}
+              {props.showProvider
+                ? [props.option.providerLabel, props.option.subtitle].filter(Boolean).join(" · ")
+                : props.option.subtitle}
             </Text>
           ) : null}
         </View>

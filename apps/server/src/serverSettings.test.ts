@@ -176,6 +176,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
         const provider = ProviderInstanceId.make("codex_work");
         const patch = {
           favorites: [{ provider, model: "sol" }],
+          providerOrder: [provider, ProviderInstanceId.make("claudeAgent")],
+          favoriteModelOrder: [{ provider, model: "sol" }],
           providerModelPreferences: {
             [provider]: { hiddenModels: ["astra"], modelOrder: ["sol"] },
           },
@@ -184,11 +186,15 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
         yield* service.updateSettings(patch);
         const received = Option.getOrThrow(yield* Stream.runHead(changes));
         assert.deepEqual(received.favorites, patch.favorites);
+        assert.deepEqual(received.providerOrder, patch.providerOrder);
+        assert.deepEqual(received.favoriteModelOrder, patch.favoriteModelOrder);
         assert.deepEqual(received.providerModelPreferences, patch.providerModelPreferences);
         const saved = yield* decodeServerSettingsJson(
           yield* fs.readFileString(config.settingsPath),
         );
         assert.deepEqual(saved.favorites, patch.favorites);
+        assert.deepEqual(saved.providerOrder, patch.providerOrder);
+        assert.deepEqual(saved.favoriteModelOrder, patch.favoriteModelOrder);
         assert.deepEqual(saved.providerModelPreferences, patch.providerModelPreferences);
         const hidden = yield* service.updateSettings({
           setModelsHidden: [{ provider, model: "sol", hidden: true }],
@@ -204,6 +210,15 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
           hiddenModels: ["sol"],
           modelOrder: ["sol"],
         });
+        assert.deepEqual(shown.providerOrder, patch.providerOrder);
+        assert.deepEqual(shown.favoriteModelOrder, patch.favoriteModelOrder);
+        const resetOrder = yield* service.updateSettings({
+          providerOrder: [],
+          favoriteModelOrder: [],
+        });
+        assert.deepEqual(resetOrder.providerOrder, []);
+        assert.deepEqual(resetOrder.favoriteModelOrder, []);
+        assert.deepEqual(resetOrder.favorites, patch.favorites);
         assert.deepEqual(
           (yield* decodeServerSettingsJson(yield* fs.readFileString(config.settingsPath)))
             .providerModelPreferences,

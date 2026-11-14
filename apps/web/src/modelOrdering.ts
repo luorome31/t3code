@@ -1,4 +1,5 @@
 import type { ProviderInstanceId } from "@t3tools/contracts";
+import { sortByPreferredOrder } from "@t3tools/shared/Array";
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 
@@ -61,6 +62,7 @@ export function sortProviderModelItems<T extends ProviderModelItem>(
     readonly favoriteModelKeys?: ReadonlySet<string> | ReadonlyArray<string>;
     readonly groupFavorites?: boolean;
     readonly instanceOrder?: ReadonlyArray<ProviderInstanceId>;
+    readonly favoriteModelOrder?: ReadonlyArray<string>;
   },
 ): T[] {
   const favoriteModelKeys = toSet(options?.favoriteModelKeys);
@@ -82,5 +84,8 @@ export function sortProviderModelItems<T extends ProviderModelItem>(
     byOptionalRank((item) => originalOrder.get(providerModelKey(item.instanceId, item.slug))),
   ];
 
-  return Arr.sort(items, Order.combineAll(orders));
+  const sorted = Arr.sort(items, Order.combineAll(orders));
+  return sortByPreferredOrder(sorted, options?.favoriteModelOrder ?? [], (item) =>
+    providerModelKey(item.instanceId, item.slug),
+  );
 }

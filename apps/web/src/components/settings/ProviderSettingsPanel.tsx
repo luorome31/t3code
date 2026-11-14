@@ -1,4 +1,6 @@
 import { SettingsGroup } from "./SettingsGroup";
+import { ModelPickerOrderSettings } from "./ModelPickerOrderSettings";
+import { sortByPreferredOrder } from "@t3tools/shared/Array";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import {
   AuthSettingsWriteScope,
@@ -1099,6 +1101,22 @@ export function EnvironmentProviderSettings({
           </div>
         </SettingsGroup>
       </SettingsSection>
+
+      <ModelPickerOrderSettings
+        key={`order:${environmentId}`}
+        environmentId={environmentId}
+        settings={settings}
+        providers={sortByPreferredOrder(rows, settings.providerOrder, (row) => row.instanceId).map(
+          (row) => ({
+            instanceId: row.instanceId,
+            displayName: row.explicitInstance
+              ? providerInstanceName(row.explicitInstance)
+              : (providerClients.get(row.driver)?.label ?? row.driver),
+          }),
+        )}
+        serverProviders={serverProviders}
+        disabled={readOnly || !canWriteSettings}
+      />
 
       <UsageProviderSettings
         key={environmentId}

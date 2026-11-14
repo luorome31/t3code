@@ -122,6 +122,15 @@ instance:
 }
 ```
 
+## Provider and favorite order
+
+On web and desktop, use **Settings → Providers → Model picker order** to arrange
+providers and favorite models. Favorites can be mixed across providers. Reset
+either list to restore its default order.
+
+The order is saved on that environment and applies to its web, desktop, and mobile
+model pickers. Other environments keep their own order.
+
 ## Model defaults
 
 T3 Code remembers your provider, model, and model options for new threads. A
