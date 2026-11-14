@@ -34,7 +34,11 @@ const otherThreadId = ThreadId.make("other");
 const messageId = MessageId.make("answer");
 const secondMessageId = MessageId.make("answer-2");
 const selection = { instanceId: ProviderInstanceId.make("codex"), model: "test-model" };
-const create = { action: "create" as const, threadId, sourceThreadId: threadId, messageId };
+const create = {
+  action: "create" as const,
+  threadId,
+  source: { kind: "message" as const, sourceThreadId: threadId, messageId },
+};
 const custom = { id: "custom", name: "Example", prompt: "Explain with an example." };
 
 const fixture = (driverKind = "codex") =>
@@ -203,7 +207,12 @@ it.effect(
             service.get({ threadId: otherThreadId, id: record.id }),
           );
           assert.strictEqual(crossThread._tag, "Failure");
-          const second = (yield* service.mutate({ ...create, messageId: secondMessageId }))!;
+          const second = (yield* service.mutate({
+            action: "create",
+            threadId,
+            sourceThreadId: threadId,
+            messageId: secondMessageId,
+          }))!;
           yield* Queue.take(f.jobs);
           assert.notStrictEqual(second.id, record.id);
           const rows = Option.getOrThrow(
@@ -240,7 +249,7 @@ it.effect(
         yield* Effect.gen(function* () {
           const service = yield* SmalltalkService.SmalltalkService;
           const invalid = yield* service
-            .mutate({ ...create, sourceThreadId: otherThreadId })
+            .mutate({ ...create, source: { ...create.source, sourceThreadId: otherThreadId } })
             .pipe(Effect.flip);
           assert.strictEqual(invalid.reason, "invalid_source");
           const record = (yield* service.mutate(create))!;
@@ -284,6 +293,81 @@ it.effect("streams partial text into summaries and clears it when the generation
         const result = yield* service.get(record);
         assert.strictEqual(result.explanation, `${chunk} done`);
         assert.strictEqual(result.streamingText, "");
+      }).pipe(Effect.provide(f.layer));
+    }),
+  ).pipe(Effect.provide(database.pipe(Layer.provideMerge(dependencies)))),
+);
+
+it.effect("explains a Markdown file from its path and reuses the existing explanation", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      yield* Effect.gen(function* () {
+        const service = yield* SmalltalkService.SmalltalkService;
+        const source = {
+          kind: "markdown-file" as const,
+          relativePath: "docs/guide.md",
+          text: "# Guide\n\nUse the small model first.",
+        };
+        const record = (yield* service.mutate({ action: "create", threadId, source }))!;
+        assert.strictEqual(record.filePath, "docs/guide.md");
+        assert.strictEqual(record.title, "docs/guide.md");
+        assert.strictEqual(record.question, "");
+        const job = yield* Queue.take(f.jobs);
+        assert.strictEqual(job.sourceText, source.text);
+        assert.strictEqual(
+          (yield* service.mutate({ action: "create", threadId, source }))?.id,
+          record.id,
+        );
+        assert.strictEqual(yield* Queue.size(f.jobs), 0);
+        yield* Deferred.succeed(job.gate, "This guide tells you to start with the small model.");
+        yield* settled(service, record.id, "completed");
+        assert.strictEqual((yield* service.get(record)).filePath, "docs/guide.md");
+        const summaries = Option.getOrThrow(
+          yield* service.subscribe({ threadId }).pipe(Stream.runHead),
+        );
+        assert.strictEqual(summaries[0]?.filePath, "docs/guide.md");
+        const changed = { ...source, text: "# Guide\n\nUse the large model first." };
+        const refreshed = (yield* service.mutate({ action: "create", threadId, source: changed }))!;
+        assert.strictEqual(refreshed.id, record.id);
+        assert.strictEqual(refreshed.sourceText, changed.text);
+        assert.strictEqual(refreshed.explanation, "");
+        const retry = yield* Queue.take(f.jobs);
+        assert.strictEqual(retry.sourceText, changed.text);
+        yield* Deferred.succeed(retry.gate, "Use the large model now.");
+        yield* settled(service, record.id, "completed");
+        assert.strictEqual((yield* service.get(record)).explanation, "Use the large model now.");
+      }).pipe(Effect.provide(f.layer));
+    }),
+  ).pipe(Effect.provide(database.pipe(Layer.provideMerge(dependencies)))),
+);
+
+it.effect("restarts a file explanation when the file changes mid-generation", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      yield* Effect.gen(function* () {
+        const service = yield* SmalltalkService.SmalltalkService;
+        const source = {
+          kind: "markdown-file" as const,
+          relativePath: "docs/guide.md",
+          text: "First version.",
+        };
+        const record = (yield* service.mutate({ action: "create", threadId, source }))!;
+        const first = yield* Queue.take(f.jobs);
+        assert.strictEqual(first.sourceText, source.text);
+        const changed = { ...source, text: "Second version." };
+        const refreshed = (yield* service.mutate({ action: "create", threadId, source: changed }))!;
+        assert.strictEqual(refreshed.id, record.id);
+        assert.strictEqual(refreshed.sourceText, changed.text);
+        assert.strictEqual(refreshed.explanation, "");
+        const second = yield* Queue.take(f.jobs);
+        assert.strictEqual(second.sourceText, changed.text);
+        yield* Deferred.succeed(second.gate, "The second version says something else.");
+        yield* settled(service, record.id, "completed");
+        const result = yield* service.get(record);
+        assert.strictEqual(result.sourceText, changed.text);
+        assert.strictEqual(result.explanation, "The second version says something else.");
       }).pipe(Effect.provide(f.layer));
     }),
   ).pipe(Effect.provide(database.pipe(Layer.provideMerge(dependencies)))),

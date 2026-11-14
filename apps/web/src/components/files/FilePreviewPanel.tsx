@@ -53,6 +53,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
 import { useAssetUrlRefresh, useAssetUrlState } from "~/assets/assetUrls";
 import { OpenInPicker } from "~/components/chat/OpenInPicker";
+import { MarkdownSmalltalkButton } from "~/components/chat/Smalltalk";
 import { MediaVideoPlayer } from "~/components/media/MediaVideoPlayer";
 import { MediaActions, type MediaActionSource } from "~/components/media/MediaActions";
 import { MorphIcon } from "~/components/MorphIcon";
@@ -1333,6 +1334,13 @@ export default function FilePreviewPanel({
                 icon={rendered ? Code2 : renderedMode === "table" ? Table2 : Eye}
               />
             </FileSurfaceAction>
+          ) : null}
+          {isMarkdown && previewPath !== null && file.data !== null ? (
+            <MarkdownSmalltalkButton
+              threadRef={threadRef}
+              relativePath={previewPath}
+              text={file.data.contents}
+            />
           ) : null}
           {showsRawText ? (
             <FileSurfaceAction

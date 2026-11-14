@@ -1,6 +1,7 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
+  SMALLTALK_SOURCE_TEXT_MAX_LENGTH,
   type ScopedThreadRef,
   type Smalltalk,
   type SmalltalkMutation,
@@ -84,6 +85,68 @@ export function SmalltalkButton(props: {
         <MessageCircleMoreIcon className="size-3" />
       </TooltipTrigger>
       <TooltipPopup>说人话</TooltipPopup>
+    </Tooltip>
+  );
+}
+
+export function MarkdownSmalltalkButton(props: {
+  threadRef: ScopedThreadRef;
+  relativePath: string;
+  text: string;
+}) {
+  const config = useAtomValue(serverEnvironment.configValueAtom(props.threadRef.environmentId));
+  const allowed = useAtomValue(
+    smalltalkEnvironment.mutate.permissionAtom(props.threadRef.environmentId),
+  );
+  const mutate = useAtomCommand(smalltalkEnvironment.mutate);
+  const select = useAtomSet(selectedSmalltalkAtom(scopedThreadKey(props.threadRef)));
+  const [busy, setBusy] = useState(false);
+  if (config?.environment.capabilities.smalltalk !== true || !allowed) return null;
+  if (config.environment.capabilities.smalltalkFileSource !== true) return null;
+  const blank = props.text.trim().length === 0;
+  const tooLong = props.text.length > SMALLTALK_SOURCE_TEXT_MAX_LENGTH;
+  const disabled = busy || blank || tooLong;
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            aria-label="说人话"
+            aria-disabled={disabled}
+            onClick={() => {
+              if (disabled) return;
+              setBusy(true);
+              void mutate({
+                environmentId: props.threadRef.environmentId,
+                input: {
+                  action: "create",
+                  threadId: props.threadRef.threadId,
+                  source: {
+                    kind: "markdown-file",
+                    relativePath: props.relativePath,
+                    text: props.text,
+                  },
+                },
+              })
+                .then((result) => {
+                  if (result._tag === "Success" && result.value) {
+                    select(result.value.id);
+                    useRightPanelStore.getState().open(props.threadRef, "smalltalk");
+                  }
+                })
+                .finally(() => setBusy(false));
+            }}
+          />
+        }
+      >
+        <MessageCircleMoreIcon className="size-3.5" />
+      </TooltipTrigger>
+      <TooltipPopup>
+        {blank ? "文件为空，无法说人话" : tooLong ? "文件太长，无法说人话" : "说人话"}
+      </TooltipPopup>
     </Tooltip>
   );
 }
@@ -300,39 +363,41 @@ function SmalltalkContent({
           <TooltipPopup>{record.preset.name}</TooltipPopup>
         </Tooltip>
         <div className="ml-auto flex items-center gap-0.5">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  size="icon-xs"
-                  variant="ghost"
-                  aria-label="Jump to original answer"
-                  onClick={() => {
-                    void navigate(
-                      assistantCitationNavigation(
-                        {
-                          version: 1,
-                          environmentId: threadRef.environmentId,
-                          threadId: threadRef.threadId,
-                          messageId: record.messageId,
-                          text: record.sourceText.slice(0, 200),
-                          start: 0,
-                          end: Math.min(record.sourceText.length, 200),
-                          prefix: "",
-                          suffix: "",
-                        },
-                        { silent: true },
-                      ),
-                    );
-                  }}
-                />
-              }
-            >
-              <CornerUpLeft />
-            </TooltipTrigger>
-            <TooltipPopup>跳转到原回答</TooltipPopup>
-          </Tooltip>
+          {record.filePath === null ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label="Jump to original answer"
+                    onClick={() => {
+                      void navigate(
+                        assistantCitationNavigation(
+                          {
+                            version: 1,
+                            environmentId: threadRef.environmentId,
+                            threadId: threadRef.threadId,
+                            messageId: record.messageId,
+                            text: record.sourceText.slice(0, 200),
+                            start: 0,
+                            end: Math.min(record.sourceText.length, 200),
+                            prefix: "",
+                            suffix: "",
+                          },
+                          { silent: true },
+                        ),
+                      );
+                    }}
+                  />
+                }
+              >
+                <CornerUpLeft />
+              </TooltipTrigger>
+              <TooltipPopup>跳转到原回答</TooltipPopup>
+            </Tooltip>
+          ) : null}
           {explanation ? (
             <MessageCopyButton
               text={explanation}

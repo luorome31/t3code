@@ -2,11 +2,15 @@ import { EnvironmentId, ThreadId, type ProjectReadFileResult } from "@t3tools/co
 import { AsyncResult } from "effect/reactivity";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { act, fakeTimers, render } from "../../../test/render";
+import { userEvent } from "vite-plus/test/browser";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 
 const state = vi.hoisted(() => ({
   file: null as ProjectReadFileResult | null,
   optimistic: null as ProjectReadFileResult | null,
   writeFile: vi.fn(),
+  smalltalk: false,
+  smalltalkFileSource: true,
 }));
 
 vi.mock(import("@t3tools/client-runtime/state/runtime"), async (original) => ({
@@ -31,9 +35,35 @@ vi.mock(import("~/state/server"), async (original) => {
   const actual = await original();
   const { Atom } = await import("effect/reactivity");
   const noConfig = Atom.make(null);
+  const smalltalkConfig = Atom.make({
+    environment: { capabilities: { smalltalk: true, smalltalkFileSource: true } },
+  });
+  const smalltalkConfigWithoutFileSource = Atom.make({
+    environment: { capabilities: { smalltalk: true } },
+  });
   return {
     ...actual,
-    serverEnvironment: { ...actual.serverEnvironment, configValueAtom: (() => noConfig) as never },
+    serverEnvironment: {
+      ...actual.serverEnvironment,
+      configValueAtom: (() =>
+        state.smalltalk
+          ? state.smalltalkFileSource
+            ? smalltalkConfig
+            : smalltalkConfigWithoutFileSource
+          : noConfig) as never,
+    },
+  };
+});
+vi.mock(import("~/state/smalltalk"), async (original) => {
+  const actual = await original();
+  const { Atom } = await import("effect/reactivity");
+  return {
+    ...actual,
+    smalltalkEnvironment: {
+      ...actual.smalltalkEnvironment,
+      mutate: { ...actual.smalltalkEnvironment.mutate, permissionAtom: () => Atom.make(true) },
+    },
+    selectedSmalltalkAtom: (() => Atom.make<string | null>(null)) as never,
   };
 });
 vi.mock(import("~/remoteOpen"), async (original) => ({
@@ -74,6 +104,7 @@ vi.mock(import("./projectFilesQueryState"), async (original) => ({
 }));
 
 import FilePreviewPanel from "./FilePreviewPanel";
+import { useRightPanelStore } from "~/rightPanelStore";
 
 const environmentId = EnvironmentId.make("markdown-preview-test");
 const threadRef = { environmentId, threadId: ThreadId.make("thread") };
@@ -83,9 +114,12 @@ function setup() {
   localStorage.setItem(keys[0]!, "false");
   localStorage.setItem(keys[1]!, "true");
   state.optimistic = null;
+  state.smalltalk = false;
+  state.smalltalkFileSource = true;
   state.writeFile.mockReset().mockResolvedValue(AsyncResult.success(undefined));
   return {
     [Symbol.dispose]() {
+      useRightPanelStore.getState().removeThread(threadRef);
       for (const [index, key] of keys.entries()) {
         const value = previous[index];
         if (value == null) localStorage.removeItem(key);
@@ -126,6 +160,43 @@ function markdownPreview(truncated: boolean) {
 }
 
 describe("rendered Markdown task saves", () => {
+  it("offers Smalltalk for the rendered Markdown file", async () => {
+    using _settings = setup();
+    state.smalltalk = true;
+    state.writeFile.mockResolvedValue(AsyncResult.success({ id: "smalltalk-1" }));
+    await using screen = await render(markdownPreview(false));
+    await userEvent.click(screen.getByRole("button", { name: "说人话" }));
+    await vi.waitFor(() =>
+      expect(state.writeFile).toHaveBeenCalledExactlyOnceWith({
+        environmentId,
+        input: {
+          action: "create",
+          threadId: threadRef.threadId,
+          source: {
+            kind: "markdown-file",
+            relativePath: "tasks.md",
+            text: "- [ ] Keep the rest of this file\n",
+          },
+        },
+      }),
+    );
+    expect(
+      useRightPanelStore
+        .getState()
+        .byThreadKey[scopedThreadKey(threadRef)]?.surfaces.some(
+          (surface) => surface.kind === "smalltalk",
+        ),
+    ).toBe(true);
+  });
+
+  it("hides the Smalltalk action when the server cannot read file sources", async () => {
+    using _settings = setup();
+    state.smalltalk = true;
+    state.smalltalkFileSource = false;
+    await using screen = await render(markdownPreview(false));
+    expect(screen.container.querySelector('button[aria-label="说人话"]')).toBeNull();
+  });
+
   it("keeps a truncated read read-only without queuing a replacement", async () => {
     using _settings = setup();
     await using screen = await render(markdownPreview(true));

@@ -1,8 +1,10 @@
 import {
+  SMALLTALK_SOURCE_TEXT_MAX_LENGTH,
   Smalltalk,
   SmalltalkError,
   SmalltalkSummary,
   SYSTEM_SMALLTALK_PRESET,
+  MessageId,
   type SmalltalkMutation,
   type ThreadId,
   type ServerSettings,
@@ -87,7 +89,8 @@ const make = Effect.gen(function* () {
     yield* requireThread(threadId);
     const rows =
       yield* sql`SELECT id, thread_id AS "threadId", source_thread_id AS "sourceThreadId",
-      message_id AS "messageId", title, status, created_at AS "createdAt", updated_at AS "updatedAt",
+      message_id AS "messageId", json_extract(payload_json, '$.filePath') AS "filePath",
+      title, status, created_at AS "createdAt", updated_at AS "updatedAt",
       COALESCE(json_extract(payload_json, '$.streamingText'), '') AS "streamingText"
       FROM smalltalk WHERE thread_id = ${threadId} ORDER BY created_at DESC, id DESC`.pipe(
         Effect.mapError(storageError),
@@ -271,66 +274,125 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         yield* requireThread(input.threadId);
         if (input.action === "create") {
+          const source =
+            "source" in input
+              ? input.source
+              : {
+                  kind: "message" as const,
+                  sourceThreadId: input.sourceThreadId,
+                  messageId: input.messageId,
+                };
+          if (source.kind === "markdown-file" && !source.text.trim()) {
+            return yield* new SmalltalkError({ reason: "invalid_source" });
+          }
+          const sourceThreadId =
+            source.kind === "markdown-file" ? input.threadId : source.sourceThreadId;
+          const messageId =
+            source.kind === "markdown-file"
+              ? MessageId.make(`file:${source.relativePath}`)
+              : source.messageId;
           const existing = yield* sql<{
             id: string;
           }>`SELECT id FROM smalltalk WHERE thread_id = ${input.threadId}
-          AND source_thread_id = ${input.sourceThreadId} AND message_id = ${input.messageId}`.pipe(
+          AND source_thread_id = ${sourceThreadId} AND message_id = ${messageId}`.pipe(
             Effect.mapError(storageError),
           );
-          if (existing[0]) return yield* get({ threadId: input.threadId, id: existing[0].id });
-          const projection = yield* threads
-            .getThreadProjection(input.threadId)
-            .pipe(
-              Effect.mapError((cause) => new SmalltalkError({ reason: "invalid_source", cause })),
+          if (existing[0]) {
+            const record = yield* get({ threadId: input.threadId, id: existing[0].id });
+            if (
+              source.kind === "markdown-file" &&
+              record.filePath === source.relativePath &&
+              record.sourceText !== source.text
+            ) {
+              const settings = yield* settingsService.getSettings.pipe(
+                Effect.mapError((cause) => new SmalltalkError({ reason: "configuration", cause })),
+              );
+              const active = fibers.get(record.id);
+              if (active) {
+                fibers.delete(record.id);
+                yield* Fiber.interrupt(active);
+              }
+              return yield* start(
+                {
+                  ...record,
+                  sourceText: source.text,
+                  title: source.relativePath.slice(0, 100),
+                  explanation: "",
+                  updatedAt: yield* now,
+                },
+                settings,
+              );
+            }
+            return record;
+          }
+          let origin: Pick<Smalltalk, "sourceText" | "question" | "title" | "filePath">;
+          if (source.kind === "markdown-file") {
+            origin = {
+              sourceText: source.text,
+              question: "",
+              title: source.relativePath.slice(0, 100),
+              filePath: source.relativePath,
+            };
+          } else {
+            const projection = yield* threads
+              .getThreadProjection(input.threadId)
+              .pipe(
+                Effect.mapError((cause) => new SmalltalkError({ reason: "invalid_source", cause })),
+              );
+            const visible = projection.visibleTurnItems.find(
+              (entry) =>
+                entry.sourceThreadId === source.sourceThreadId &&
+                entry.item.type === "assistant_message" &&
+                entry.item.messageId === source.messageId &&
+                entry.item.status === "completed",
             );
-          const visible = projection.visibleTurnItems.find(
-            (entry) =>
-              entry.sourceThreadId === input.sourceThreadId &&
-              entry.item.type === "assistant_message" &&
-              entry.item.messageId === input.messageId &&
-              entry.item.status === "completed",
-          );
-          const source = yield* threads
-            .getThreadRecords(input.sourceThreadId, ["messages", "runs"], {
-              messageIds: [input.messageId],
-            })
-            .pipe(
-              Effect.mapError((cause) => new SmalltalkError({ reason: "invalid_source", cause })),
+            const records = yield* threads
+              .getThreadRecords(source.sourceThreadId, ["messages", "runs"], {
+                messageIds: [source.messageId],
+              })
+              .pipe(
+                Effect.mapError((cause) => new SmalltalkError({ reason: "invalid_source", cause })),
+              );
+            const message = records.messages.find(
+              (row) => row.id === source.messageId && row.role === "assistant" && !row.streaming,
             );
-          const message = source.messages.find(
-            (row) => row.id === input.messageId && row.role === "assistant" && !row.streaming,
-          );
-          const run = source.runs.find((row) => row.id === message?.runId);
-          if (
-            !visible ||
-            !message ||
-            !message.text.trim() ||
-            run?.status === "running" ||
-            message.text.length > 200_000
-          )
-            return yield* new SmalltalkError({ reason: "invalid_source" });
-          const related = yield* threads
-            .getThreadRecords(input.sourceThreadId, ["messages"], {
-              messageRoles: ["user"],
-              messageRunIds: message.runId === null ? [] : [message.runId],
-            })
-            .pipe(
-              Effect.mapError((cause) => new SmalltalkError({ reason: "invalid_source", cause })),
-            );
-          const question = related.messages.find((row) => row.runId === message.runId)?.text ?? "";
+            const run = records.runs.find((row) => row.id === message?.runId);
+            if (
+              !visible ||
+              !message ||
+              !message.text.trim() ||
+              run?.status === "running" ||
+              message.text.length > SMALLTALK_SOURCE_TEXT_MAX_LENGTH
+            )
+              return yield* new SmalltalkError({ reason: "invalid_source" });
+            const related = yield* threads
+              .getThreadRecords(source.sourceThreadId, ["messages"], {
+                messageRoles: ["user"],
+                messageRunIds: message.runId === null ? [] : [message.runId],
+              })
+              .pipe(
+                Effect.mapError((cause) => new SmalltalkError({ reason: "invalid_source", cause })),
+              );
+            const question =
+              related.messages.find((row) => row.runId === message.runId)?.text ?? "";
+            origin = {
+              sourceText: message.text,
+              question: question.slice(0, 20_000),
+              title: message.text
+                .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+                .replace(/`/g, "")
+                .replace(/\s+/g, " ")
+                .slice(0, 100),
+              filePath: null,
+            };
+          }
           const timestamp = yield* now;
           const record: Smalltalk = {
             id: yield* random.uuidV4(),
             threadId: input.threadId,
-            sourceThreadId: input.sourceThreadId,
-            messageId: input.messageId,
-            title: message.text
-              .replace(/^\s{0,3}#{1,6}\s+/gm, "")
-              .replace(/`/g, "")
-              .replace(/\s+/g, " ")
-              .slice(0, 100),
-            sourceText: message.text,
-            question: question.slice(0, 20_000),
+            sourceThreadId,
+            messageId,
+            ...origin,
             status: "cancelled",
             createdAt: timestamp,
             updatedAt: timestamp,
