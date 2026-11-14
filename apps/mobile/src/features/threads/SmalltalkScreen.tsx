@@ -240,7 +240,7 @@ function MobileSmalltalkContent({
           {model}
         </Text>
         <SymbolView
-          name="sparkles"
+          name="text.bubble"
           size={14}
           tintColorClassName="accent-foreground-muted"
           accessibilityLabel={`Preset: ${record.preset.name}`}

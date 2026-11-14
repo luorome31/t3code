@@ -33,7 +33,10 @@ import {
   type ProviderDriver,
   type ProviderInstance,
 } from "@t3tools/provider-core/server/driver";
-import { providerModelsFromSettings } from "@t3tools/provider-core/server/snapshotProbe";
+import {
+  providerModelsFromSettings,
+  providerProbeEnvironment,
+} from "@t3tools/provider-core/server/snapshotProbe";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "@t3tools/provider-core/server/maintenanceResolver";
 import {
   haveProviderSnapshotSettingsChanged,
@@ -95,9 +98,13 @@ const makeUnsupportedTextGeneration = (): ProviderTextGeneration => {
 
 function modelsFromDiscovery(
   discovery:
-    | Pick<AcpRegistryLiveConfiguration, "models" | "currentModelId" | "configOptions">
+    | Pick<
+        AcpRegistryLiveConfiguration,
+        "models" | "currentModelId" | "configOptions" | "modelOptionIds"
+      >
     | undefined,
   customModels: ReadonlyArray<string>,
+  previousModels: ReadonlyArray<ServerProviderModel> = [],
   modelOptions?: QoderCnModelOptions,
 ): ReadonlyArray<ServerProviderModel> {
   const discovered = discovery?.models ?? [];
@@ -105,6 +112,37 @@ function modelsFromDiscovery(
     discovery === undefined || discovery.configOptions.length === 0
       ? EMPTY_CAPABILITIES
       : createModelCapabilities({ optionDescriptors: discovery.configOptions });
+  // Model-specific options describe only the session's current model; other
+  // models keep the shared ones plus what an earlier session reported for them.
+  const modelOptionIds = new Set(discovery?.modelOptionIds ?? []);
+  const shared = (discovery?.configOptions ?? []).filter(
+    (descriptor) => !modelOptionIds.has(descriptor.id),
+  );
+  const sharedIds = new Set(shared.map((descriptor) => descriptor.id));
+  const capabilitiesFor = (slug: string) => {
+    if (modelOptions !== undefined) {
+      // Qoder CN reports options per model; the current model's reasoning effort wins.
+      return createModelCapabilities({
+        optionDescriptors: [
+          ...(discovery?.configOptions ?? []).filter((option) => option.id !== "reasoning_effort"),
+          ...(modelOptions[slug] ?? []).filter(
+            (option) => slug !== discovery?.currentModelId || option.id !== "reasoning_effort",
+          ),
+          ...(slug === discovery?.currentModelId
+            ? discovery.configOptions.filter((option) => option.id === "reasoning_effort")
+            : []),
+        ],
+      });
+    }
+    if (slug === discovery?.currentModelId) return capabilities;
+    const own = (
+      previousModels.find((model) => model.slug === slug)?.capabilities?.optionDescriptors ?? []
+    ).filter((descriptor) => !sharedIds.has(descriptor.id));
+    const optionDescriptors = [...shared, ...own];
+    return optionDescriptors.length === 0
+      ? EMPTY_CAPABILITIES
+      : createModelCapabilities({ optionDescriptors });
+  };
   const builtInModels: ReadonlyArray<ServerProviderModel> =
     discovered.length === 0
       ? [
@@ -121,23 +159,7 @@ function modelsFromDiscovery(
           name: model.name,
           isCustom: false,
           ...(model.id === discovery?.currentModelId ? { isDefault: true } : {}),
-          capabilities:
-            modelOptions === undefined
-              ? capabilities
-              : createModelCapabilities({
-                  optionDescriptors: [
-                    ...(discovery?.configOptions ?? []).filter(
-                      (option) => option.id !== "reasoning_effort",
-                    ),
-                    ...(modelOptions[model.id] ?? []).filter(
-                      (option) =>
-                        model.id !== discovery?.currentModelId || option.id !== "reasoning_effort",
-                    ),
-                    ...(model.id === discovery?.currentModelId
-                      ? discovery.configOptions.filter((option) => option.id === "reasoning_effort")
-                      : []),
-                  ],
-                }),
+          capabilities: capabilitiesFor(model.id),
         }));
   return providerModelsFromSettings(builtInModels, customModels, capabilities);
 }
@@ -254,6 +276,7 @@ function baseSnapshot(
     models: modelsFromDiscovery(
       input.probe?.probe,
       input.settings.customModels,
+      [],
       input.probe?.modelOptions,
     ),
     ...(input.probe === undefined
@@ -286,6 +309,7 @@ export function applyAcpRegistryLiveConfiguration(
   provider: ServerProvider,
   configuration: AcpRegistryLiveConfiguration,
   customModels: ReadonlyArray<string>,
+  previousModels: ReadonlyArray<ServerProviderModel> = provider.models,
   perModelOptions = false,
 ): ServerProvider {
   const { message: _staleProbeMessage, ...snapshot } = provider;
@@ -304,34 +328,36 @@ export function applyAcpRegistryLiveConfiguration(
           })),
           currentModelId: probedModels.find((model) => model.isDefault)?.slug ?? null,
         };
-  const modelOptions = perModelOptions
-    ? Object.fromEntries(
-        probedModels.map((model) => {
-          const previous = (model.capabilities?.optionDescriptors ?? []).filter(
-            (option) =>
-              option.id === "reasoning_effort" || option.id === QODER_CN_CONTEXT_OPTION_ID,
-          );
-          return [
-            model.slug,
-            model.slug === configuration.currentModelId
-              ? [
-                  ...previous.filter((option) => option.id !== "reasoning_effort"),
-                  ...configuration.configOptions.filter(
-                    (option) => option.id === "reasoning_effort",
-                  ),
-                ]
-              : previous,
-          ];
-        }),
-      )
-    : undefined;
+  const knownModels = previousModels.filter((model) => !model.isCustom);
+  const modelOptionsFrom = (models: ReadonlyArray<ServerProviderModel>) =>
+    perModelOptions
+      ? Object.fromEntries(
+          models.map((model) => {
+            const previous = (model.capabilities?.optionDescriptors ?? []).filter(
+              (option) =>
+                option.id === "reasoning_effort" || option.id === QODER_CN_CONTEXT_OPTION_ID,
+            );
+            return [
+              model.slug,
+              model.slug === configuration.currentModelId
+                ? [
+                    ...previous.filter((option) => option.id !== "reasoning_effort"),
+                    ...configuration.configOptions.filter(
+                      (option) => option.id === "reasoning_effort",
+                    ),
+                  ]
+                : previous,
+            ];
+          }),
+        )
+      : undefined;
   return {
     ...snapshot,
     status: provider.enabled ? "ready" : provider.status,
     models:
       configuration.models.length === 0 && configuration.configOptions.length === 0
         ? provider.models
-        : modelsFromDiscovery(discovery, customModels, modelOptions),
+        : modelsFromDiscovery(discovery, customModels, knownModels, modelOptionsFrom(knownModels)),
   };
 }
 
@@ -464,7 +490,7 @@ export const checkAcpRegistryProviderStatus = Effect.fn("AcpRegistryDriver.check
         instanceId: input.instanceId,
         settings: input.settings,
         cwd: input.cwd,
-        environment: input.environment,
+        environment: providerProbeEnvironment(input.environment),
       }),
     );
     return Result.isFailure(probed)
@@ -614,6 +640,24 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
         environment,
         processEnvironment,
       });
+    // Refreshes rebuild the snapshot from the probe, so per-model options
+    // learned from earlier sessions are kept here.
+    const learnedModels = yield* Ref.make<ReadonlyArray<ServerProviderModel>>([]);
+    const applyLiveConfiguration = (
+      provider: ServerProvider,
+      configuration: AcpRegistryLiveConfiguration,
+    ) =>
+      Ref.modify(learnedModels, (learned) => {
+        const next = applyAcpRegistryLiveConfiguration(
+          provider,
+          configuration,
+          effectiveConfig.customModels,
+          learned.length > 0 ? learned : provider.models,
+          isQoderCn(effectiveConfig),
+        );
+        return [next, next.models === provider.models ? learned : next.models];
+      });
+    const clearLearnedModels = Ref.set(learnedModels, []);
     const withLiveRuntimeState = Effect.fn("AcpRegistryDriver.withLiveRuntimeState")(function* (
       input: ServerProvider,
     ) {
@@ -632,19 +676,17 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
             configuration: runtimeCoordinator.value.getLiveConfiguration(instanceId),
             authAction: runtimeCoordinator.value.getUrlAuthAction(instanceId),
           }).pipe(
-            Effect.map(({ commands, configuration, authAction }) => {
+            Effect.flatMap(({ commands, configuration, authAction }) => {
               const withCommands = applyAcpRegistryAvailableCommands(provider, commands);
-              const withConfiguration = Option.match(configuration, {
-                onNone: () => withCommands,
+              return Option.match(configuration, {
+                onNone: () => Effect.succeed(withCommands),
                 onSome: (liveConfiguration) =>
-                  applyAcpRegistryLiveConfiguration(
-                    withCommands,
-                    liveConfiguration,
-                    effectiveConfig.customModels,
-                    isQoderCn(effectiveConfig),
-                  ),
-              });
-              return applyAcpRegistryUrlAuthAction(withConfiguration, authAction);
+                  applyLiveConfiguration(withCommands, liveConfiguration),
+              }).pipe(
+                Effect.map((withConfiguration) =>
+                  applyAcpRegistryUrlAuthAction(withConfiguration, authAction),
+                ),
+              );
             }),
           );
     });
@@ -798,16 +840,8 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
           (configuration) =>
             liveSnapshotSemaphore.withPermit(
               getSnapshot.pipe(
-                Effect.flatMap((current) =>
-                  publishSnapshot(
-                    applyAcpRegistryLiveConfiguration(
-                      current,
-                      configuration,
-                      effectiveConfig.customModels,
-                      isQoderCn(effectiveConfig),
-                    ),
-                  ),
-                ),
+                Effect.flatMap((current) => applyLiveConfiguration(current, configuration)),
+                Effect.flatMap(publishSnapshot),
               ),
             ),
         );
@@ -868,11 +902,13 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
         : provided;
     };
 
-    const clearLiveState = Option.isSome(runtimeCoordinator)
-      ? runtimeCoordinator.value
-          .clearLiveConfiguration(instanceId)
-          .pipe(Effect.andThen(runtimeCoordinator.value.clearAvailableCommands(instanceId)))
-      : Effect.void;
+    const clearLiveState = (
+      Option.isSome(runtimeCoordinator)
+        ? runtimeCoordinator.value
+            .clearLiveConfiguration(instanceId)
+            .pipe(Effect.andThen(runtimeCoordinator.value.clearAvailableCommands(instanceId)))
+        : Effect.void
+    ).pipe(Effect.andThen(clearLearnedModels));
     const controller = yield* AcpRegistryAuth.makeAcpRegistryAuth({
       instanceId,
       settings: effectiveConfig,
@@ -918,6 +954,13 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
           Effect.tap(() => controller.refreshMethods ?? Effect.void),
         ),
       },
+      invalidateCaches: (Option.isSome(runtimeCoordinator)
+        ? runtimeCoordinator.value.clearLiveConfiguration(instanceId)
+        : Effect.void
+      ).pipe(
+        Effect.andThen(clearLearnedModels),
+        Effect.andThen(liveSnapshotSemaphore.withPermit(invalidateEnrichmentCache)),
+      ),
       orchestrationAdapter,
       textGeneration: makeUnsupportedTextGeneration(),
       acpSessionManagement: {

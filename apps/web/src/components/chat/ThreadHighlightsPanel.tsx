@@ -163,7 +163,7 @@ export function ThreadHighlightsPanel({
   const jumpTo = (highlight: ThreadHighlight) => {
     if (highlight.source.kind === "assistant-message") {
       const citation = messageCitationOf(threadRef, highlight);
-      if (citation) void navigate(assistantCitationNavigation(citation));
+      if (citation) void navigate(assistantCitationNavigation(citation, null));
       return;
     }
     useRightPanelStore.getState().openFile(threadRef, highlight.source.relativePath);

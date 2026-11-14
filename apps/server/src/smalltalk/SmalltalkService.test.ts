@@ -27,7 +27,7 @@ import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.t
 import * as ProviderRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as Settings from "../serverSettings.ts";
-import migration from "../persistence/Migrations/081_Smalltalk.ts";
+import migration from "../persistence/Migrations/092_Smalltalk.ts";
 
 const threadId = ThreadId.make("thread");
 const otherThreadId = ThreadId.make("other");
