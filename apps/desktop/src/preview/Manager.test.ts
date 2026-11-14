@@ -26,6 +26,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
+import { PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL } from "../ipc/channels.ts";
 import * as BrowserSession from "./BrowserSession.ts";
 import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
 import * as PreviewManager from "./Manager.ts";
@@ -38,6 +39,57 @@ describe("fitPictureInPictureContentSize", () => {
 
     expect(portrait).toEqual([294, 523]);
     expect(landscape).toEqual([523, 294]);
+  });
+});
+
+describe("resolvePictureInPictureCaptureScale", () => {
+  const options = {
+    sourceWidth: 1280,
+    sourceHeight: 720,
+    displayScaleFactor: 1.25,
+    maximumScale: 2,
+    maximumPixels: 4_000_000,
+  };
+
+  it("keeps native frames when the pop-out is no larger than its source", () => {
+    expect(
+      PreviewManager.resolvePictureInPictureCaptureScale({
+        ...options,
+        contentWidth: 480,
+        contentHeight: 320,
+      }),
+    ).toBeNull();
+  });
+
+  it("raises the capture scale to fill an enlarged pop-out at display density", () => {
+    expect(
+      PreviewManager.resolvePictureInPictureCaptureScale({
+        ...options,
+        contentWidth: 1600,
+        contentHeight: 900,
+      }),
+    ).toBe(1.5625);
+  });
+
+  it("bounds the requested resolution", () => {
+    expect(
+      PreviewManager.resolvePictureInPictureCaptureScale({
+        ...options,
+        contentWidth: 4000,
+        contentHeight: 4000,
+        maximumScale: 3,
+        maximumPixels: 100_000_000,
+      }),
+    ).toBe(3);
+    expect(
+      PreviewManager.resolvePictureInPictureCaptureScale({
+        ...options,
+        contentWidth: 4000,
+        contentHeight: 4000,
+        maximumScale: 3,
+        maximumPixels: 2_000_000,
+      }),
+    ).toBeCloseTo(Math.sqrt(2_000_000 / (1280 * 720)), 5);
   });
 });
 
@@ -144,6 +196,7 @@ const {
   clipboardItemConstructor,
   createFromPath,
   fromId,
+  getDisplayMatching,
   getFocusedWebContents,
   mkdir,
   previewSession,
@@ -159,6 +212,7 @@ const {
     toPNG: () => Buffer.from("png"),
   })),
   fromId: vi.fn<(_id?: number) => Electron.WebContents | null>((_id?: number) => null),
+  getDisplayMatching: vi.fn(() => ({ scaleFactor: 1.25 })),
   getFocusedWebContents: vi.fn(() => null),
   mkdir: vi.fn((_path: string) => undefined),
   previewSession: { on: vi.fn() },
@@ -181,6 +235,9 @@ vi.mock("electron", () => ({
   },
   nativeImage: {
     createFromPath,
+  },
+  screen: {
+    getDisplayMatching,
   },
   shell: {
     showItemInFolder,
@@ -321,6 +378,7 @@ const makeTestPreviewWebContents = (
     getURL: () => "https://example.com",
     getTitle: () => "Example",
     isLoadingMainFrame: () => false,
+    isDevToolsOpened: () => false,
     getZoomFactor: () => 1,
     setZoomFactor: vi.fn(),
     setAudioMuted: vi.fn(),
@@ -536,6 +594,7 @@ const makeTestPictureInPictureWindow = (loadURL: () => Promise<void> = async () 
     setAlwaysOnTop: vi.fn(),
     setVisibleOnAllWorkspaces: vi.fn(),
     setAspectRatio: vi.fn(),
+    getBounds: vi.fn(() => ({ x: 0, y: 0, width: 480, height: 320 })),
     getContentSize: vi.fn(() => [480, 320]),
     setContentSize: vi.fn(),
     loadURL: vi.fn(loadURL),
@@ -2306,6 +2365,84 @@ describe("PreviewManager", () => {
           stalledInitial.resolve(image);
           stalledLoop.resolve(image);
         }
+      }),
+    ),
+  );
+
+  effectIt.effect("captures an enlarged picture-in-picture at display density", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const capturePage = vi.fn(async () => ({
+          toJPEG: () => Buffer.from("native-frame"),
+          getSize: () => ({ width: 1280, height: 720 }),
+        }));
+        const guest = makeTestPreviewWebContents(capturePage);
+        let failHighResolutionCapture = false;
+        const sendCommand = vi.fn(async (method: string) => {
+          if (method === "Page.getLayoutMetrics") {
+            return {
+              cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 1280, clientHeight: 720 },
+              cssLayoutViewport: { clientWidth: 1280, clientHeight: 720 },
+              layoutViewport: { clientWidth: 1600, clientHeight: 900 },
+            };
+          }
+          if (method === "Page.captureScreenshot") {
+            if (failHighResolutionCapture) throw new Error("Capture unavailable");
+            return { data: Buffer.from("dense-frame").toString("base64") };
+          }
+          return undefined;
+        });
+        guest.debugger.sendCommand = sendCommand as unknown as typeof guest.debugger.sendCommand;
+        fromId.mockReturnValue(guest);
+        const { pictureInPictureWindow, send } = makeTestPictureInPictureWindow();
+        pictureInPictureWindow.getContentSize.mockReturnValue([1600, 900]);
+        browserWindowConstructor.mockImplementation(function () {
+          return pictureInPictureWindow;
+        });
+
+        yield* manager.createTab("tab_pip_density");
+        yield* manager.registerWebview("tab_pip_density", 42);
+        yield* manager.openPictureInPicture("tab_pip_density");
+
+        expect(capturePage).toHaveBeenCalledOnce();
+        expect(sendCommand).not.toHaveBeenCalledWith("Page.captureScreenshot", expect.anything());
+
+        yield* TestClock.adjust(200);
+
+        expect(sendCommand).toHaveBeenCalledWith(
+          "Page.captureScreenshot",
+          expect.objectContaining({
+            format: "jpeg",
+            quality: 80,
+            captureBeyondViewport: false,
+            clip: {
+              x: 0,
+              y: 0,
+              width: 1280,
+              height: 720,
+              scale: 1.25,
+            },
+          }),
+        );
+        expect(send).toHaveBeenLastCalledWith(PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL, {
+          tabId: "tab_pip_density",
+          data: Buffer.from("dense-frame").toString("base64"),
+          width: 2000,
+          height: 1125,
+          receivedAt: expect.any(String),
+        });
+
+        failHighResolutionCapture = true;
+        yield* TestClock.adjust(200);
+        expect(send).toHaveBeenLastCalledWith(PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL, {
+          tabId: "tab_pip_density",
+          data: Buffer.from("native-frame").toString("base64"),
+          width: 1280,
+          height: 720,
+          receivedAt: expect.any(String),
+        });
+
+        yield* manager.closePictureInPicture("tab_pip_density");
       }),
     ),
   );

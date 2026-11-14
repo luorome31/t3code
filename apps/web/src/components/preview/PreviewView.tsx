@@ -483,9 +483,15 @@ export function PreviewView({
 
   const handleNativePictureInPicture = () => {
     if (!previewBridge || !runtimeTabId) return;
-    const operation = desktopOverlay?.pictureInPicture
-      ? previewBridge.pictureInPicture.close
-      : previewBridge.pictureInPicture.open;
+    const opening = !desktopOverlay?.pictureInPicture;
+    if (opening) {
+      if (!tabId) return;
+      usePreviewMiniPlayerStore.getState().open(threadRef, browserMiniPlayerSource(tabId));
+      useRightPanelStore.getState().close(threadRef);
+    }
+    const operation = opening
+      ? previewBridge.pictureInPicture.open
+      : previewBridge.pictureInPicture.close;
     void operation(runtimeTabId).catch((error) => {
       toastManager.add({
         type: "error",

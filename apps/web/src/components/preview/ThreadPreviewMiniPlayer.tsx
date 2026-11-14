@@ -222,12 +222,20 @@ function BrowserMiniPlayer({ threadRef, tabId, miniPlayer }: Props & { readonly 
   const serverSurfaceRef = useRef<ServerBrowserHandle | null>(null);
   const serverPictureInPicture =
     useServerPictureInPictureKey() === serverPictureInPictureKey(threadRef.threadId, tabId);
+  const nativePoppedOut = !serverTab && Boolean(desktopOverlay?.pictureInPicture);
   const viewportKey = streamedSourceKey(
     threadRef,
     previewMiniPlayerSourceKey(browserMiniPlayerSource(tabId)),
   );
 
+  const closeNativePictureInPicture = () => {
+    if (desktopOverlay?.pictureInPicture && previewBridge) {
+      void previewBridge.pictureInPicture.close(runtimeTabId).catch(() => undefined);
+    }
+  };
+
   const openInPanel = () => {
+    closeNativePictureInPicture();
     usePreviewMiniPlayerStore.getState().close(threadRef);
     useRightPanelStore.getState().openBrowser(threadRef, tabId);
   };
@@ -262,7 +270,7 @@ function BrowserMiniPlayer({ threadRef, tabId, miniPlayer }: Props & { readonly 
     snapshot.navStatus._tag === "Success"
       ? previewPdfAssetUrl(snapshot.navStatus.url, httpBaseUrl)
       : null;
-  const poppedOut = serverTab ? serverPictureInPicture : Boolean(desktopOverlay?.pictureInPicture);
+  const poppedOut = serverTab ? serverPictureInPicture : nativePoppedOut;
   const canPopOut = serverTab
     ? poppedOut || (pdfUrl === null && supportsServerPictureInPicture())
     : true;
@@ -335,14 +343,19 @@ function BrowserMiniPlayer({ threadRef, tabId, miniPlayer }: Props & { readonly 
           <>
             <BrowserSurfaceSlot
               tabId={runtimeTabId}
-              visible={Boolean(desktopOverlay?.hasWebContents)}
+              visible={Boolean(desktopOverlay?.hasWebContents) && !nativePoppedOut}
               cornerRadius={PREVIEW_MINI_PLAYER_CORNER_RADIUS}
               zIndex={PREVIEW_MINI_PLAYER_WEBVIEW_Z_INDEX}
               fitSourceContent
               layoutVersion={`${frame.x}:${frame.y}`}
               className="absolute inset-0"
             />
-            {!desktopOverlay?.hasWebContents ? (
+            {nativePoppedOut ? (
+              <div className="pointer-events-none absolute inset-0 z-[49] flex flex-col items-center justify-center gap-1.5 rounded-[inherit] bg-muted px-4 text-center text-xs text-muted-foreground">
+                <PictureInPicture2 className="size-4" />
+                <span>Preview is in the separate window</span>
+              </div>
+            ) : !desktopOverlay?.hasWebContents ? (
               <div className="pointer-events-none absolute inset-0 z-[49] flex items-center justify-center rounded-[inherit] bg-muted text-xs text-muted-foreground">
                 Reconnecting preview…
               </div>

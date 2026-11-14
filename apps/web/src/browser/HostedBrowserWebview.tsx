@@ -303,6 +303,8 @@ export function HostedBrowserWebview(props: {
   if (!clientSettingsHydrated || !config) return null;
 
   const renderingActive = active || backgroundActivity || pictureInPicture || recordingActive;
+  // Electron captures a CSS-scaled guest at the scaled raster (electron/electron#44227); keep the hidden pop-out guest native.
+  const nativeCapture = pictureInPicture && !active;
   const wrapperStyle = resolveHostedBrowserWebviewWrapperStyle({
     active,
     renderingActive,
@@ -370,7 +372,10 @@ export function HostedBrowserWebview(props: {
             top: layout.viewportY,
             width: layout.viewportWidth / layout.viewportScale,
             height: layout.viewportHeight / layout.viewportScale,
-            transform: layout.viewportScale < 1 ? `scale(${layout.viewportScale})` : undefined,
+            transform:
+              !nativeCapture && layout.viewportScale < 1
+                ? `scale(${layout.viewportScale})`
+                : undefined,
             transformOrigin: "top left",
           }}
         />

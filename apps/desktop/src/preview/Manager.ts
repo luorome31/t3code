@@ -32,6 +32,7 @@ import {
   type Session,
   clipboard,
   nativeImage,
+  screen,
   shell,
   webContents,
 } from "electron";
@@ -135,6 +136,8 @@ const PICTURE_IN_PICTURE_INITIAL_HEIGHT = 320;
 const PICTURE_IN_PICTURE_MIN_WIDTH = 240;
 const PICTURE_IN_PICTURE_MIN_HEIGHT = 160;
 const PICTURE_IN_PICTURE_ASPECT_RATIO_EPSILON = 0.002;
+const PICTURE_IN_PICTURE_MAX_CAPTURE_SCALE = 2;
+const PICTURE_IN_PICTURE_MAX_CAPTURE_PIXELS = 4_000_000;
 const MAX_ARTIFACT_SITE_SLUG_LENGTH = 80;
 const requestRecordingCaptureExpression = (tabId: string): string =>
   `globalThis[${JSON.stringify(DESKTOP_PREVIEW_RECORDING_CAPTURE_TRIGGER)}]?.(${JSON.stringify(tabId)}) === true`;
@@ -185,6 +188,45 @@ const buildPreviewPictureInPictureDataUrl = (): string => {
   </body>
 </html>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+};
+
+export const resolvePictureInPictureCaptureScale = (input: {
+  readonly sourceWidth: number;
+  readonly sourceHeight: number;
+  readonly contentWidth: number;
+  readonly contentHeight: number;
+  readonly displayScaleFactor: number;
+  readonly maximumScale: number;
+  readonly maximumPixels: number;
+}): number | null => {
+  const sourceWidth = input.sourceWidth;
+  const sourceHeight = input.sourceHeight;
+  const displayScaleFactor = Number.isFinite(input.displayScaleFactor)
+    ? input.displayScaleFactor
+    : 1;
+  if (
+    !Number.isFinite(sourceWidth) ||
+    !Number.isFinite(sourceHeight) ||
+    !Number.isFinite(input.contentWidth) ||
+    !Number.isFinite(input.contentHeight) ||
+    sourceWidth <= 0 ||
+    sourceHeight <= 0 ||
+    input.contentWidth <= 0 ||
+    input.contentHeight <= 0 ||
+    displayScaleFactor <= 0
+  ) {
+    return null;
+  }
+  const sourceAspectRatio = sourceWidth / sourceHeight;
+  const targetWidth =
+    Math.min(input.contentWidth, input.contentHeight * sourceAspectRatio) * displayScaleFactor;
+  const requestedScale = targetWidth / sourceWidth;
+  const scale = Math.min(
+    requestedScale,
+    input.maximumScale,
+    Math.sqrt(input.maximumPixels / (sourceWidth * sourceHeight)),
+  );
+  return scale > 1 + PICTURE_IN_PICTURE_ASPECT_RATIO_EPSILON ? scale : null;
 };
 
 export const fitPictureInPictureContentSize = (
@@ -342,6 +384,37 @@ const fingerprintCapturedFrame = (image: Electron.NativeImage, size: Electron.Si
   return `${size.width}x${size.height}:${NodeZlib.crc32(bitmap)}`;
 };
 
+const readCdpNumber = (value: unknown, key: string): number | null => {
+  if (typeof value !== "object" || value === null) return null;
+  const candidate = (value as Record<string, unknown>)[key];
+  return typeof candidate === "number" && Number.isFinite(candidate) ? candidate : null;
+};
+
+/** CDP physical viewport metrics; CSS sizes are what clip and scale are expressed in. */
+const readPictureInPictureLayoutMetrics = (value: unknown) => {
+  if (typeof value !== "object" || value === null) return null;
+  const metrics = value as Record<string, unknown>;
+  const visual = metrics["cssVisualViewport"];
+  const layout = metrics["layoutViewport"];
+  const cssLayout = metrics["cssLayoutViewport"];
+  const width = readCdpNumber(visual, "clientWidth") ?? readCdpNumber(cssLayout, "clientWidth");
+  const height = readCdpNumber(visual, "clientHeight") ?? readCdpNumber(cssLayout, "clientHeight");
+  if (width === null || height === null || width <= 0 || height <= 0) return null;
+  const layoutWidth = readCdpNumber(layout, "clientWidth");
+  const cssLayoutWidth = readCdpNumber(cssLayout, "clientWidth");
+  const renderScale =
+    layoutWidth !== null && cssLayoutWidth !== null && cssLayoutWidth > 0
+      ? layoutWidth / cssLayoutWidth
+      : 1;
+  return {
+    width,
+    height,
+    pageX: readCdpNumber(visual, "pageX") ?? 0,
+    pageY: readCdpNumber(visual, "pageY") ?? 0,
+    renderScale: Number.isFinite(renderScale) && renderScale > 0 ? renderScale : 1,
+  };
+};
+
 const findZoomStep = (current: number): number => {
   const index = ZOOM_LEVELS.findIndex(
     (level) => Math.abs(level - current) < ZOOM_EPSILON || level > current,
@@ -388,6 +461,7 @@ interface FrameCaptureSession {
   readonly consumers: ReadonlySet<FrameCaptureConsumer>;
   readonly unthrottledWebContentsIds: ReadonlySet<number>;
   readonly lastPictureInPictureFingerprint: string | null;
+  readonly lastPictureInPictureSourceSize: Electron.Size | null;
 }
 
 interface PictureInPictureSession {
@@ -569,6 +643,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   >(new Map());
   const pictureInPictureAspectRatiosRef = yield* Ref.make<ReadonlyMap<string, number>>(new Map());
   const pictureInPictureMutationSemaphore = yield* Semaphore.make(1);
+  const pictureInPictureCapturesInFlight = new Set<number>();
   const closingTabIdsRef = yield* Ref.make<ReadonlySet<string>>(new Set());
   // Legacy tab capture is unsupported (electron/electron#44618); recording uses setDisplayMediaRequestHandler.
   let pendingRecording: PendingRecording | null = null;
@@ -781,6 +856,8 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
                   consumer === "picture-in-picture"
                     ? null
                     : current.lastPictureInPictureFingerprint,
+                lastPictureInPictureSourceSize:
+                  consumer === "picture-in-picture" ? null : current.lastPictureInPictureSourceSize,
               });
             }),
           ] as const;
@@ -2503,82 +2580,131 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     };
   });
 
-  const capturePreviewFrame = Effect.fn("PreviewManager.capturePreviewFrame")(function* (
-    tabId: string,
-  ) {
-    const captureSession = (yield* SynchronizedRef.get(frameCaptureSessionsRef)).get(tabId);
-    if (!captureSession?.consumers.has("picture-in-picture") || captureSession.scope === null)
-      return;
-    const wc = yield* requireWebContents(tabId);
-    const captureContext = { operation: "frameCapture.capturePage", tabId, webContentsId: wc.id };
-    const image = yield* attemptPromise(captureContext, () => wc.capturePage()).pipe(
-      Effect.timeout(CAPTURE_PAGE_ATTEMPT_TIMEOUT_MS),
-      Effect.catchTags({
-        TimeoutError: (cause) =>
-          Effect.fail(new PreviewOperationError({ ...captureContext, cause })),
-      }),
+  const captureHighResolutionPictureInPictureFrame = Effect.fn(
+    "PreviewManager.captureHighResolutionPictureInPictureFrame",
+  )(function* (input: {
+    readonly tabId: string;
+    readonly wc: Electron.WebContents;
+    readonly pictureInPictureWindow: BrowserWindow;
+    readonly displayScaleFactor: number;
+  }) {
+    const control = yield* Effect.option(ensureControlSession(input.wc));
+    if (Option.isNone(control)) return { kind: "unavailable" as const };
+    const metrics = yield* Effect.option(
+      attemptPromise(
+        {
+          operation: "frameCapture.layoutMetrics",
+          tabId: input.tabId,
+          webContentsId: input.wc.id,
+        },
+        () => control.value.debugger.sendCommand("Page.getLayoutMetrics"),
+      ).pipe(Effect.timeout(CAPTURE_PAGE_ATTEMPT_TIMEOUT_MS)),
     );
-    const currentCaptureSession = yield* Effect.all(
-      [SynchronizedRef.get(frameCaptureSessionsRef), SynchronizedRef.get(tabsRef)],
-      { concurrency: 2 },
-    ).pipe(
-      Effect.map(([captureSessions, tabs]) => {
-        const current = captureSessions.get(tabId);
-        return current?.scope === captureSession.scope &&
-          tabs.get(tabId)?.webContentsId === wc.id &&
-          !wc.isDestroyed()
-          ? current
-          : undefined;
-      }),
+    if (Option.isNone(metrics)) return { kind: "unavailable" as const };
+    const layout = readPictureInPictureLayoutMetrics(metrics.value);
+    if (!layout) return { kind: "unavailable" as const };
+    const sourceSize = {
+      width: Math.max(1, Math.round(layout.width * layout.renderScale)),
+      height: Math.max(1, Math.round(layout.height * layout.renderScale)),
+    };
+    const contentSize = input.pictureInPictureWindow.getContentSize();
+    const scale = resolvePictureInPictureCaptureScale({
+      sourceWidth: sourceSize.width,
+      sourceHeight: sourceSize.height,
+      contentWidth: contentSize[0] ?? 0,
+      contentHeight: contentSize[1] ?? 0,
+      displayScaleFactor: input.displayScaleFactor,
+      maximumScale: PICTURE_IN_PICTURE_MAX_CAPTURE_SCALE,
+      maximumPixels: PICTURE_IN_PICTURE_MAX_CAPTURE_PIXELS,
+    });
+    if (scale === null) return { kind: "native" as const, sourceSize };
+    if (pictureInPictureCapturesInFlight.has(input.wc.id)) return { kind: "busy" as const };
+    const encodedFrame = yield* Effect.option(
+      attemptPromise(
+        {
+          operation: "frameCapture.captureHighResolution",
+          tabId: input.tabId,
+          webContentsId: input.wc.id,
+        },
+        () => {
+          const pending = control.value.debugger.sendCommand("Page.captureScreenshot", {
+            format: "jpeg",
+            quality: PICTURE_IN_PICTURE_JPEG_QUALITY,
+            fromSurface: true,
+            captureBeyondViewport: false,
+            clip: {
+              x: layout.pageX,
+              y: layout.pageY,
+              width: layout.width,
+              height: layout.height,
+              scale,
+            },
+          });
+          pictureInPictureCapturesInFlight.add(input.wc.id);
+          const settled = () => pictureInPictureCapturesInFlight.delete(input.wc.id);
+          pending.then(settled, settled);
+          return pending;
+        },
+      ).pipe(Effect.timeout(CAPTURE_PAGE_ATTEMPT_TIMEOUT_MS)),
     );
-    if (!currentCaptureSession) return;
-    const size = yield* attempt(
-      {
-        operation: "frameCapture.measureFrame",
-        tabId,
-        webContentsId: wc.id,
+    if (Option.isNone(encodedFrame)) {
+      return pictureInPictureCapturesInFlight.has(input.wc.id)
+        ? { kind: "busy" as const }
+        : { kind: "unavailable" as const };
+    }
+    const data = (encodedFrame.value as { readonly data?: unknown } | null)?.data;
+    if (typeof data !== "string" || data.length === 0) return { kind: "unavailable" as const };
+    const encoded = Buffer.from(data, "base64");
+    if (encoded.byteLength === 0) return { kind: "unavailable" as const };
+    const width = Math.max(1, Math.round(layout.width * layout.renderScale * scale));
+    const height = Math.max(1, Math.round(layout.height * layout.renderScale * scale));
+    return {
+      kind: "frame" as const,
+      frame: {
+        encoded,
+        width,
+        height,
+        fingerprint: `${width}x${height}:${NodeZlib.crc32(encoded)}`,
+        sourceSize,
       },
-      () => image.getSize(),
-    );
+    };
+  });
+
+  const recordPictureInPictureSourceSize = Effect.fnUntraced(function* (
+    tabId: string,
+    frameSession: FrameCaptureSession,
+    sourceSize: Electron.Size,
+  ) {
     if (
-      !Number.isFinite(size.width) ||
-      !Number.isFinite(size.height) ||
-      size.width <= 0 ||
-      size.height <= 0
+      frameSession.lastPictureInPictureSourceSize?.width === sourceSize.width &&
+      frameSession.lastPictureInPictureSourceSize.height === sourceSize.height
     ) {
       return;
     }
-    const frameSession = (yield* SynchronizedRef.get(frameCaptureSessionsRef)).get(tabId);
-    if (frameSession?.scope !== captureSession.scope) return;
-    // Fingerprint before encoding so unchanged frames skip JPEG, base64, and IPC; unreadable frames must still be sent.
-    const fingerprint = fingerprintCapturedFrame(image, size);
-    const pictureInPicture =
-      frameSession.consumers.has("picture-in-picture") &&
-      (fingerprint === null || frameSession.lastPictureInPictureFingerprint !== fingerprint);
-    if (!pictureInPicture) return;
-    const encoded = yield* attempt(
-      {
-        operation: "frameCapture.encodeFrame",
-        tabId,
-        webContentsId: wc.id,
-      },
-      () => image.toJPEG(PICTURE_IN_PICTURE_JPEG_QUALITY),
-    );
-    const receivedAt = yield* currentIso;
-    const frame: DesktopPreviewRecordingFrame = {
-      tabId,
-      data: encoded.toString("base64"),
-      width: size.width,
-      height: size.height,
-      receivedAt,
-    };
+    yield* SynchronizedRef.update(frameCaptureSessionsRef, (sessions) => {
+      if (sessions.get(tabId) !== frameSession) return sessions;
+      return replaceMap(sessions, (copy) => {
+        copy.set(tabId, { ...frameSession, lastPictureInPictureSourceSize: sourceSize });
+      });
+    });
+  });
+
+  const deliverPictureInPictureFrame = Effect.fnUntraced(function* (
+    tabId: string,
+    wc: Electron.WebContents,
+    frameSession: FrameCaptureSession,
+    encoded: Buffer,
+    size: Electron.Size,
+    aspectRatio: number,
+    fingerprint: string | null,
+    sourceSize: Electron.Size,
+  ) {
     const pictureInPictureWindow = (yield* SynchronizedRef.get(pictureInPictureSessionsRef)).get(
       tabId,
     )?.window;
     if (!pictureInPictureWindow || pictureInPictureWindow.isDestroyed()) return;
     yield* Effect.gen(function* () {
       const previousAspectRatio = (yield* Ref.get(pictureInPictureAspectRatiosRef)).get(tabId);
-      const aspectRatio = frame.width / frame.height;
       if (
         previousAspectRatio === undefined ||
         Math.abs(previousAspectRatio - aspectRatio) > PICTURE_IN_PICTURE_ASPECT_RATIO_EPSILON
@@ -2605,6 +2731,14 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           }),
         );
       }
+      const receivedAt = yield* currentIso;
+      const frame: DesktopPreviewRecordingFrame = {
+        tabId,
+        data: encoded.toString("base64"),
+        width: size.width,
+        height: size.height,
+        receivedAt,
+      };
       yield* attempt(
         {
           operation: "pictureInPicture.deliverFrame",
@@ -2621,6 +2755,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           copy.set(tabId, {
             ...frameSession,
             lastPictureInPictureFingerprint: fingerprint,
+            lastPictureInPictureSourceSize: sourceSize,
           });
         });
       });
@@ -2631,6 +2766,155 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           error,
         }),
       ),
+    );
+  });
+
+  const currentPictureInPictureFrameSession = Effect.fnUntraced(function* (
+    tabId: string,
+    wc: Electron.WebContents,
+    scope: Scope.Closeable,
+  ) {
+    const [captureSessions, tabs] = yield* Effect.all(
+      [SynchronizedRef.get(frameCaptureSessionsRef), SynchronizedRef.get(tabsRef)],
+      { concurrency: 2 },
+    );
+    const current = captureSessions.get(tabId);
+    return current?.scope === scope && tabs.get(tabId)?.webContentsId === wc.id && !wc.isDestroyed()
+      ? current
+      : undefined;
+  });
+
+  const capturePreviewFrame = Effect.fn("PreviewManager.capturePreviewFrame")(function* (
+    tabId: string,
+  ) {
+    const captureSession = (yield* SynchronizedRef.get(frameCaptureSessionsRef)).get(tabId);
+    if (!captureSession?.consumers.has("picture-in-picture") || captureSession.scope === null)
+      return;
+    const wc = yield* requireWebContents(tabId);
+    if (pictureInPictureCapturesInFlight.has(wc.id)) return;
+    const pictureInPictureWindow = (yield* SynchronizedRef.get(pictureInPictureSessionsRef)).get(
+      tabId,
+    )?.window;
+    let displayScaleFactor = 1;
+    let highResolutionScale: number | null = null;
+    if (pictureInPictureWindow && !pictureInPictureWindow.isDestroyed()) {
+      const sourceSize = captureSession.lastPictureInPictureSourceSize;
+      if (sourceSize) {
+        const display = screen.getDisplayMatching(pictureInPictureWindow.getBounds());
+        displayScaleFactor =
+          Number.isFinite(display.scaleFactor) && display.scaleFactor > 0 ? display.scaleFactor : 1;
+        const contentSize = pictureInPictureWindow.getContentSize();
+        highResolutionScale = resolvePictureInPictureCaptureScale({
+          sourceWidth: sourceSize.width,
+          sourceHeight: sourceSize.height,
+          contentWidth: contentSize[0] ?? 0,
+          contentHeight: contentSize[1] ?? 0,
+          displayScaleFactor,
+          maximumScale: PICTURE_IN_PICTURE_MAX_CAPTURE_SCALE,
+          maximumPixels: PICTURE_IN_PICTURE_MAX_CAPTURE_PIXELS,
+        });
+      }
+    }
+    if (highResolutionScale !== null && pictureInPictureWindow) {
+      const highResolution = yield* captureHighResolutionPictureInPictureFrame({
+        tabId,
+        wc,
+        pictureInPictureWindow,
+        displayScaleFactor,
+      });
+      if (highResolution.kind === "busy") return;
+      if (highResolution.kind === "native") {
+        yield* recordPictureInPictureSourceSize(tabId, captureSession, highResolution.sourceSize);
+      }
+      if (highResolution.kind === "frame") {
+        const currentFrameSession = yield* currentPictureInPictureFrameSession(
+          tabId,
+          wc,
+          captureSession.scope,
+        );
+        if (!currentFrameSession) return;
+        if (
+          currentFrameSession.lastPictureInPictureFingerprint === highResolution.frame.fingerprint
+        ) {
+          yield* recordPictureInPictureSourceSize(
+            tabId,
+            currentFrameSession,
+            highResolution.frame.sourceSize,
+          );
+          return;
+        }
+        const sourceSize = currentFrameSession.lastPictureInPictureSourceSize;
+        yield* deliverPictureInPictureFrame(
+          tabId,
+          wc,
+          currentFrameSession,
+          highResolution.frame.encoded,
+          { width: highResolution.frame.width, height: highResolution.frame.height },
+          sourceSize
+            ? sourceSize.width / sourceSize.height
+            : highResolution.frame.width / highResolution.frame.height,
+          highResolution.frame.fingerprint,
+          highResolution.frame.sourceSize,
+        );
+        return;
+      }
+    }
+    const captureContext = { operation: "frameCapture.capturePage", tabId, webContentsId: wc.id };
+    const image = yield* attemptPromise(captureContext, () => wc.capturePage()).pipe(
+      Effect.timeout(CAPTURE_PAGE_ATTEMPT_TIMEOUT_MS),
+      Effect.catchTags({
+        TimeoutError: (cause) =>
+          Effect.fail(new PreviewOperationError({ ...captureContext, cause })),
+      }),
+    );
+    const currentCaptureSession = yield* currentPictureInPictureFrameSession(
+      tabId,
+      wc,
+      captureSession.scope,
+    );
+    if (!currentCaptureSession) return;
+    const size = yield* attempt(
+      {
+        operation: "frameCapture.measureFrame",
+        tabId,
+        webContentsId: wc.id,
+      },
+      () => image.getSize(),
+    );
+    if (
+      !Number.isFinite(size.width) ||
+      !Number.isFinite(size.height) ||
+      size.width <= 0 ||
+      size.height <= 0
+    ) {
+      return;
+    }
+    const frameSession = (yield* SynchronizedRef.get(frameCaptureSessionsRef)).get(tabId);
+    if (frameSession?.scope !== captureSession.scope) return;
+    yield* recordPictureInPictureSourceSize(tabId, frameSession, size);
+    // Fingerprint before encoding so unchanged frames skip JPEG, base64, and IPC; unreadable frames must still be sent.
+    const fingerprint = fingerprintCapturedFrame(image, size);
+    const pictureInPicture =
+      frameSession.consumers.has("picture-in-picture") &&
+      (fingerprint === null || frameSession.lastPictureInPictureFingerprint !== fingerprint);
+    if (!pictureInPicture) return;
+    const encoded = yield* attempt(
+      {
+        operation: "frameCapture.encodeFrame",
+        tabId,
+        webContentsId: wc.id,
+      },
+      () => image.toJPEG(PICTURE_IN_PICTURE_JPEG_QUALITY),
+    );
+    yield* deliverPictureInPictureFrame(
+      tabId,
+      wc,
+      frameSession,
+      encoded,
+      size,
+      size.width / size.height,
+      fingerprint,
+      size,
     );
   });
 
@@ -2707,6 +2991,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
                 consumers: new Set([consumer]),
                 unthrottledWebContentsIds: new Set([wc.id]),
                 lastPictureInPictureFingerprint: null,
+                lastPictureInPictureSourceSize: null,
               });
             }),
           ] as const;
@@ -2872,7 +3157,11 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
               const current = sessions.get(tabId);
               if (!current?.consumers.has("picture-in-picture")) return sessions;
               return replaceMap(sessions, (copy) => {
-                copy.set(tabId, { ...current, lastPictureInPictureFingerprint: null });
+                copy.set(tabId, {
+                  ...current,
+                  lastPictureInPictureFingerprint: null,
+                  lastPictureInPictureSourceSize: null,
+                });
               });
             }),
           );
