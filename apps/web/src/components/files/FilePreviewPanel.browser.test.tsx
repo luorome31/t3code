@@ -46,11 +46,13 @@ vi.mock(import("~/state/server"), async (original) => {
   const actual = await original();
   const { Atom } = await import("effect/reactivity");
   const noConfig = Atom.make(null);
+  // Markdown reads the server's OS to label reveal-in-file-manager, so the fake carries it.
+  const platform = { os: "linux", arch: "x64" } as const;
   const smalltalkConfig = Atom.make({
-    environment: { capabilities: { smalltalk: true, smalltalkFileSource: true } },
+    environment: { platform, capabilities: { smalltalk: true, smalltalkFileSource: true } },
   });
   const smalltalkConfigWithoutFileSource = Atom.make({
-    environment: { capabilities: { smalltalk: true } },
+    environment: { platform, capabilities: { smalltalk: true } },
   });
   return {
     ...actual,
