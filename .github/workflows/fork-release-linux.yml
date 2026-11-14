@@ -2,6 +2,11 @@ name: Fork Linux Release
 
 on:
   workflow_dispatch:
+    inputs:
+      notes:
+        description: Release summary for this build (Markdown, optional)
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -55,7 +60,7 @@ jobs:
           base=$(node -p 'require("./apps/desktop/package.json").version')
           version="${base}-preview.$(date -u +%Y%m%d).${GITHUB_RUN_NUMBER}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=qoder-cn-v$version" >> "$GITHUB_OUTPUT"
+          echo "tag=fork-v$version" >> "$GITHUB_OUTPUT"
           node scripts/update-release-package-versions.ts "$version"
           cp .env.example .env
 
@@ -90,21 +95,37 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_NOTES: ${{ inputs.notes }}
         run: |
           (cd release && sha256sum *.AppImage *.deb > SHA256SUMS)
-          cat > "$RUNNER_TEMP/release-notes.md" <<'EOF'
-          Linux x64 build with the Qoder CN provider preset.
-
-          - Download the `.deb` package for Debian/Ubuntu, or the `.AppImage` for other Linux distributions.
-          - Open Settings → Providers → Add provider → Show more → Qoder CN.
-          - Install Qoder CN CLI on the T3 server and run `qodercn login` before starting a thread.
-          - Verify downloads against `SHA256SUMS`.
-
-          This is an unsigned fork prerelease. The packaged application passed the desktop launch check.
-          EOF
-          printf '\nSource commit: %s\n' "$GITHUB_SHA" >> "$RUNNER_TEMP/release-notes.md"
+          previous_tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)
+          {
+            echo "Linux x64 build from the T3 Code fork."
+            echo
+            if [ -n "$RELEASE_NOTES" ]; then
+              echo "## What's new"
+              echo
+              printf '%s\n\n' "$RELEASE_NOTES"
+            fi
+            echo "## Downloads"
+            echo
+            echo "- Debian/Ubuntu: the `.deb` asset."
+            echo "- Other Linux distributions: the `.AppImage` asset."
+            echo "- Verify downloads against `SHA256SUMS`."
+            echo
+            echo "## Qoder CN provider preset"
+            echo
+            echo "This fork includes the Qoder CN provider preset. Open Settings → Providers → Add provider → Show more → Qoder CN, install the Qoder CN CLI on the T3 server, and run \`qodercn login\` before starting a thread."
+            echo
+            echo "This is an unsigned fork prerelease. The packaged application passed the desktop launch check."
+            echo
+            echo "Source commit: $GITHUB_SHA"
+            if [ -n "$previous_tag" ]; then
+              echo "Compare: https://github.com/$GITHUB_REPOSITORY/compare/$previous_tag...$GITHUB_SHA"
+            fi
+          } > "$RUNNER_TEMP/release-notes.md"
           gh release create "$RELEASE_TAG" release/*.AppImage release/*.deb release/SHA256SUMS \
             --target "$GITHUB_SHA" --prerelease --latest=false \
-            --title "T3 Code $RELEASE_VERSION — Qoder CN (Linux x64)" \
+            --title "T3 Code $RELEASE_VERSION — Linux x64" \
             --notes-file "$RUNNER_TEMP/release-notes.md"
           echo "Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"

@@ -14,7 +14,9 @@ the version.
 In a fork, run **Actions → Fork Linux Release → Run workflow** on the branch to package.
 It uses GitHub's Ubuntu runner and requires no signing or deployment secrets. After building and
 launch-checking the application, it publishes an AppImage, a Deb package, and `SHA256SUMS` to a
-Qoder CN GitHub prerelease. The version includes the build date and workflow run number.
+fork GitHub prerelease. The version includes the build date and workflow run number. Pass the
+optional `notes` input to add a hand-written summary for that build; the Qoder CN provider preset
+is documented in the generated notes as an included fork feature, not as the release headline.
 
 These builds use the public configuration in `.env.example`. They do not publish npm packages,
 deploy a relay or hosted web app, or provide an automatic update feed. The upstream release
