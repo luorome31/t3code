@@ -18,6 +18,23 @@ export const SYSTEM_SMALLTALK_PRESET: SmalltalkPreset = {
   prompt: DEFAULT_SMALLTALK_PROMPT,
 };
 export const SmalltalkStatus = Schema.Literals(["generating", "completed", "failed", "cancelled"]);
+export const SMALLTALK_SOURCE_TEXT_MAX_LENGTH = 200_000;
+export const SmalltalkSource = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("message"),
+    sourceThreadId: ThreadId,
+    messageId: MessageId,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("markdown-file"),
+    relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
+    text: Schema.String.check(
+      Schema.isNonEmpty(),
+      Schema.isMaxLength(SMALLTALK_SOURCE_TEXT_MAX_LENGTH),
+    ),
+  }),
+]);
+export type SmalltalkSource = typeof SmalltalkSource.Type;
 const SMALLTALK_TEXT_GENERATION_DRIVERS = ["codex", "claudeAgent", "antigravity"] as const;
 const SMALLTALK_TEXT_GENERATION_DRIVER_SET: ReadonlySet<string> = new Set(
   SMALLTALK_TEXT_GENERATION_DRIVERS,
@@ -29,6 +46,8 @@ export const SmalltalkSummary = Schema.Struct({
   threadId: ThreadId,
   sourceThreadId: ThreadId,
   messageId: MessageId,
+  /** Set when the explanation came from a Markdown file rather than an answer. */
+  filePath: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   title: Schema.String,
   status: SmalltalkStatus,
   createdAt: Schema.String,
@@ -54,6 +73,12 @@ export type Smalltalk = typeof Smalltalk.Type;
 export const SmalltalkThreadInput = Schema.Struct({ threadId: ThreadId });
 export const SmalltalkGetInput = Schema.Struct({ threadId: ThreadId, id: Schema.String });
 export const SmalltalkMutation = Schema.Union([
+  Schema.Struct({
+    action: Schema.Literal("create"),
+    threadId: ThreadId,
+    source: SmalltalkSource,
+  }),
+  // Legacy flat shape shipped by clients before file sources existed.
   Schema.Struct({
     action: Schema.Literal("create"),
     threadId: ThreadId,

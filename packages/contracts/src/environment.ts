@@ -122,6 +122,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   threadProjectFromScratch: Schema.optionalKey(Schema.Boolean),
   threadTitleRegeneration: Schema.optionalKey(Schema.Boolean),
   smalltalk: Schema.optionalKey(Schema.Boolean),
+  /** Server accepts a Markdown file source for Smalltalk; absent on older servers. */
+  smalltalkFileSource: Schema.optionalKey(Schema.Boolean),
   threadVisitedTracking: Schema.optionalKey(Schema.Boolean),
   threadPullRequestLinking: Schema.optionalKey(Schema.Boolean),
   serverResolvedCommandContext: Schema.optionalKey(Schema.Boolean),

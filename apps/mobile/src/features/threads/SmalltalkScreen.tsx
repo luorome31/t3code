@@ -246,20 +246,22 @@ function MobileSmalltalkContent({
           accessibilityLabel={`Preset: ${record.preset.name}`}
         />
         <View className="flex-row items-center">
-          <SmalltalkIconButton
-            name="arrow.turn.left.up"
-            label="跳转到原回答"
-            onPress={() => {
-              requestThreadMessageJump(scopedThreadKey(threadRef), record.messageId);
-              navigation.dispatch(
-                StackActions.popTo(
-                  "Thread",
-                  { environmentId: threadRef.environmentId, threadId: threadRef.threadId },
-                  { merge: true },
-                ),
-              );
-            }}
-          />
+          {record.filePath === null ? (
+            <SmalltalkIconButton
+              name="arrow.turn.left.up"
+              label="跳转到原回答"
+              onPress={() => {
+                requestThreadMessageJump(scopedThreadKey(threadRef), record.messageId);
+                navigation.dispatch(
+                  StackActions.popTo(
+                    "Thread",
+                    { environmentId: threadRef.environmentId, threadId: threadRef.threadId },
+                    { merge: true },
+                  ),
+                );
+              }}
+            />
+          ) : null}
           {explanation ? (
             <SmalltalkIconButton
               name="doc.on.doc"

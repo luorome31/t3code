@@ -256,6 +256,7 @@ export const make = Effect.gen(function* () {
       threadProjectFromScratch: true,
       threadTitleRegeneration: true,
       smalltalk: true,
+      smalltalkFileSource: true,
       commandOutputStreaming: true,
       threadVisitedTracking: true,
       threadPullRequests: true,
