@@ -21,12 +21,18 @@ import {
 import { useCustomThemes } from "../../hooks/useCustomThemes";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { useTheme } from "../../hooks/useTheme";
-import { useDefaultHighlightColor, useHighlightStore } from "~/highlightStore";
-import { DEFAULT_HIGHLIGHT_COLOR } from "~/lib/highlightColors";
-import { HighlightColorPicker } from "./HighlightColorPicker";
+import {
+  DEFAULT_HIGHLIGHT_COLOR_MODE,
+  useDefaultHighlightColor,
+  useHighlightColorMode,
+  useHighlightStore,
+} from "~/highlightStore";
+import { DEFAULT_HIGHLIGHT_COLOR, HIGHLIGHT_COLORS } from "~/lib/highlightColors";
+import { HighlightColorPicker } from "../highlights/HighlightColorPicker";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { ThemeLibrary } from "./ThemeSettings";
 import {
   SettingResetButton,
@@ -104,6 +110,8 @@ export function AppearanceSettingsPanel() {
   const updateSettings = useUpdateScopedSettings();
   const defaultHighlightColor = useDefaultHighlightColor();
   const setDefaultHighlightColor = useHighlightStore((state) => state.setDefaultColor);
+  const highlightColorMode = useHighlightColorMode();
+  const setHighlightColorMode = useHighlightStore((state) => state.setColorMode);
   const environmentStageLabel = useEnvironmentStageLabel();
   const environmentStageVariant = resolveSidebarStageBackdropVariant(environmentStageLabel);
   const environmentIdentificationOptionList =
@@ -310,20 +318,61 @@ export function AppearanceSettingsPanel() {
         />
         <SettingsRow
           {...searchableSetting("highlight-color")}
-          description="Used for new highlights in this browser. Existing highlights keep their color."
+          description={
+            highlightColorMode === "thread"
+              ? "Threads keep a default highlight color. Change it from the palette beside the selection; this swatch is the starting color for threads that have not picked one."
+              : "Pick one of these swatches beside the selection each time you highlight."
+          }
           resetAction={
-            defaultHighlightColor !== DEFAULT_HIGHLIGHT_COLOR ? (
-              <SettingResetButton
-                label="highlight color"
-                onClick={() => setDefaultHighlightColor(DEFAULT_HIGHLIGHT_COLOR)}
-              />
-            ) : null
+            <>
+              {highlightColorMode !== DEFAULT_HIGHLIGHT_COLOR_MODE ? (
+                <SettingResetButton
+                  label="highlight color mode"
+                  onClick={() => setHighlightColorMode(DEFAULT_HIGHLIGHT_COLOR_MODE)}
+                />
+              ) : null}
+              {highlightColorMode === "thread" &&
+              defaultHighlightColor !== DEFAULT_HIGHLIGHT_COLOR ? (
+                <SettingResetButton
+                  label="highlight color"
+                  onClick={() => setDefaultHighlightColor(DEFAULT_HIGHLIGHT_COLOR)}
+                />
+              ) : null}
+            </>
           }
           control={
-            <HighlightColorPicker
-              value={defaultHighlightColor}
-              onChange={setDefaultHighlightColor}
-            />
+            <div className="flex w-full flex-col gap-2 sm:w-56">
+              <ToggleGroup
+                aria-label="Highlight color mode"
+                value={[highlightColorMode]}
+                onValueChange={(next) => {
+                  const value = next[0];
+                  if (value === "thread" || value === "selection") setHighlightColorMode(value);
+                }}
+              >
+                <Toggle value="thread">Thread default</Toggle>
+                <Toggle value="selection">Per selection</Toggle>
+              </ToggleGroup>
+              {highlightColorMode === "thread" ? (
+                <HighlightColorPicker
+                  value={defaultHighlightColor}
+                  onChange={setDefaultHighlightColor}
+                />
+              ) : (
+                <div
+                  aria-hidden
+                  className="pointer-events-none flex items-center gap-1.5 opacity-50"
+                >
+                  {HIGHLIGHT_COLORS.map((color) => (
+                    <span
+                      key={color.id}
+                      className="size-6 rounded-full border-2 border-border"
+                      style={{ backgroundColor: `var(${color.cssVariable})` }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           }
         />
         <SettingsRow

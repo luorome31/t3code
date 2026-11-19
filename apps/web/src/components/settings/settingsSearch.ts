@@ -357,10 +357,10 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "highlight-color",
-    title: "Highlight color",
+    title: "Highlight colors",
     to: "/settings/appearance",
     searchTerms: [
-      "highlights annotation color palette amber red green blue purple slate assistant selection",
+      "highlights annotation color palette amber red green blue purple slate assistant selection thread default per swatch note filter",
     ],
   },
   {
