@@ -59,8 +59,8 @@ Under **Settings → Appearance → Highlight colors**, pick how new highlights 
 Open **Highlights** in the thread details card to manage them under the **Messages** and
 **Markdown files** tabs. Click a highlight's color dot to change its color, add or edit a note
 under a highlight, filter the list by color, delete them, or insert selected quotes into the
-composer. A note is inserted into the composer attached to its quote as the citation comment. A
-Markdown file excerpt is inserted with its file path.
+composer. For message highlights, a note is inserted into the composer attached to its quote as
+the citation comment. A Markdown file excerpt is inserted with its file path.
 
 ## Conversation navigation
 
