@@ -2,6 +2,8 @@ import { EnvironmentId, MessageId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  DEFAULT_HIGHLIGHT_COLOR_MODE,
+  HIGHLIGHT_COLOR_MODE_STORAGE_KEY,
   HIGHLIGHT_COLOR_STORAGE_KEY,
   HIGHLIGHT_STORAGE_KEY,
   useHighlightStore,
@@ -20,7 +22,12 @@ const validHighlight: ThreadHighlight = {
 };
 
 function resetStore() {
-  useHighlightStore.setState({ byThreadKey: {}, defaultColor: DEFAULT_HIGHLIGHT_COLOR });
+  useHighlightStore.setState({
+    byThreadKey: {},
+    defaultColor: DEFAULT_HIGHLIGHT_COLOR,
+    colorMode: DEFAULT_HIGHLIGHT_COLOR_MODE,
+    threadDefaultColors: {},
+  });
   localStorage.clear();
 }
 
@@ -109,6 +116,66 @@ describe("highlightStore persistence", () => {
       expect(localStorage.getItem(HIGHLIGHT_STORAGE_KEY)).toBe(before);
       expect(localStorage.getItem(HIGHLIGHT_COLOR_STORAGE_KEY)).toBe("green");
       expect(JSON.parse(before ?? "{}").state.defaultColor).toBeUndefined();
+    } finally {
+      resetStore();
+    }
+  });
+
+  it("rehydrates thread default colors and drops invalid ones", async () => {
+    resetStore();
+    try {
+      localStorage.setItem(
+        HIGHLIGHT_STORAGE_KEY,
+        JSON.stringify({
+          state: {
+            byThreadKey: { [threadKey]: [validHighlight] },
+            threadDefaultColors: {
+              [threadKey]: "purple",
+              [`${EnvironmentId.make("environment-1")}:${ThreadId.make("thread-2")}`]:
+                "not-a-color",
+            },
+          },
+          version: 3,
+        }),
+      );
+      localStorage.setItem(HIGHLIGHT_COLOR_MODE_STORAGE_KEY, "selection");
+
+      await useHighlightStore.persist.rehydrate();
+
+      const state = useHighlightStore.getState();
+      expect(state.threadDefaultColors[threadKey]).toBe("purple");
+      expect(Object.keys(state.threadDefaultColors)).toHaveLength(1);
+      expect(state.colorMode).toBe("selection");
+    } finally {
+      resetStore();
+    }
+  });
+
+  it("keeps a persisted note on rehydrate and drops an oversized one", async () => {
+    resetStore();
+    try {
+      localStorage.setItem(
+        HIGHLIGHT_STORAGE_KEY,
+        JSON.stringify({
+          state: {
+            byThreadKey: {
+              [threadKey]: [
+                { ...validHighlight, note: "why this matters" },
+                { ...validHighlight, id: "highlight-2", note: "x".repeat(2001) },
+              ],
+            },
+          },
+          version: 3,
+        }),
+      );
+
+      await useHighlightStore.persist.rehydrate();
+
+      const highlights = useHighlightStore.getState().byThreadKey[threadKey] ?? [];
+      expect(highlights.find((highlight) => highlight.id === "highlight-1")?.note).toBe(
+        "why this matters",
+      );
+      expect(highlights.find((highlight) => highlight.id === "highlight-2")?.note).toBeUndefined();
     } finally {
       resetStore();
     }

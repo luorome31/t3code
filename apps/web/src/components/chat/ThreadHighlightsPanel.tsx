@@ -1,18 +1,25 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { AssistantCitation, ScopedThreadRef } from "@t3tools/contracts";
-import { HighlighterIcon, MoreHorizontalIcon, Trash2Icon } from "lucide-react";
+import { HighlighterIcon, MoreHorizontalIcon, StickyNoteIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
 import { requestFileHighlightReveal } from "~/fileHighlightRevealStore";
 import {
+  MAX_HIGHLIGHT_NOTE_LENGTH,
   useHighlightStore,
   useThreadHighlights,
   type MarkdownFileHighlightExcerpt,
   type ThreadHighlight,
 } from "~/highlightStore";
 import { assistantCitationNavigation } from "~/lib/assistantCitationNavigation";
-import { HIGHLIGHT_COLORS, type HighlightColorDefinition } from "~/lib/highlightColors";
+import {
+  HIGHLIGHT_COLORS,
+  highlightColorDefinition,
+  type HighlightColor,
+} from "~/lib/highlightColors";
+import { cn } from "~/lib/utils";
 import { useRightPanelStore } from "~/rightPanelStore";
+import { HighlightColorPicker } from "../highlights/HighlightColorPicker";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import {
@@ -23,16 +30,10 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
-import {
-  Menu,
-  MenuItem,
-  MenuPopup,
-  MenuRadioGroup,
-  MenuRadioItem,
-  MenuRadioItemIndicator,
-  MenuTrigger,
-} from "../ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
+import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 type HighlightTab = "messages" | "files";
 
@@ -52,6 +53,7 @@ function messageCitationOf(
     ...threadRef,
     messageId: highlight.source.messageId,
     ...highlight.selector,
+    ...(highlight.note !== undefined ? { comment: highlight.note } : {}),
   };
 }
 
@@ -92,13 +94,57 @@ function groupedHighlights(
   }));
 }
 
-function ColorDot({ color }: { color: HighlightColorDefinition }) {
+function HighlightRowColorTrigger({
+  highlight,
+  position,
+  open,
+  onOpenChange,
+  onRecolor,
+}: {
+  readonly highlight: ThreadHighlight;
+  readonly position: number;
+  readonly open: boolean;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly onRecolor: (color: HighlightColor) => void;
+}) {
+  const definition = highlightColorDefinition(highlight.color);
   return (
-    <span
-      aria-hidden
-      className="size-2.5 shrink-0 rounded-full"
-      style={{ backgroundColor: `var(${color.cssVariable})` }}
-    />
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <PopoverTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={`Set color for highlight ${position}`}
+                  className="mt-0.5 grid size-5 shrink-0 cursor-pointer place-items-center rounded-full outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                />
+              }
+            >
+              <span
+                aria-hidden
+                className="size-3.5 rounded-full border border-border"
+                style={{ backgroundColor: `var(${definition.cssVariable})` }}
+              />
+            </PopoverTrigger>
+          }
+        />
+        <TooltipPopup>{definition.label}</TooltipPopup>
+      </Tooltip>
+      <PopoverPopup align="start" sideOffset={6} padding="compact">
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-medium">Highlight color</span>
+          <HighlightColorPicker
+            value={highlight.color}
+            onChange={(color) => {
+              onRecolor(color);
+              onOpenChange(false);
+            }}
+          />
+        </div>
+      </PopoverPopup>
+    </Popover>
   );
 }
 
@@ -123,6 +169,9 @@ export function ThreadHighlightsPanel({
   );
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set());
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [colorFilter, setColorFilter] = useState<ReadonlySet<HighlightColor>>(() => new Set());
+  const [colorPopoverId, setColorPopoverId] = useState<string | null>(null);
+  const [noteEditor, setNoteEditor] = useState<{ id: string; draft: string } | null>(null);
 
   const messageHighlights = highlights.filter(
     (highlight) => highlight.source.kind === "assistant-message",
@@ -131,14 +180,21 @@ export function ThreadHighlightsPanel({
     (highlight) => highlight.source.kind === "markdown-file",
   );
   const activeHighlights = tab === "messages" ? messageHighlights : fileHighlights;
-  const groups = groupedHighlights(activeHighlights, tab);
+  const filteredHighlights = activeHighlights.filter(
+    (highlight) => colorFilter.size === 0 || colorFilter.has(highlight.color),
+  );
+  const countByColor = new Map<HighlightColor, number>();
+  for (const highlight of activeHighlights) {
+    countByColor.set(highlight.color, (countByColor.get(highlight.color) ?? 0) + 1);
+  }
+  const groups = groupedHighlights(filteredHighlights, tab);
   const orderedHighlights = groups.flatMap((group) => group.highlights);
-  const exists = new Set(activeHighlights.map((highlight) => highlight.id));
+  const exists = new Set(orderedHighlights.map((highlight) => highlight.id));
   const positionById = new Map(
     orderedHighlights.map((highlight, index) => [highlight.id, index + 1]),
   );
   const selected = orderedHighlights.filter((highlight) => selectedIds.has(highlight.id));
-  const allSelected = activeHighlights.length > 0 && selected.length === activeHighlights.length;
+  const allSelected = orderedHighlights.length > 0 && selected.length === orderedHighlights.length;
   const someSelected = selected.length > 0 && !allSelected;
 
   const selectTab = (next: HighlightTab) => {
@@ -146,6 +202,8 @@ export function ThreadHighlightsPanel({
     setTab(next);
     setSelectedIds(new Set());
     setConfirmDeleteOpen(false);
+    setColorPopoverId(null);
+    setNoteEditor(null);
   };
   const setSelected = (id: string, checked: boolean) => {
     setSelectedIds((current) => {
@@ -159,6 +217,14 @@ export function ThreadHighlightsPanel({
     setSelectedIds(
       checked ? new Set(orderedHighlights.map((highlight) => highlight.id)) : new Set(),
     );
+  };
+  const toggleColorFilter = (color: HighlightColor) => {
+    setColorFilter((current) => {
+      const next = new Set(current);
+      if (next.has(color)) next.delete(color);
+      else next.add(color);
+      return next;
+    });
   };
   const jumpTo = (highlight: ThreadHighlight) => {
     if (highlight.source.kind === "assistant-message") {
@@ -217,12 +283,19 @@ export function ThreadHighlightsPanel({
     }
     setConfirmDeleteOpen(true);
   };
-  const recolor = (highlight: ThreadHighlight, color: HighlightColorDefinition) => {
-    useHighlightStore.getState().recolorHighlight(threadRef, highlight.id, color.id);
+  const recolor = (highlight: ThreadHighlight, color: HighlightColor) => {
+    useHighlightStore.getState().recolorHighlight(threadRef, highlight.id, color);
   };
   const removeOne = (highlight: ThreadHighlight) => {
     useHighlightStore.getState().removeHighlights(threadRef, [highlight.id]);
   };
+  const noteTooLong = (noteEditor?.draft.length ?? 0) > MAX_HIGHLIGHT_NOTE_LENGTH;
+  const saveNote = () => {
+    if (noteEditor === null || noteTooLong) return;
+    useHighlightStore.getState().setHighlightNote(threadRef, noteEditor.id, noteEditor.draft);
+    setNoteEditor(null);
+  };
+  const cancelNote = () => setNoteEditor(null);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -247,8 +320,49 @@ export function ThreadHighlightsPanel({
           onCheckedChange={(checked) => setAllSelected(checked === true)}
         />
         <span className="text-xs text-muted-foreground">
-          {activeHighlights.length} {activeHighlights.length === 1 ? "highlight" : "highlights"}
+          {colorFilter.size === 0 || activeHighlights.length === 0
+            ? `${activeHighlights.length} ${activeHighlights.length === 1 ? "highlight" : "highlights"}`
+            : `${filteredHighlights.length} of ${activeHighlights.length} ${activeHighlights.length === 1 ? "highlight" : "highlights"}`}
         </span>
+        {activeHighlights.length > 0 ? (
+          <div
+            className="ml-auto flex items-center gap-1.5"
+            role="group"
+            aria-label="Filter by color"
+          >
+            {HIGHLIGHT_COLORS.map((color) => {
+              const count = countByColor.get(color.id) ?? 0;
+              const active = colorFilter.has(color.id);
+              return (
+                <Tooltip key={color.id}>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        aria-label={`Filter ${color.label}`}
+                        aria-pressed={active}
+                        disabled={count === 0 && !active}
+                        onClick={() => toggleColorFilter(color.id)}
+                        className={cn(
+                          "size-3 rounded-full outline-none transition-[opacity,box-shadow] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                          count === 0 && !active
+                            ? "opacity-20"
+                            : active
+                              ? "ring-2 ring-ring ring-offset-1 ring-offset-background"
+                              : "opacity-40 hover:opacity-80",
+                        )}
+                        style={{ backgroundColor: `var(${color.cssVariable})` }}
+                      />
+                    }
+                  />
+                  <TooltipPopup>
+                    {count === 0 ? `${color.label} (none here)` : `${color.label} (${count})`}
+                  </TooltipPopup>
+                </Tooltip>
+              );
+            })}
+          </div>
+        ) : null}
       </div>
       {selected.length > 0 ? (
         <div className="flex items-center gap-1 border-b border-border/60 px-3 py-1.5">
@@ -263,20 +377,24 @@ export function ThreadHighlightsPanel({
           </div>
         </div>
       ) : null}
-      {activeHighlights.length === 0 ? (
+      {orderedHighlights.length === 0 ? (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
           <HighlighterIcon aria-hidden className="size-6 text-muted-foreground" />
           <p className="text-sm font-medium">
             {highlights.length === 0
               ? "No highlights yet"
-              : tab === "messages"
-                ? "No message highlights yet"
-                : "No Markdown highlights yet"}
+              : activeHighlights.length === 0
+                ? tab === "messages"
+                  ? "No message highlights yet"
+                  : "No Markdown highlights yet"
+                : "No highlights match the filter"}
           </p>
           <p className="max-w-64 text-xs text-muted-foreground">
-            {tab === "messages"
-              ? "Select text in an assistant message and choose Highlight."
-              : "Select text in a rendered Markdown file and choose Highlight."}
+            {highlights.length === 0 || activeHighlights.length === 0
+              ? tab === "messages"
+                ? "Select text in an assistant message and choose Highlight."
+                : "Select text in a rendered Markdown file and choose Highlight."
+              : "Click a color dot again to turn its filter off."}
           </p>
         </div>
       ) : (
@@ -288,6 +406,7 @@ export function ThreadHighlightsPanel({
               </div>
               {group.highlights.map((highlight) => {
                 const position = positionById.get(highlight.id) ?? 0;
+                const editing = noteEditor?.id === highlight.id;
                 return (
                   <div
                     key={highlight.id}
@@ -299,25 +418,82 @@ export function ThreadHighlightsPanel({
                       className="mt-0.5"
                       onCheckedChange={(checked) => setSelected(highlight.id, checked === true)}
                     />
-                    <button
-                      type="button"
-                      className="min-w-0 flex-1 cursor-pointer text-left"
-                      onClick={() => jumpTo(highlight)}
-                    >
-                      <span className="flex items-start gap-2">
-                        <span className="mt-1">
-                          <ColorDot
-                            color={
-                              HIGHLIGHT_COLORS.find((color) => color.id === highlight.color) ??
-                              HIGHLIGHT_COLORS[0]!
-                            }
-                          />
-                        </span>
+                    <HighlightRowColorTrigger
+                      highlight={highlight}
+                      position={position}
+                      open={colorPopoverId === highlight.id}
+                      onOpenChange={(open) => setColorPopoverId(open ? highlight.id : null)}
+                      onRecolor={(color) => recolor(highlight, color)}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <button
+                        type="button"
+                        className="cursor-pointer text-left"
+                        onClick={() => jumpTo(highlight)}
+                      >
                         <span className="line-clamp-3 text-sm text-foreground">
                           {highlight.selector.text}
                         </span>
-                      </span>
-                    </button>
+                      </button>
+                      {editing ? (
+                        <div className="mt-1.5">
+                          <textarea
+                            autoFocus
+                            aria-label={`Note editor for highlight ${position}`}
+                            placeholder="Add a note for this highlight..."
+                            rows={2}
+                            className="field-sizing-content max-h-32 min-h-9 w-full resize-none rounded-md border border-border bg-background/50 px-2 py-1.5 text-xs text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring"
+                            value={noteEditor.draft}
+                            onChange={(event) =>
+                              setNoteEditor({ id: highlight.id, draft: event.currentTarget.value })
+                            }
+                            onKeyDown={(event) => {
+                              event.stopPropagation();
+                              if (event.nativeEvent.isComposing) return;
+                              if (event.key === "Enter" && !event.shiftKey) {
+                                event.preventDefault();
+                                saveNote();
+                              } else if (event.key === "Escape") {
+                                event.preventDefault();
+                                cancelNote();
+                              }
+                            }}
+                          />
+                          {noteTooLong ? (
+                            <p role="status" className="pt-1 text-xs text-destructive">
+                              Notes can contain up to {MAX_HIGHLIGHT_NOTE_LENGTH.toLocaleString()}{" "}
+                              characters.
+                            </p>
+                          ) : null}
+                          <div className="mt-1 flex items-center justify-end gap-1">
+                            <Button size="xs" variant="ghost" onClick={cancelNote}>
+                              Cancel
+                            </Button>
+                            <Button size="xs" onClick={saveNote} disabled={noteTooLong}>
+                              {noteTooLong ? "Shorten note" : "Save note"}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : highlight.note !== undefined ? (
+                        <button
+                          type="button"
+                          className="mt-1 w-full cursor-pointer text-left"
+                          aria-label={`Edit note for highlight ${position}`}
+                          onClick={() =>
+                            setNoteEditor({ id: highlight.id, draft: highlight.note ?? "" })
+                          }
+                        >
+                          <span
+                            className="block whitespace-pre-wrap break-words border-l-2 pl-2 text-xs text-muted-foreground"
+                            style={{
+                              borderColor: `var(${highlightColorDefinition(highlight.color).cssVariable})`,
+                            }}
+                          >
+                            {highlight.note}
+                          </span>
+                        </button>
+                      ) : null}
+                    </div>
                     <Menu>
                       <MenuTrigger
                         render={
@@ -332,21 +508,15 @@ export function ThreadHighlightsPanel({
                         <MoreHorizontalIcon className="size-3.5" />
                       </MenuTrigger>
                       <MenuPopup align="end" sideOffset={4}>
-                        <MenuRadioGroup
-                          value={highlight.color}
-                          onValueChange={(value) => {
-                            const color = HIGHLIGHT_COLORS.find((entry) => entry.id === value);
-                            if (color) recolor(highlight, color);
-                          }}
+                        <MenuItem
+                          onClick={() =>
+                            setNoteEditor({ id: highlight.id, draft: highlight.note ?? "" })
+                          }
                         >
-                          {HIGHLIGHT_COLORS.map((color) => (
-                            <MenuRadioItem key={color.id} value={color.id}>
-                              <ColorDot color={color} />
-                              <span className="flex-1">{color.label}</span>
-                              <MenuRadioItemIndicator />
-                            </MenuRadioItem>
-                          ))}
-                        </MenuRadioGroup>
+                          <StickyNoteIcon aria-hidden className="size-3.5" />
+                          {highlight.note === undefined ? "Add note" : "Edit note"}
+                        </MenuItem>
+                        <MenuSeparator />
                         <MenuItem onClick={() => removeOne(highlight)}>
                           <Trash2Icon aria-hidden className="size-3.5" />
                           Delete

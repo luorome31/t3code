@@ -46,11 +46,21 @@ preference is saved separately on each device.
 On web and desktop, select text in an assistant message and choose **Highlight** beside
 **Cite**. You can also highlight text in a Markdown file while it is shown with **Show rendered
 markdown**. Highlights stay in the browser where you made them; they are not synced across
-devices. The thread details card shows how many highlights the thread has. Open **Highlights**
-there to review them under the **Messages** and **Markdown files** tabs, change a color, delete
-them, or insert selected quotes into the composer. A Markdown file excerpt is inserted with its
-file path. The color chosen under **Settings → Appearance → Highlight color** applies to new
-highlights; existing highlights keep their color.
+devices.
+
+Under **Settings → Appearance → Highlight colors**, pick how new highlights get their color:
+
+- **Thread default** keeps one color per thread. Pick a different color from the palette beside
+  **Highlight** to set this thread's color; the swatch in settings is the starting color for
+  threads that have not picked one.
+- **Per selection** shows a palette of swatches beside the selection, and each highlight uses
+  the color you click.
+
+Open **Highlights** in the thread details card to manage them under the **Messages** and
+**Markdown files** tabs. Click a highlight's color dot to change its color, add or edit a note
+under a highlight, filter the list by color, delete them, or insert selected quotes into the
+composer. For message highlights, a note is inserted into the composer attached to its quote as
+the citation comment. A Markdown file excerpt is inserted with its file path.
 
 ## Conversation navigation
 

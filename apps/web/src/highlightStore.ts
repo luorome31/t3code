@@ -12,11 +12,22 @@ import {
 import { resolveStorage } from "./lib/storage";
 import { randomUUID } from "./lib/utils";
 
+export type { HighlightColor } from "./lib/highlightColors";
+
 export const HIGHLIGHT_STORAGE_KEY = "t3code:thread-highlights:v1";
 export const HIGHLIGHT_COLOR_STORAGE_KEY = "t3code:highlight-color:v1";
+export const HIGHLIGHT_COLOR_MODE_STORAGE_KEY = "t3code:highlight-color-mode:v1";
 export const MAX_HIGHLIGHTS_PER_THREAD = 500;
 export const MAX_HIGHLIGHT_TEXT_LENGTH = 4000;
+export const MAX_HIGHLIGHT_NOTE_LENGTH = 2000;
 const MAX_TOTAL_HIGHLIGHT_TEXT_LENGTH = 2_000_000;
+
+export type HighlightColorMode = "thread" | "selection";
+export const DEFAULT_HIGHLIGHT_COLOR_MODE: HighlightColorMode = "thread";
+
+function isHighlightColorMode(value: unknown): value is HighlightColorMode {
+  return value === "thread" || value === "selection";
+}
 
 export type ThreadHighlightSource =
   | { readonly kind: "assistant-message"; readonly messageId: MessageId }
@@ -38,6 +49,8 @@ export interface ThreadHighlight {
   readonly selector: AssistantTextSelector;
   readonly color: HighlightColor;
   readonly createdAt: string;
+  /** Optional per-highlight annotation, kept with the highlight in this browser. */
+  readonly note?: string;
 }
 
 export type AddHighlightResult =
@@ -53,10 +66,15 @@ interface AddHighlightInput {
 interface HighlightStoreState {
   byThreadKey: Record<string, ThreadHighlight[]>;
   defaultColor: HighlightColor;
+  colorMode: HighlightColorMode;
+  threadDefaultColors: Record<string, HighlightColor>;
   addHighlight: (ref: ScopedThreadRef, input: AddHighlightInput) => AddHighlightResult;
   removeHighlights: (ref: ScopedThreadRef, ids: readonly string[]) => void;
   recolorHighlight: (ref: ScopedThreadRef, id: string, color: HighlightColor) => void;
+  setHighlightNote: (ref: ScopedThreadRef, id: string, note: string) => void;
   setDefaultColor: (color: HighlightColor) => void;
+  setColorMode: (mode: HighlightColorMode) => void;
+  setThreadDefaultColor: (ref: ScopedThreadRef, color: HighlightColor) => void;
   clearThread: (ref: ScopedThreadRef) => void;
 }
 
@@ -77,6 +95,32 @@ function persistDefaultColor(color: HighlightColor): void {
   try {
     window.localStorage.setItem(HIGHLIGHT_COLOR_STORAGE_KEY, color);
   } catch {}
+}
+
+function readPersistedColorMode(): HighlightColorMode {
+  if (typeof window === "undefined") return DEFAULT_HIGHLIGHT_COLOR_MODE;
+  try {
+    const value = window.localStorage.getItem(HIGHLIGHT_COLOR_MODE_STORAGE_KEY);
+    return isHighlightColorMode(value) ? value : DEFAULT_HIGHLIGHT_COLOR_MODE;
+  } catch {
+    return DEFAULT_HIGHLIGHT_COLOR_MODE;
+  }
+}
+
+function persistColorMode(mode: HighlightColorMode): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(HIGHLIGHT_COLOR_MODE_STORAGE_KEY, mode);
+  } catch {}
+}
+
+function sanitizeThreadDefaultColors(value: unknown): Record<string, HighlightColor> {
+  if (!value || typeof value !== "object") return {};
+  const sanitized: Record<string, HighlightColor> = {};
+  for (const [threadKey, color] of Object.entries(value)) {
+    if (isHighlightColor(color)) sanitized[threadKey] = color;
+  }
+  return sanitized;
 }
 
 export function sameHighlightSelector(
@@ -160,15 +204,21 @@ function normalizeThreadHighlight(value: unknown): ThreadHighlight | null {
       return null;
     }
   }
-  return source === null
-    ? null
-    : {
-        id: highlight.id,
-        source,
-        selector: highlight.selector,
-        color: highlight.color,
-        createdAt: highlight.createdAt,
-      };
+  if (source === null) return null;
+  const note =
+    typeof highlight.note === "string" &&
+    highlight.note.trim().length > 0 &&
+    highlight.note.length <= MAX_HIGHLIGHT_NOTE_LENGTH
+      ? highlight.note
+      : undefined;
+  return {
+    id: highlight.id,
+    source,
+    selector: highlight.selector,
+    color: highlight.color,
+    createdAt: highlight.createdAt,
+    ...(note !== undefined ? { note } : {}),
+  };
 }
 
 function sanitizeThreadHighlights(value: unknown): Record<string, ThreadHighlight[]> {
@@ -202,11 +252,17 @@ function totalHighlightTextLength(byThreadKey: Record<string, ThreadHighlight[]>
   );
 }
 
+function removeNote({ note: _note, ...rest }: ThreadHighlight): ThreadHighlight {
+  return rest;
+}
+
 export const useHighlightStore = create<HighlightStoreState>()(
   persist(
     (set, get) => ({
       byThreadKey: {},
       defaultColor: readPersistedDefaultColor(),
+      colorMode: readPersistedColorMode(),
+      threadDefaultColors: {},
       addHighlight: (ref, input) => {
         const threadKey = scopedThreadKey(ref);
         const highlights = get().byThreadKey[threadKey] ?? [];
@@ -231,6 +287,7 @@ export const useHighlightStore = create<HighlightStoreState>()(
         ) {
           return { ok: false, reason: "duplicate" };
         }
+        const fallbackColor = get().threadDefaultColors[threadKey] ?? get().defaultColor;
         const highlight: ThreadHighlight = {
           id: randomUUID(),
           source: input.source,
@@ -238,7 +295,7 @@ export const useHighlightStore = create<HighlightStoreState>()(
           color:
             input.color !== undefined && isHighlightColor(input.color)
               ? input.color
-              : get().defaultColor,
+              : fallbackColor,
           createdAt: new Date().toISOString(),
         };
         set((state) => ({
@@ -279,38 +336,82 @@ export const useHighlightStore = create<HighlightStoreState>()(
           },
         }));
       },
+      setHighlightNote: (ref, id, note) => {
+        if (typeof note !== "string" || note.length > MAX_HIGHLIGHT_NOTE_LENGTH) return;
+        const threadKey = scopedThreadKey(ref);
+        const existing = get().byThreadKey[threadKey];
+        if (!existing?.some((highlight) => highlight.id === id)) return;
+        const trimmed = note.trim();
+        const nextNote = trimmed.length === 0 ? undefined : trimmed;
+        if (existing.some((highlight) => highlight.id === id && highlight.note === nextNote)) {
+          return;
+        }
+        set((state) => ({
+          byThreadKey: {
+            ...state.byThreadKey,
+            [threadKey]: (state.byThreadKey[threadKey] ?? []).map((highlight) =>
+              highlight.id === id
+                ? nextNote === undefined
+                  ? removeNote(highlight)
+                  : { ...highlight, note: nextNote }
+                : highlight,
+            ),
+          },
+        }));
+      },
       setDefaultColor: (color) => {
         if (!isHighlightColor(color) || get().defaultColor === color) return;
         set({ defaultColor: color });
         persistDefaultColor(color);
       },
+      setColorMode: (mode) => {
+        if (!isHighlightColorMode(mode) || get().colorMode === mode) return;
+        set({ colorMode: mode });
+        persistColorMode(mode);
+      },
+      setThreadDefaultColor: (ref, color) => {
+        if (!isHighlightColor(color)) return;
+        const threadKey = scopedThreadKey(ref);
+        if (get().threadDefaultColors[threadKey] === color) return;
+        set((state) => ({
+          threadDefaultColors: { ...state.threadDefaultColors, [threadKey]: color },
+        }));
+      },
       clearThread: (ref) => {
         const threadKey = scopedThreadKey(ref);
-        if (!get().byThreadKey[threadKey]) return;
+        const { byThreadKey, threadDefaultColors } = get();
+        if (!byThreadKey[threadKey] && !threadDefaultColors[threadKey]) return;
         set((state) => {
-          const byThreadKey = { ...state.byThreadKey };
-          delete byThreadKey[threadKey];
-          return { byThreadKey };
+          const nextByThreadKey = { ...state.byThreadKey };
+          delete nextByThreadKey[threadKey];
+          const nextThreadDefaultColors = { ...state.threadDefaultColors };
+          delete nextThreadDefaultColors[threadKey];
+          return { byThreadKey: nextByThreadKey, threadDefaultColors: nextThreadDefaultColors };
         });
       },
     }),
     {
       name: HIGHLIGHT_STORAGE_KEY,
-      version: 2,
+      version: 3,
       storage: createJSONStorage(() =>
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
-      partialize: (state) => ({ byThreadKey: state.byThreadKey }),
+      partialize: (state) => ({
+        byThreadKey: state.byThreadKey,
+        threadDefaultColors: state.threadDefaultColors,
+      }),
       migrate: (persistedState) => persistedState as HighlightStoreState,
       merge: (persisted, current) => {
         const value =
           persisted && typeof persisted === "object"
-            ? (persisted as { byThreadKey?: unknown })
+            ? (persisted as { byThreadKey?: unknown; threadDefaultColors?: unknown })
             : {};
         return {
           ...current,
           byThreadKey: sanitizeThreadHighlights(value.byThreadKey),
+          threadDefaultColors: sanitizeThreadDefaultColors(value.threadDefaultColors),
           defaultColor: readPersistedDefaultColor(),
+          colorMode: readPersistedColorMode(),
         };
       },
     },
@@ -335,4 +436,16 @@ export function useThreadHighlightCount(ref: ScopedThreadRef | null): number {
 
 export function useDefaultHighlightColor(): HighlightColor {
   return useHighlightStore((state) => state.defaultColor);
+}
+
+export function useHighlightColorMode(): HighlightColorMode {
+  return useHighlightStore((state) => state.colorMode);
+}
+
+export function useThreadDefaultColor(ref: ScopedThreadRef | null): HighlightColor {
+  return useHighlightStore((state) =>
+    ref === null
+      ? state.defaultColor
+      : (state.threadDefaultColors[scopedThreadKey(ref)] ?? state.defaultColor),
+  );
 }
