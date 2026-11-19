@@ -145,6 +145,15 @@ export function assistantCitationsToPlainText(prompt: string): string {
   });
 }
 
+/** Bounded previews replace each citation with its short label; the href alone can exceed any budget. */
+export function assistantCitationsToPreviewText(prompt: string): string {
+  return prompt.replace(CITATION_LINK, (source: string, href: string) => {
+    const citation = parseAssistantCitationHref(href);
+    if (!citation) return source;
+    return `“${assistantCitationLabel(citation)}”`;
+  });
+}
+
 export function expandAssistantCitationsForProvider(prompt: string): string {
   const matches = collectAssistantCitations(prompt);
   if (matches.length === 0) return prompt;

@@ -46,6 +46,10 @@ import {
 import { delegatedTaskProgress } from "@t3tools/provider-core/server/subagentProjection";
 import { threadTranscriptHeader } from "@t3tools/shared/threadTranscript";
 import { AgentScope } from "@t3tools/shared/AgentScope";
+import {
+  assistantCitationsToPreviewText,
+  collectAssistantCitations,
+} from "@t3tools/shared/assistantCitations";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -726,9 +730,11 @@ const make = Effect.gen(function* () {
                 messageId: row.item.messageId,
                 entryId: row.sourceItemId,
                 position: row.position,
-                text: row.item.text.slice(0, 2_000),
+                // Citation hrefs are kilobytes long; replace with readable labels before truncating.
+                text: assistantCitationsToPreviewText(row.item.text).slice(0, 2_000),
                 createdAt: row.item.startedAt ?? row.item.updatedAt,
                 attachments: row.item.attachments.map(({ name, type }) => ({ name, type })),
+                hasCitations: collectAssistantCitations(row.item.text).length > 0,
               },
             ],
       ),
