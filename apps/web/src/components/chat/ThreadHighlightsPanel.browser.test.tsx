@@ -12,6 +12,7 @@ import { page, userEvent } from "vite-plus/test/browser";
 import "~/index.css";
 
 import {
+  DEFAULT_HIGHLIGHT_COLOR_MODE,
   readThreadHighlights,
   useHighlightStore,
   type MarkdownFileHighlightExcerpt,
@@ -75,6 +76,8 @@ function setup(highlights: ThreadHighlight[] = entries) {
   useHighlightStore.setState({
     byThreadKey: highlights.length === 0 ? {} : { [scopedThreadKey(threadRef)]: highlights },
     defaultColor: DEFAULT_HIGHLIGHT_COLOR,
+    colorMode: DEFAULT_HIGHLIGHT_COLOR_MODE,
+    threadDefaultColors: {},
   });
   localStorage.clear();
 }
@@ -130,7 +133,7 @@ describe("ThreadHighlightsPanel", () => {
     ]);
   });
 
-  it("recolors one highlight from its menu", async () => {
+  it("recolors one highlight from its color swatch popover", async () => {
     setup();
     const onInsertHighlights = vi.fn(() => true);
     await using _screen = await render(
@@ -141,12 +144,125 @@ describe("ThreadHighlightsPanel", () => {
       />,
     );
 
-    await userEvent.click(page.getByRole("button", { name: "Highlight actions for highlight 1" }));
-    await userEvent.click(page.getByRole("menuitemradio", { name: /Blue/ }));
+    await userEvent.click(page.getByRole("button", { name: "Set color for highlight 1" }));
+    await userEvent.click(page.getByRole("button", { name: "Blue" }));
 
     expect(
       readThreadHighlights(threadRef).find((highlight) => highlight.id === "highlight-1")?.color,
     ).toBe("blue");
+  });
+
+  it("writes, edits, and clears a per-highlight note", async () => {
+    setup();
+    await using _screen = await render(
+      <ThreadHighlightsPanel
+        threadRef={threadRef}
+        onInsertHighlights={() => true}
+        onInsertMarkdownFileHighlights={() => true}
+      />,
+    );
+
+    await userEvent.click(page.getByRole("button", { name: "Highlight actions for highlight 1" }));
+    await userEvent.click(page.getByRole("menuitem", { name: "Add note" }));
+    await userEvent.type(
+      page.getByRole("textbox", { name: "Note editor for highlight 1" }),
+      "why this matters",
+    );
+    await userEvent.click(page.getByRole("button", { name: "Save note" }));
+
+    expect(
+      readThreadHighlights(threadRef).find((highlight) => highlight.id === "highlight-1")?.note,
+    ).toBe("why this matters");
+    await expect.element(page.getByText("why this matters")).toBeVisible();
+
+    await userEvent.click(page.getByRole("button", { name: "Edit note for highlight 1" }));
+    await userEvent.clear(page.getByRole("textbox", { name: "Note editor for highlight 1" }));
+    await userEvent.type(
+      page.getByRole("textbox", { name: "Note editor for highlight 1" }),
+      "updated note",
+    );
+    await userEvent.click(page.getByRole("button", { name: "Save note" }));
+
+    expect(
+      readThreadHighlights(threadRef).find((highlight) => highlight.id === "highlight-1")?.note,
+    ).toBe("updated note");
+
+    await userEvent.click(page.getByRole("button", { name: "Edit note for highlight 1" }));
+    await userEvent.clear(page.getByRole("textbox", { name: "Note editor for highlight 1" }));
+    await userEvent.click(page.getByRole("button", { name: "Save note" }));
+
+    expect(
+      readThreadHighlights(threadRef).find((highlight) => highlight.id === "highlight-1")?.note,
+    ).toBeUndefined();
+  });
+
+  it("attaches a highlight note as the citation comment when inserting into chat", async () => {
+    const withNote = entries.map((entry) =>
+      entry.id === "highlight-1" ? { ...entry, note: "remember this" } : entry,
+    );
+    setup(withNote);
+    const onInsertHighlights = vi.fn((_citations: readonly AssistantCitation[]) => true);
+    await using _screen = await render(
+      <ThreadHighlightsPanel
+        threadRef={threadRef}
+        onInsertHighlights={onInsertHighlights}
+        onInsertMarkdownFileHighlights={() => true}
+      />,
+    );
+
+    await select(entries[0]!);
+    await userEvent.click(page.getByRole("button", { name: "Insert into chat" }));
+
+    const citations = onInsertHighlights.mock.calls[0]?.[0] ?? [];
+    expect(citations.find((citation) => citation.text === "alpha")?.comment).toBe("remember this");
+  });
+
+  it("filters highlights by color", async () => {
+    setup();
+    await using _screen = await render(
+      <ThreadHighlightsPanel
+        threadRef={threadRef}
+        onInsertHighlights={() => true}
+        onInsertMarkdownFileHighlights={() => true}
+      />,
+    );
+
+    await userEvent.click(page.getByRole("button", { name: "Filter Amber" }));
+
+    await expect.element(page.getByText("1 of 3 highlights")).toBeVisible();
+    await expect.element(page.getByText("alpha")).toBeVisible();
+    await expect.element(page.getByText("beta")).not.toBeInTheDocument();
+    await expect.element(page.getByText("delta")).not.toBeInTheDocument();
+
+    await userEvent.click(page.getByRole("checkbox", { name: "Select all highlights" }));
+    await expect.element(page.getByText("1 selected")).toBeVisible();
+
+    await userEvent.click(page.getByRole("button", { name: "Filter Amber" }));
+    await expect.element(page.getByText("3 highlights")).toBeVisible();
+  });
+
+  it("lets a filtered color without highlights in the tab be turned off", async () => {
+    setup([...entries, ...fileEntries]);
+    await using _screen = await render(
+      <ThreadHighlightsPanel
+        threadRef={threadRef}
+        onInsertHighlights={() => true}
+        onInsertMarkdownFileHighlights={() => true}
+      />,
+    );
+
+    await userEvent.click(page.getByRole("button", { name: "Filter Blue" }));
+    await userEvent.click(page.getByRole("button", { name: "Markdown files" }));
+
+    await expect.element(page.getByText("0 of 2 highlights")).toBeVisible();
+    await expect.element(page.getByText("No highlights match the filter")).toBeVisible();
+
+    const blueDot = page.getByRole("button", { name: "Filter Blue" });
+    await expect.element(blueDot).not.toBeDisabled();
+    await userEvent.click(blueDot);
+
+    await expect.element(page.getByText("2 highlights")).toBeVisible();
+    await expect.element(page.getByText("rendered quote")).toBeVisible();
   });
 
   it("confirms and deletes multiple selected highlights", async () => {
