@@ -19,6 +19,10 @@ export const HIGHLIGHT_COLORS: readonly HighlightColorDefinition[] = [
 
 export const DEFAULT_HIGHLIGHT_COLOR: HighlightColor = "amber";
 
+export function highlightColorDefinition(color: HighlightColor): HighlightColorDefinition {
+  return HIGHLIGHT_COLORS.find((entry) => entry.id === color) ?? HIGHLIGHT_COLORS[0]!;
+}
+
 export function isHighlightColor(value: unknown): value is HighlightColor {
   return typeof value === "string" && (HIGHLIGHT_COLOR_IDS as readonly string[]).includes(value);
 }

@@ -3,7 +3,10 @@ import { EnvironmentId, MessageId, ThreadId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import {
+  DEFAULT_HIGHLIGHT_COLOR_MODE,
+  HIGHLIGHT_COLOR_MODE_STORAGE_KEY,
   MAX_HIGHLIGHTS_PER_THREAD,
+  MAX_HIGHLIGHT_NOTE_LENGTH,
   MAX_HIGHLIGHT_TEXT_LENGTH,
   useHighlightStore,
 } from "./highlightStore";
@@ -38,7 +41,12 @@ function add(text = "highlight me", start = 0) {
 }
 
 beforeEach(() => {
-  useHighlightStore.setState({ byThreadKey: {}, defaultColor: DEFAULT_HIGHLIGHT_COLOR });
+  useHighlightStore.setState({
+    byThreadKey: {},
+    defaultColor: DEFAULT_HIGHLIGHT_COLOR,
+    colorMode: DEFAULT_HIGHLIGHT_COLOR_MODE,
+    threadDefaultColors: {},
+  });
   if (typeof localStorage !== "undefined") localStorage.clear();
 });
 
@@ -143,6 +151,83 @@ describe("highlightStore", () => {
 
     expect(first.highlight.color).toBe(DEFAULT_HIGHLIGHT_COLOR);
     expect(second.highlight.color).toBe("green");
+  });
+
+  it("prefers the thread's default color over the global default", () => {
+    useHighlightStore.getState().setDefaultColor("green");
+    useHighlightStore.getState().setThreadDefaultColor(threadRef, "purple");
+
+    const highlighted = add();
+    const other = useHighlightStore.getState().addHighlight(otherThreadRef, {
+      source: { kind: "assistant-message", messageId: MessageId.make("message-1") },
+      selector: selector(),
+    });
+
+    expect(highlighted.ok && highlighted.highlight.color).toBe("purple");
+    expect(other.ok && other.highlight.color).toBe("green");
+    expect(useHighlightStore.getState().threadDefaultColors["environment-1:thread-1"]).toBe(
+      "purple",
+    );
+  });
+
+  it("applies an explicit color over every default", () => {
+    useHighlightStore.getState().setThreadDefaultColor(threadRef, "purple");
+
+    const result = useHighlightStore.getState().addHighlight(threadRef, {
+      source: { kind: "assistant-message", messageId: MessageId.make("message-1") },
+      selector: selector(),
+      color: "blue",
+    });
+
+    expect(result.ok && result.highlight.color).toBe("blue");
+  });
+
+  it("sets, edits, and clears a per-highlight note", () => {
+    const first = add();
+    if (!first.ok) throw new Error("expected a highlight");
+
+    useHighlightStore.getState().setHighlightNote(threadRef, first.highlight.id, " why this ");
+    expect(
+      useHighlightStore
+        .getState()
+        .byThreadKey["environment-1:thread-1"]?.find(
+          (highlight) => highlight.id === first.highlight.id,
+        )?.note,
+    ).toBe("why this");
+
+    useHighlightStore.getState().setHighlightNote(threadRef, first.highlight.id, "updated");
+    useHighlightStore.getState().setHighlightNote(threadRef, first.highlight.id, "   ");
+    expect(
+      useHighlightStore
+        .getState()
+        .byThreadKey["environment-1:thread-1"]?.find(
+          (highlight) => highlight.id === first.highlight.id,
+        )?.note,
+    ).toBeUndefined();
+  });
+
+  it("ignores a note that is too long or missing", () => {
+    const first = add();
+    if (!first.ok) throw new Error("expected a highlight");
+
+    useHighlightStore
+      .getState()
+      .setHighlightNote(threadRef, first.highlight.id, "x".repeat(MAX_HIGHLIGHT_NOTE_LENGTH + 1));
+    expect(
+      useHighlightStore
+        .getState()
+        .byThreadKey["environment-1:thread-1"]?.find(
+          (highlight) => highlight.id === first.highlight.id,
+        )?.note,
+    ).toBeUndefined();
+  });
+
+  it("sets the color mode and persists it for the next session", () => {
+    useHighlightStore.getState().setColorMode("selection");
+
+    expect(useHighlightStore.getState().colorMode).toBe("selection");
+    if (typeof localStorage === "undefined") return;
+    expect(localStorage.getItem(HIGHLIGHT_COLOR_MODE_STORAGE_KEY)).toBe("selection");
   });
 
   it("isolates highlights by thread", () => {
