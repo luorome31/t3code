@@ -379,11 +379,14 @@ export const useHighlightStore = create<HighlightStoreState>()(
       },
       clearThread: (ref) => {
         const threadKey = scopedThreadKey(ref);
-        if (!get().byThreadKey[threadKey]) return;
+        const { byThreadKey, threadDefaultColors } = get();
+        if (!byThreadKey[threadKey] && !threadDefaultColors[threadKey]) return;
         set((state) => {
-          const byThreadKey = { ...state.byThreadKey };
-          delete byThreadKey[threadKey];
-          return { byThreadKey };
+          const nextByThreadKey = { ...state.byThreadKey };
+          delete nextByThreadKey[threadKey];
+          const nextThreadDefaultColors = { ...state.threadDefaultColors };
+          delete nextThreadDefaultColors[threadKey];
+          return { byThreadKey: nextByThreadKey, threadDefaultColors: nextThreadDefaultColors };
         });
       },
     }),

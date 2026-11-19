@@ -73,7 +73,17 @@ export function HighlightToolbarActions({
   if (colorMode === "thread") {
     const definition = highlightColorDefinition(threadDefaultColor);
     return (
-      <div className="flex items-center gap-1">
+      <div
+        className="flex items-center gap-1"
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
+          if (!paletteOpen) return;
+          // Escape closes the palette first; the toolbar dismisses on the next press.
+          event.stopPropagation();
+          event.preventDefault();
+          setPaletteOpen(false);
+        }}
+      >
         <Button
           type="button"
           size="xs"
@@ -114,13 +124,6 @@ export function HighlightToolbarActions({
             role="group"
             aria-label="Thread highlight palette"
             className="flex items-center gap-1 border-l border-border/60 pl-1"
-            onKeyDown={(event) => {
-              if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
-              // Escape closes the palette first; the toolbar dismisses on the next press.
-              event.stopPropagation();
-              event.preventDefault();
-              setPaletteOpen(false);
-            }}
           >
             <HighlightColorPicker
               size="sm"

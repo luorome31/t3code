@@ -23,26 +23,35 @@ const threadRef: ScopedThreadRef = scopeThreadRef(
 function Harness({
   onAdd,
   onRemove,
+  onToolbarEscape,
 }: {
   readonly onAdd: (color: HighlightColor) => void;
   readonly onRemove: () => void;
+  readonly onToolbarEscape?: () => void;
 }) {
   const [existing, setExisting] = useState(false);
   return (
-    <HighlightToolbarActions
-      threadRef={threadRef}
-      supported={true}
-      tooLong={false}
-      hasExistingHighlight={existing}
-      onAdd={(color) => {
-        onAdd(color);
-        setExisting(true);
+    <div
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === "Escape" && !event.nativeEvent.isComposing) onToolbarEscape?.();
       }}
-      onRemove={() => {
-        onRemove();
-        setExisting(false);
-      }}
-    />
+    >
+      <HighlightToolbarActions
+        threadRef={threadRef}
+        supported={true}
+        tooLong={false}
+        hasExistingHighlight={existing}
+        onAdd={(color) => {
+          onAdd(color);
+          setExisting(true);
+        }}
+        onRemove={() => {
+          onRemove();
+          setExisting(false);
+        }}
+      />
+    </div>
   );
 }
 
@@ -77,6 +86,31 @@ describe("HighlightToolbarActions", () => {
 
     await userEvent.click(page.getByRole("button", { name: "Highlight selection" }));
     expect(onAdd).toHaveBeenCalledWith("purple");
+  });
+
+  it("closes the palette on Escape before dismissing the toolbar", async () => {
+    setup();
+    const onToolbarEscape = vi.fn();
+    await using _screen = await render(
+      <Harness onAdd={() => {}} onRemove={() => {}} onToolbarEscape={onToolbarEscape} />,
+    );
+
+    const chevron = page.getByRole("button", { name: "Thread highlight color" });
+    await userEvent.click(chevron);
+    await expect
+      .element(page.getByRole("group", { name: "Thread highlight palette" }))
+      .toBeVisible();
+
+    await userEvent.type(chevron, "{Escape}");
+
+    await expect
+      .element(page.getByRole("group", { name: "Thread highlight palette" }))
+      .not.toBeInTheDocument();
+    expect(onToolbarEscape).not.toHaveBeenCalled();
+    await expect.element(chevron).toBeVisible();
+
+    await userEvent.type(chevron, "{Escape}");
+    expect(onToolbarEscape).toHaveBeenCalledOnce();
   });
 
   it("shows per-selection swatches and removes an existing highlight", async () => {

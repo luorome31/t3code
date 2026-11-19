@@ -272,10 +272,16 @@ describe("highlightStore", () => {
       source: { kind: "assistant-message", messageId: MessageId.make("message-1") },
       selector: selector(),
     });
+    useHighlightStore.getState().setThreadDefaultColor(threadRef, "purple");
+    useHighlightStore.getState().setThreadDefaultColor(otherThreadRef, "blue");
 
     useHighlightStore.getState().clearThread(threadRef);
 
     expect(useHighlightStore.getState().byThreadKey["environment-1:thread-1"]).toBeUndefined();
     expect(useHighlightStore.getState().byThreadKey["environment-1:thread-2"]).toHaveLength(1);
+    expect(
+      useHighlightStore.getState().threadDefaultColors["environment-1:thread-1"],
+    ).toBeUndefined();
+    expect(useHighlightStore.getState().threadDefaultColors["environment-1:thread-2"]).toBe("blue");
   });
 });

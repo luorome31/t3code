@@ -320,9 +320,9 @@ export function ThreadHighlightsPanel({
           onCheckedChange={(checked) => setAllSelected(checked === true)}
         />
         <span className="text-xs text-muted-foreground">
-          {colorFilter.size === 0
+          {colorFilter.size === 0 || activeHighlights.length === 0
             ? `${activeHighlights.length} ${activeHighlights.length === 1 ? "highlight" : "highlights"}`
-            : `${filteredHighlights.length} of ${activeHighlights.length} highlights`}
+            : `${filteredHighlights.length} of ${activeHighlights.length} ${activeHighlights.length === 1 ? "highlight" : "highlights"}`}
         </span>
         {activeHighlights.length > 0 ? (
           <div
