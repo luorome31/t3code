@@ -12,6 +12,7 @@ import {
 import {
   assistantCitationLabel,
   assistantCitationsToPlainText,
+  assistantCitationsToPreviewText,
   collectAssistantCitations,
   expandAssistantCitationsForProvider,
   formatAssistantCitationHref,
@@ -101,6 +102,7 @@ describe("assistant citation references", () => {
     const prompt = `[Assistant quote](${href})`;
     expect(collectAssistantCitations(prompt)).toEqual([]);
     expect(assistantCitationsToPlainText(prompt)).toBe(prompt);
+    expect(assistantCitationsToPreviewText(prompt)).toBe(prompt);
     expect(expandAssistantCitationsForProvider(prompt)).toBe(prompt);
     expect(renderAssistantCitationsAsText(prompt)).toBe(prompt);
   });
@@ -244,6 +246,23 @@ describe("assistant citation references", () => {
 
     expect(assistantCitationsToPlainText(prompt)).toBe(
       `${citation.text}${second.text}\n${citation.text}`,
+    );
+  });
+
+  it("condenses quotes into short readable preview labels that survive outline truncation", () => {
+    const commented = { ...citation, comment: "Why does this fail?" };
+    const long = { ...citation, text: `${"a".repeat(63)}😀 and more` };
+    const huge = { ...citation, text: "引".repeat(ASSISTANT_CITATION_MAX_TEXT_LENGTH) };
+
+    expect(
+      assistantCitationsToPreviewText(
+        `${serializeAssistantCitation(commented)} but ${serializeAssistantCitation(long)} please advise`,
+      ),
+    ).toBe(`“Why does this fail?” but “${"a".repeat(63)}…” please advise`);
+    const prompt = `${serializeAssistantCitation(huge)} Why does step 3 fail?`;
+    expect(prompt.length).toBeGreaterThan(70_000);
+    expect(assistantCitationsToPreviewText(prompt).slice(0, 2_000)).toBe(
+      `“${"引".repeat(64)}…” Why does step 3 fail?`,
     );
   });
 

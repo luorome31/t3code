@@ -1,7 +1,7 @@
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import type { OrchestrationV2Question, ScopedThreadRef } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
-import { ListOrderedIcon, PaperclipIcon } from "lucide-react";
+import { ListOrderedIcon, PaperclipIcon, QuoteIcon } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useClientSettings } from "../../hooks/useSettings";
 import { formatShortTimestamp } from "../../timestampFormat";
@@ -160,6 +160,9 @@ export function ThreadQuestionsPanel({
                         {preview}
                       </span>
                       <span className="mt-1.5 flex items-center gap-2 text-2xs text-muted-foreground">
+                        {question.hasCitations ? (
+                          <QuoteIcon aria-hidden className="size-3" />
+                        ) : null}
                         <time dateTime={iso}>{formatShortTimestamp(iso, timestampFormat)}</time>
                         {question.attachments.length > 0 ? (
                           <span className="inline-flex items-center gap-1">

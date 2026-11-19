@@ -2197,6 +2197,7 @@ export const OrchestrationV2Question = Schema.Struct({
   text: Schema.String,
   createdAt: Schema.DateTimeUtc,
   attachments: Schema.Array(Schema.Struct({ name: Schema.String, type: Schema.String })),
+  hasCitations: Schema.optionalKey(Schema.Boolean),
 });
 export type OrchestrationV2Question = typeof OrchestrationV2Question.Type;
 
