@@ -5,19 +5,10 @@ import {
   type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import { EraserIcon, HighlighterIcon, QuoteIcon } from "lucide-react";
+import { QuoteIcon } from "lucide-react";
 import { use, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import {
-  captureAssistantTextSelection,
-  type AssistantCitationSourceAnchor,
-} from "~/lib/assistantTextSelection";
-import {
-  isSelectionRangeVisible,
-  observeSelectionActions,
-  resolveSelectionActionPosition,
-  type SelectionActionPoint,
-} from "~/lib/selectionActions";
+import type { HighlightColor } from "~/highlightStore";
 import {
   MAX_HIGHLIGHTS_PER_THREAD,
   MAX_HIGHLIGHT_TEXT_LENGTH,
@@ -25,6 +16,18 @@ import {
   sameHighlightSelector,
   useHighlightStore,
 } from "~/highlightStore";
+import {
+  captureAssistantTextSelection,
+  type AssistantCitationSourceAnchor,
+} from "~/lib/assistantTextSelection";
+import { observeResize } from "~/lib/observeResize";
+import {
+  isSelectionRangeVisible,
+  observeSelectionActions,
+  resolveSelectionActionPosition,
+  type SelectionActionPoint,
+} from "~/lib/selectionActions";
+import { HighlightToolbarActions } from "../highlights/HighlightToolbarActions";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { BackgroundThreadContext } from "./backgroundThread";
@@ -50,13 +53,17 @@ export function AssistantSelectionToolbar({
   const { environmentId, threadId } = threadRef;
   const threadKey = scopedThreadKey(threadRef);
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the toolbar DOM node and clamps its position inside the window before paint
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the toolbar DOM node and clamps its position inside the window before paint, and re-clamps when its own width changes (the thread palette expands inline)
   useLayoutEffect(() => {
     const toolbar = toolbarRef.current;
     if (!toolbar || !selection) return;
-    const rect = toolbar.getBoundingClientRect();
-    toolbar.style.left = `${Math.max(8, Math.min(selection.position.x, window.innerWidth - rect.width - 8))}px`;
-    toolbar.style.top = `${Math.max(8, Math.min(selection.position.y, window.innerHeight - rect.height - 8))}px`;
+    const clamp = () => {
+      const rect = toolbar.getBoundingClientRect();
+      toolbar.style.left = `${Math.max(8, Math.min(selection.position.x, window.innerWidth - rect.width - 8))}px`;
+      toolbar.style.top = `${Math.max(8, Math.min(selection.position.y, window.innerHeight - rect.height - 8))}px`;
+    };
+    clamp();
+    return observeResize(toolbar, clamp);
   }, [selection]);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to document selectionchange and keydown to track text selections in the viewport
@@ -171,20 +178,24 @@ export function AssistantSelectionToolbar({
     clearSelection();
     return true;
   };
-  const toggleHighlight = () => {
+  const removeHighlight = () => {
+    if (!selection.existingHighlightId) return;
+    const selectionThreadRef: ScopedThreadRef = {
+      environmentId: selection.citation.environmentId,
+      threadId: selection.citation.threadId,
+    };
+    useHighlightStore
+      .getState()
+      .removeHighlights(selectionThreadRef, [selection.existingHighlightId]);
+    clearSelection();
+  };
+  const addHighlight = (color: HighlightColor) => {
     if (highlightTooLong) return;
     const selectionThreadRef: ScopedThreadRef = {
       environmentId: selection.citation.environmentId,
       threadId: selection.citation.threadId,
     };
     if (scopedThreadKey(selectionThreadRef) !== threadKey) return;
-    if (selection.existingHighlightId) {
-      useHighlightStore
-        .getState()
-        .removeHighlights(selectionThreadRef, [selection.existingHighlightId]);
-      clearSelection();
-      return;
-    }
     const result = useHighlightStore.getState().addHighlight(selectionThreadRef, {
       source: { kind: "assistant-message", messageId: selection.citation.messageId },
       selector: {
@@ -194,6 +205,7 @@ export function AssistantSelectionToolbar({
         prefix: selection.citation.prefix,
         suffix: selection.citation.suffix,
       },
+      color,
     });
     if (!result.ok) {
       toastManager.add({
@@ -236,35 +248,14 @@ export function AssistantSelectionToolbar({
         <QuoteIcon aria-hidden="true" className="size-3.5" />
         {citeTooLong ? "Shorten selection" : "Cite"}
       </Button>
-      <Button
-        type="button"
-        size="xs"
-        variant="glass"
-        disabled={highlightTooLong || !highlightSupported}
-        aria-label={
-          !highlightSupported
-            ? "Highlights are not supported in this browser"
-            : highlightTooLong
-              ? `Selection is too long to highlight (maximum ${MAX_HIGHLIGHT_TEXT_LENGTH} characters)`
-              : hasExistingHighlight
-                ? "Remove highlight"
-                : "Highlight selection"
-        }
-        onClick={toggleHighlight}
-      >
-        {hasExistingHighlight ? (
-          <EraserIcon aria-hidden="true" className="size-3.5" />
-        ) : (
-          <HighlighterIcon aria-hidden="true" className="size-3.5" />
-        )}
-        {!highlightSupported
-          ? "Unavailable"
-          : hasExistingHighlight
-            ? "Remove highlight"
-            : highlightTooLong
-              ? "Too long"
-              : "Highlight"}
-      </Button>
+      <HighlightToolbarActions
+        threadRef={threadRef}
+        supported={highlightSupported}
+        tooLong={highlightTooLong}
+        hasExistingHighlight={hasExistingHighlight}
+        onAdd={addHighlight}
+        onRemove={removeHighlight}
+      />
     </div>,
     document.body,
   );

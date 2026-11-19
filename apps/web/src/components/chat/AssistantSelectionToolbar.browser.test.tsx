@@ -12,7 +12,11 @@ import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
 
-import { readThreadHighlights, useHighlightStore } from "~/highlightStore";
+import {
+  DEFAULT_HIGHLIGHT_COLOR_MODE,
+  readThreadHighlights,
+  useHighlightStore,
+} from "~/highlightStore";
 import { DEFAULT_HIGHLIGHT_COLOR } from "~/lib/highlightColors";
 import { render } from "../../../test/render";
 import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
@@ -62,7 +66,12 @@ function selectText(element: HTMLElement, start = 0, end?: number) {
 }
 
 function setup() {
-  useHighlightStore.setState({ byThreadKey: {}, defaultColor: DEFAULT_HIGHLIGHT_COLOR });
+  useHighlightStore.setState({
+    byThreadKey: {},
+    defaultColor: DEFAULT_HIGHLIGHT_COLOR,
+    colorMode: DEFAULT_HIGHLIGHT_COLOR_MODE,
+    threadDefaultColors: {},
+  });
   if (typeof localStorage !== "undefined") localStorage.clear();
   window.getSelection()?.removeAllRanges();
 }
@@ -141,5 +150,32 @@ describe("AssistantSelectionToolbar", () => {
     await userEvent.click(page.getByRole("button", { name: "Remove highlight" }));
 
     expect(readThreadHighlights(threadRef)).toHaveLength(0);
+  });
+
+  it("sets this thread's default color from the palette and highlights with it", async () => {
+    setup();
+    await using screen = await render(<Harness onCite={() => true} />);
+
+    selectText(screen.getByText("highlight me").element() as HTMLElement);
+    await expect.element(page.getByRole("button", { name: "Highlight selection" })).toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: "Thread highlight color" }));
+    await userEvent.click(page.getByRole("button", { name: "Purple", exact: true }));
+    await userEvent.click(page.getByRole("button", { name: "Highlight selection" }));
+
+    expect(readThreadHighlights(threadRef)[0]?.color).toBe("purple");
+    expect(useHighlightStore.getState().threadDefaultColors["environment-1:thread-1"]).toBe(
+      "purple",
+    );
+  });
+
+  it("offers per-selection color swatches in per-selection mode", async () => {
+    setup();
+    useHighlightStore.setState({ colorMode: "selection" });
+    await using screen = await render(<Harness onCite={() => true} />);
+
+    selectText(screen.getByText("highlight me").element() as HTMLElement);
+    await userEvent.click(page.getByRole("button", { name: "Highlight selection as Blue" }));
+
+    expect(readThreadHighlights(threadRef)[0]?.color).toBe("blue");
   });
 });

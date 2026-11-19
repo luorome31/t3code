@@ -1,9 +1,9 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
-import { EraserIcon, HighlighterIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import type { HighlightColor } from "~/highlightStore";
 import {
   MAX_HIGHLIGHTS_PER_THREAD,
   MAX_HIGHLIGHT_TEXT_LENGTH,
@@ -13,17 +13,18 @@ import {
   useHighlightStore,
   type ThreadHighlightSource,
 } from "~/highlightStore";
+import { HighlightToolbarActions } from "../highlights/HighlightToolbarActions";
 import {
   captureViewportTextSelection,
   type AssistantTextSelector,
 } from "~/lib/assistantTextSelection";
+import { observeResize } from "~/lib/observeResize";
 import {
   isSelectionRangeVisible,
   observeSelectionActions,
   resolveSelectionActionPosition,
   type SelectionActionPoint,
 } from "~/lib/selectionActions";
-import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 
 export function MarkdownFileHighlightToolbar({
@@ -48,13 +49,17 @@ export function MarkdownFileHighlightToolbar({
   const threadKey = scopedThreadKey(threadRef);
   const source: ThreadHighlightSource = { kind: "markdown-file", workspaceRoot, relativePath };
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the toolbar DOM node and clamps its position inside the window before paint
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the toolbar DOM node and clamps its position inside the window before paint, and re-clamps when its own width changes (the thread palette expands inline)
   useLayoutEffect(() => {
     const toolbar = toolbarRef.current;
     if (!toolbar || !selection) return;
-    const rect = toolbar.getBoundingClientRect();
-    toolbar.style.left = `${Math.max(8, Math.min(selection.position.x, window.innerWidth - rect.width - 8))}px`;
-    toolbar.style.top = `${Math.max(8, Math.min(selection.position.y, window.innerHeight - rect.height - 8))}px`;
+    const clamp = () => {
+      const rect = toolbar.getBoundingClientRect();
+      toolbar.style.left = `${Math.max(8, Math.min(selection.position.x, window.innerWidth - rect.width - 8))}px`;
+      toolbar.style.top = `${Math.max(8, Math.min(selection.position.y, window.innerHeight - rect.height - 8))}px`;
+    };
+    clamp();
+    return observeResize(toolbar, clamp);
   }, [selection]);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to document selectionchange to track text selections in the rendered Markdown file
@@ -156,20 +161,22 @@ export function MarkdownFileHighlightToolbar({
     window.getSelection()?.removeAllRanges();
     dismiss();
   };
-  const toggleHighlight = () => {
+  const removeHighlight = () => {
+    if (!selection.existingHighlightId) return;
+    const selectionThreadRef: ScopedThreadRef = { environmentId, threadId };
+    useHighlightStore
+      .getState()
+      .removeHighlights(selectionThreadRef, [selection.existingHighlightId]);
+    clearSelection();
+  };
+  const addHighlight = (color: HighlightColor) => {
     if (highlightTooLong) return;
     const selectionThreadRef: ScopedThreadRef = { environmentId, threadId };
     if (scopedThreadKey(selectionThreadRef) !== threadKey) return;
-    if (selection.existingHighlightId) {
-      useHighlightStore
-        .getState()
-        .removeHighlights(selectionThreadRef, [selection.existingHighlightId]);
-      clearSelection();
-      return;
-    }
     const result = useHighlightStore.getState().addHighlight(selectionThreadRef, {
       source,
       selector: selection.selector,
+      color,
     });
     if (!result.ok) {
       toastManager.add({
@@ -202,35 +209,14 @@ export function MarkdownFileHighlightToolbar({
         }
       }}
     >
-      <Button
-        type="button"
-        size="xs"
-        variant="glass"
-        disabled={highlightTooLong || !highlightSupported}
-        aria-label={
-          !highlightSupported
-            ? "Highlights are not supported in this browser"
-            : highlightTooLong
-              ? `Selection is too long to highlight (maximum ${MAX_HIGHLIGHT_TEXT_LENGTH} characters)`
-              : hasExistingHighlight
-                ? "Remove highlight"
-                : "Highlight selection"
-        }
-        onClick={toggleHighlight}
-      >
-        {hasExistingHighlight ? (
-          <EraserIcon aria-hidden="true" className="size-3.5" />
-        ) : (
-          <HighlighterIcon aria-hidden="true" className="size-3.5" />
-        )}
-        {!highlightSupported
-          ? "Unavailable"
-          : hasExistingHighlight
-            ? "Remove highlight"
-            : highlightTooLong
-              ? "Too long"
-              : "Highlight"}
-      </Button>
+      <HighlightToolbarActions
+        threadRef={threadRef}
+        supported={highlightSupported}
+        tooLong={highlightTooLong}
+        hasExistingHighlight={hasExistingHighlight}
+        onAdd={addHighlight}
+        onRemove={removeHighlight}
+      />
     </div>,
     document.body,
   );
