@@ -5,6 +5,7 @@ import {
   type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { useGT } from "gt-react";
 import { QuoteIcon } from "lucide-react";
 import { use, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -50,6 +51,7 @@ export function AssistantSelectionToolbar({
   const toolbarRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<ReturnType<typeof observeSelectionActions> | null>(null);
   const backgroundThread = use(BackgroundThreadContext);
+  const gt = useGT();
   const { environmentId, threadId } = threadRef;
   const threadKey = scopedThreadKey(threadRef);
 
@@ -225,7 +227,7 @@ export function AssistantSelectionToolbar({
     <div
       ref={toolbarRef}
       role="group"
-      aria-label="Selection actions"
+      aria-label={gt("Selection actions")}
       className="fixed z-50 flex max-w-[calc(100vw-1rem)] items-center gap-1"
       style={{ left: selection.position.x, top: selection.position.y }}
       onPointerDown={(event) => event.preventDefault()}
@@ -242,11 +244,15 @@ export function AssistantSelectionToolbar({
         size="xs"
         variant="glass"
         disabled={citeTooLong}
-        aria-label={citeTooLong ? "Selection is too long to cite" : "Cite selection in composer"}
+        aria-label={
+          citeTooLong ? gt("Selection is too long to cite") : gt("Cite selection in composer")
+        }
         onClick={cite}
       >
         <QuoteIcon aria-hidden="true" className="size-3.5" />
-        {citeTooLong ? "Shorten selection" : "Cite"}
+        {citeTooLong
+          ? gt("Shorten selection")
+          : gt("Cite", { $context: "verb, button that quotes the selected text" })}
       </Button>
       <HighlightToolbarActions
         threadRef={threadRef}

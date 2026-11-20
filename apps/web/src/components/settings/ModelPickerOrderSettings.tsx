@@ -1,3 +1,4 @@
+import { useGT } from "gt-react";
 import {
   type EnvironmentId,
   ProviderInstanceId,
@@ -15,7 +16,7 @@ import {
 } from "../../modelOrdering";
 import { Button } from "../ui/button";
 import { SettingsRow, SettingsSection, SettingResetButton } from "./settingsLayout";
-import { searchableSetting } from "./settingsSearch";
+import { useSearchableSetting } from "./settingsSearch";
 
 export function ModelPickerOrderSettings(props: {
   readonly environmentId: EnvironmentId;
@@ -27,6 +28,7 @@ export function ModelPickerOrderSettings(props: {
   readonly serverProviders: ReadonlyArray<ServerProvider>;
   readonly disabled: boolean;
 }) {
+  const searchableSetting = useSearchableSetting();
   const save = useUpdateEnvironmentModelPreferences(props.environmentId);
   const { settings } = props;
   const modelOrder = props.serverProviders.flatMap((provider) =>
@@ -116,6 +118,7 @@ function OrderList(props: {
   readonly onChange: (keys: ReadonlyArray<string>) => Promise<unknown>;
   readonly onReset?: (() => Promise<unknown>) | undefined;
 }) {
+  const gt = useGT();
   const [saving, setSaving] = useState(false);
   const persist = async (write: () => Promise<unknown>) => {
     setSaving(true);
@@ -137,7 +140,7 @@ function OrderList(props: {
         resetAction={
           props.onReset ? (
             <SettingResetButton
-              label={props.title.toLowerCase()}
+              ariaLabel={gt("Reset {setting}", { setting: props.title })}
               disabled={props.disabled || saving}
               onClick={() => {
                 if (props.onReset) void persist(props.onReset);

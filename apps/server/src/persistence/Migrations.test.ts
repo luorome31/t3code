@@ -48,11 +48,10 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect("upgrades a fork database that recorded Smalltalk at id 81", () =>
+  it.effect.each([81, 92])("upgrades a fork database that recorded Smalltalk at id %s", (id) =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations({ toMigrationInclusive: 80 });
-      // A fork build wrote this schema and ledger row before main claimed id 81.
+      yield* runMigrations({ toMigrationInclusive: id - 1 });
       yield* sql`CREATE TABLE smalltalk (
         id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, source_thread_id TEXT NOT NULL,
         message_id TEXT NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL,
@@ -60,24 +59,32 @@ describe("runMigrations", () => {
         payload_json TEXT NOT NULL,
         UNIQUE(thread_id, source_thread_id, message_id)
       )`;
-      yield* sql`CREATE INDEX smalltalk_thread_created ON smalltalk(thread_id, created_at)`;
+      yield* sql`INSERT INTO smalltalk VALUES (
+        'note', 'thread', 'thread', 'message', 'Existing explanation', 'complete',
+        '2026-11-14', '2026-11-14', 'request', '{}'
+      )`;
       yield* sql`
-        INSERT INTO effect_sql_migrations (migration_id, name) VALUES (81, 'Smalltalk')
+        INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${id}, 'Smalltalk')
       `;
 
       yield* runMigrations();
 
-      const recorded = yield* history;
-      assert.deepStrictEqual(recorded.slice(-3), [
-        [90, "AuthConnectDevices"],
-        [91, "AuthConnectDeniedRequests"],
-        [92, "Smalltalk"],
-      ]);
-      assert.deepStrictEqual(recorded.slice(80, 81), [[81, "ProjectionMessageSearchText"]]);
-      const tables = yield* sql<{ readonly name: string }>`
-        SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'smalltalk'
+      assert.deepStrictEqual(yield* history, migrationManifest);
+      const rows = yield* sql<{ readonly title: string }>`SELECT title FROM smalltalk`;
+      assert.deepStrictEqual(rows, [{ title: "Existing explanation" }]);
+      const [index] = yield* sql<{ readonly sql: string }>`
+        SELECT sql FROM sqlite_master WHERE name = 'orchestration_v2_projection_turn_items_queued_input_idx'
       `;
-      assert.strictEqual(tables.length, 1);
+      assert.include(index?.sql, "json_valid(payload_json)");
+      const triggers = yield* sql`
+        SELECT name FROM sqlite_master WHERE type = 'trigger' AND name IN (
+          'smalltalk_delete_thread', 'smalltalk_remove_thread'
+        )
+      `;
+      assert.strictEqual(triggers.length, 2);
+
+      yield* sql`PRAGMA query_only = ON`;
+      assert.deepStrictEqual(yield* runMigrations(), []);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
@@ -102,12 +109,18 @@ describe("runMigrations", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
-  it.effect("upgrades a database at exactly 54", () =>
+  it.effect("upgrades a database at exactly 54, then rechecks it without a write lock", () =>
     Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
       yield* runMigrations({ toMigrationInclusive: 54 });
       assert.deepStrictEqual(yield* runMigrations(), v2Migrations);
       assert.deepStrictEqual(yield* history, migrationManifest);
       assert.isAbove(yield* v2TableCount, 0);
+
+      // query_only rejects BEGIN IMMEDIATE, which CLI startup would otherwise take on the live database.
+      yield* sql`PRAGMA query_only = ON`;
+      assert.deepStrictEqual(yield* runMigrations(), []);
+      assert.deepStrictEqual(yield* history, migrationManifest);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 

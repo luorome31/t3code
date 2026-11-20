@@ -65,6 +65,7 @@ export function ThreadTimeline({
     <MessagesTimeline
       {...timelineProps}
       responseMetrics={responseMetrics}
+      syncing={syncing}
       timelineEntries={displayedEntries}
     />
   );

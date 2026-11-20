@@ -1,7 +1,8 @@
+import { useGT } from "gt-react";
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import { updateClientSettings, useClientSettings } from "../../hooks/useSettings";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
-import { searchableSetting } from "./settingsSearch";
+import { useSearchableSetting } from "./settingsSearch";
 import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
 
 const modes = [
@@ -11,6 +12,8 @@ const modes = [
 ] as const;
 
 export function ConversationNavigationSettings() {
+  const searchableSetting = useSearchableSetting();
+  const gt = useGT();
   const mode = useClientSettings((settings) => settings.conversationNavigation);
   return (
     <SettingsSection id="navigation" title="Navigation">
@@ -20,7 +23,7 @@ export function ConversationNavigationSettings() {
         resetAction={
           mode !== DEFAULT_CLIENT_SETTINGS.conversationNavigation ? (
             <SettingResetButton
-              label="conversation navigation"
+              ariaLabel={gt("Reset conversation navigation")}
               onClick={() =>
                 updateClientSettings({
                   conversationNavigation: DEFAULT_CLIENT_SETTINGS.conversationNavigation,
