@@ -123,16 +123,31 @@ export function HighlightToolbarActions({
           <div
             role="group"
             aria-label="Thread highlight palette"
-            className="flex items-center gap-1 border-l border-border/60 pl-1"
+            className="flex flex-col items-start gap-1 border-l border-border/60 pl-1"
           >
             <HighlightColorPicker
               size="sm"
-              value={threadDefaultColor}
+              ariaLabel="One-off highlight colors"
+              swatchAriaLabel={(color) => `Highlight selection as ${color.label}`}
               onChange={(color) => {
-                setThreadDefaultColor(threadRef, color);
+                // One-time: the choice applies to this selection and changes nothing else.
                 setPaletteOpen(false);
+                onAdd(color);
               }}
             />
+            <div className="flex items-center gap-1.5 border-t border-border/60 pt-1">
+              <span className="text-2xs text-muted-foreground">Thread default</span>
+              <HighlightColorPicker
+                size="sm"
+                value={threadDefaultColor}
+                ariaLabel="Thread default highlight color"
+                swatchAriaLabel={(color) => `Set thread default to ${color.label}`}
+                onChange={(color) => {
+                  setThreadDefaultColor(threadRef, color);
+                  setPaletteOpen(false);
+                }}
+              />
+            </div>
           </div>
         ) : null}
       </div>

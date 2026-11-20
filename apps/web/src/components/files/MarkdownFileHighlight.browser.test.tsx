@@ -6,7 +6,12 @@ import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
 
-import { readThreadHighlights, useHighlightStore, type ThreadHighlight } from "~/highlightStore";
+import {
+  readThreadHighlights,
+  useHighlightStore,
+  type MarkdownFileHighlightExcerpt,
+  type ThreadHighlight,
+} from "~/highlightStore";
 import {
   DEFAULT_HIGHLIGHT_COLOR,
   HIGHLIGHT_COLORS,
@@ -85,6 +90,35 @@ function ToolbarHarness({ text = "highlight me" }: { text?: string }) {
         threadRef={threadRef}
         workspaceRoot="/repo"
         relativePath="docs/design.md"
+      />
+    </div>
+  );
+}
+
+/** A rendered Markdown surface whose painted highlights the toolbar can click into. */
+function PaintedToolbarHarness({
+  text = "highlight me",
+  onCite,
+}: {
+  text?: string;
+  onCite?: (excerpt: MarkdownFileHighlightExcerpt) => boolean;
+}) {
+  const [viewport, setViewport] = useState<HTMLDivElement | null>(null);
+  return (
+    <div ref={setViewport} style={{ width: 480, height: 200 }}>
+      <p>{text}</p>
+      <MarkdownFileHighlightPainter
+        container={viewport}
+        threadRef={threadRef}
+        workspaceRoot="/repo"
+        relativePath="docs/design.md"
+      />
+      <MarkdownFileHighlightToolbar
+        viewport={viewport}
+        threadRef={threadRef}
+        workspaceRoot="/repo"
+        relativePath="docs/design.md"
+        onCite={onCite}
       />
     </div>
   );
@@ -188,4 +222,80 @@ describe("MarkdownFileHighlightToolbar", () => {
 
     expect(readThreadHighlights(threadRef)).toHaveLength(0);
   });
+
+  it("cites and removes a painted highlight from a plain click", async () => {
+    reset();
+    const highlight: ThreadHighlight = {
+      id: "highlight-1",
+      source: { kind: "markdown-file", workspaceRoot: "/repo", relativePath: "docs/design.md" },
+      selector: { text: "highlight", start: 0, end: 9, prefix: "", suffix: " me" },
+      color: "amber",
+      createdAt: "2026-01-01T00:00:00Z",
+    };
+    useHighlightStore.setState({
+      byThreadKey: { [`${threadRef.environmentId}:${threadRef.threadId}`]: [highlight] },
+    });
+    const onCite = vi.fn((_excerpt: MarkdownFileHighlightExcerpt) => true);
+    try {
+      await using screen = await render(<PaintedToolbarHarness onCite={onCite} />);
+
+      const paragraph = screen.getByText("highlight me").element() as HTMLElement;
+      await userEvent.click(paragraph, {
+        position: clickPositionIn(paragraph, 0, 9),
+      });
+
+      await expect.element(page.getByRole("group", { name: "Highlight actions" })).toBeVisible();
+      await userEvent.click(page.getByRole("button", { name: "Cite highlight in composer" }));
+
+      expect(onCite).toHaveBeenCalledOnce();
+      expect(onCite.mock.calls[0]?.[0]).toEqual({
+        workspaceRoot: "/repo",
+        relativePath: "docs/design.md",
+        text: "highlight",
+      });
+      await expect
+        .element(page.getByRole("group", { name: "Highlight actions" }))
+        .not.toBeInTheDocument();
+
+      await userEvent.click(paragraph, { position: clickPositionIn(paragraph, 0, 9) });
+      await expect.element(page.getByRole("group", { name: "Highlight actions" })).toBeVisible();
+      await userEvent.click(page.getByRole("button", { name: "Remove highlight" }));
+
+      expect(readThreadHighlights(threadRef)).toHaveLength(0);
+    } finally {
+      reset();
+    }
+  });
+
+  it("does not open highlight actions for a click on plain text", async () => {
+    reset();
+    try {
+      await using _screen = await render(<PaintedToolbarHarness />);
+
+      const paragraph = _screen.getByText("highlight me").element() as HTMLElement;
+      await userEvent.click(paragraph, { position: clickPositionIn(paragraph, 0, 9) });
+
+      await expect
+        .poll(() => page.getByRole("group", { name: "Highlight actions" }).elements().length)
+        .toBe(0);
+    } finally {
+      reset();
+    }
+  });
 });
+
+/** Center of one line box of the text range [start, end), in element-relative coordinates. */
+function clickPositionIn(element: HTMLElement, start: number, end: number) {
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  const node = walker.nextNode();
+  if (!(node instanceof Text)) throw new Error("Expected a text node");
+  const range = document.createRange();
+  range.setStart(node, start);
+  range.setEnd(node, end);
+  const rect = range.getBoundingClientRect();
+  const bounds = element.getBoundingClientRect();
+  return {
+    x: rect.left - bounds.left + rect.width / 2,
+    y: rect.top - bounds.top + rect.height / 2,
+  };
+}

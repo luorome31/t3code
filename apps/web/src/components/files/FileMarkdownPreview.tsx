@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import ChatMarkdown from "~/components/ChatMarkdown";
 import { toastManager } from "~/components/ui/toast";
 import { useStableCallback } from "~/hooks/useStableCallback";
+import type { MarkdownFileHighlightExcerpt } from "~/highlightStore";
 import {
   resolveAssistantCitationRange,
   type AssistantTextSelector,
@@ -28,6 +29,9 @@ export function FileMarkdownPreview(props: {
   readonly workspaceMutationId: string | null;
   readonly revealHighlight?: MarkdownFileHighlightReveal | null;
   readonly onHighlightRevealHandled?: ((id: number) => void) | undefined;
+  readonly onInsertMarkdownFileHighlights?:
+    | ((excerpts: readonly MarkdownFileHighlightExcerpt[]) => boolean)
+    | undefined;
   readonly onTaskListChange?:
     | ((input: { readonly markerOffset: number; readonly checked: boolean }) => void)
     | undefined;
@@ -36,6 +40,7 @@ export function FileMarkdownPreview(props: {
   const viewport = container
     ? (container.closest<HTMLElement>('[data-slot="scroll-area-viewport"]') ?? container)
     : null;
+  const insertHighlights = props.onInsertMarkdownFileHighlights;
   const reveal = props.revealHighlight ?? null;
   const onRevealHandled = useStableCallback(props.onHighlightRevealHandled ?? NOOP);
   const lastSeparator = Math.max(
@@ -88,6 +93,9 @@ export function FileMarkdownPreview(props: {
         threadRef={props.threadRef}
         workspaceRoot={props.cwd}
         relativePath={props.relativePath}
+        onCite={
+          insertHighlights === undefined ? undefined : (excerpt) => insertHighlights([excerpt])
+        }
       />
     </div>
   );

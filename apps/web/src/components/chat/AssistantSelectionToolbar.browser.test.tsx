@@ -16,9 +16,13 @@ import {
   DEFAULT_HIGHLIGHT_COLOR_MODE,
   readThreadHighlights,
   useHighlightStore,
+  type HighlightColor,
+  type ThreadHighlight,
 } from "~/highlightStore";
 import { DEFAULT_HIGHLIGHT_COLOR } from "~/lib/highlightColors";
+import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
 import { render } from "../../../test/render";
+import { AssistantHighlightPainter } from "./AssistantHighlightPainter";
 import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
 
 const threadRef: ScopedThreadRef = scopeThreadRef(
@@ -46,6 +50,75 @@ function Harness({
       />
     </div>
   );
+}
+
+/** A timeline surface whose painted highlights the toolbar can click into. */
+function PainterHarness({
+  onCite,
+  text = "highlight me",
+  width = 480,
+}: {
+  onCite: (citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => boolean;
+  text?: string;
+  width?: number;
+}) {
+  const [viewport, setViewport] = useState<HTMLDivElement | null>(null);
+  return (
+    <div ref={setViewport} style={{ width, height: 200 }}>
+      <div
+        data-assistant-citation-source={MessageId.make("message-1")}
+        data-assistant-citation-environment="environment-1"
+        data-assistant-citation-thread="thread-1"
+      >
+        <p>{text}</p>
+      </div>
+      <AssistantHighlightPainter container={viewport} threadRef={threadRef} />
+      <AssistantSelectionToolbar viewport={viewport} threadRef={threadRef} onCite={onCite} />
+    </div>
+  );
+}
+
+function messageHighlight(input: {
+  id: string;
+  start: number;
+  end: number;
+  text: string;
+  prefix: string;
+  suffix: string;
+  color: HighlightColor;
+  createdAt: string;
+  note?: string;
+}): ThreadHighlight {
+  return {
+    id: input.id,
+    source: { kind: "assistant-message", messageId: MessageId.make("message-1") },
+    selector: {
+      text: input.text,
+      start: input.start,
+      end: input.end,
+      prefix: input.prefix,
+      suffix: input.suffix,
+    },
+    color: input.color,
+    createdAt: input.createdAt,
+    ...(input.note !== undefined ? { note: input.note } : {}),
+  };
+}
+
+/** Center of one line box of the text range [start, end), in element-relative coordinates. */
+function clickPositionIn(element: HTMLElement, start: number, end: number, rectIndex = 0) {
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  const node = walker.nextNode();
+  if (!(node instanceof Text)) throw new Error("Expected a text node");
+  const range = document.createRange();
+  range.setStart(node, start);
+  range.setEnd(node, end);
+  const rect = range.getClientRects()[rectIndex] ?? range.getBoundingClientRect();
+  const bounds = element.getBoundingClientRect();
+  return {
+    x: rect.left - bounds.left + rect.width / 2,
+    y: rect.top - bounds.top + rect.height / 2,
+  };
 }
 
 function selectText(element: HTMLElement, start = 0, end?: number) {
@@ -159,12 +232,27 @@ describe("AssistantSelectionToolbar", () => {
     selectText(screen.getByText("highlight me").element() as HTMLElement);
     await expect.element(page.getByRole("button", { name: "Highlight selection" })).toBeVisible();
     await userEvent.click(page.getByRole("button", { name: "Thread highlight color" }));
-    await userEvent.click(page.getByRole("button", { name: "Purple", exact: true }));
+    await userEvent.click(page.getByRole("button", { name: "Set thread default to Purple" }));
     await userEvent.click(page.getByRole("button", { name: "Highlight selection" }));
 
     expect(readThreadHighlights(threadRef)[0]?.color).toBe("purple");
     expect(useHighlightStore.getState().threadDefaultColors["environment-1:thread-1"]).toBe(
       "purple",
+    );
+  });
+
+  it("applies a one-off color from the palette without changing the thread default", async () => {
+    setup();
+    await using screen = await render(<Harness onCite={() => true} />);
+
+    selectText(screen.getByText("highlight me").element() as HTMLElement);
+    await expect.element(page.getByRole("button", { name: "Highlight selection" })).toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: "Thread highlight color" }));
+    await userEvent.click(page.getByRole("button", { name: "Highlight selection as Green" }));
+
+    expect(readThreadHighlights(threadRef)[0]?.color).toBe("green");
+    expect(useHighlightStore.getState().threadDefaultColors["environment-1:thread-1"]).toBe(
+      undefined,
     );
   });
 
@@ -177,5 +265,168 @@ describe("AssistantSelectionToolbar", () => {
     await userEvent.click(page.getByRole("button", { name: "Highlight selection as Blue" }));
 
     expect(readThreadHighlights(threadRef)[0]?.color).toBe("blue");
+  });
+});
+
+describe("AssistantSelectionToolbar on painted highlights", () => {
+  const plainHighlight = messageHighlight({
+    id: "highlight-1",
+    start: 0,
+    end: 9,
+    text: "highlight",
+    prefix: "",
+    suffix: " me",
+    color: "amber",
+    createdAt: "2026-01-01T00:00:00Z",
+  });
+
+  function seedPainted(highlights: readonly ThreadHighlight[]) {
+    useHighlightStore.setState({
+      byThreadKey: { "environment-1:thread-1": [...highlights] },
+      defaultColor: DEFAULT_HIGHLIGHT_COLOR,
+      colorMode: DEFAULT_HIGHLIGHT_COLOR_MODE,
+      threadDefaultColors: {},
+    });
+    window.getSelection()?.removeAllRanges();
+  }
+
+  it("cites and removes a painted highlight from a plain click", async () => {
+    seedPainted([plainHighlight]);
+    const onCite = vi.fn(
+      (_citation: AssistantCitation, _anchor: AssistantCitationSourceAnchor) => true,
+    );
+    await using screen = await render(<PainterHarness onCite={onCite} />);
+
+    const paragraph = screen.getByText("highlight me").element() as HTMLElement;
+    await userEvent.click(paragraph, { position: clickPositionIn(paragraph, 0, 9) });
+
+    await expect.element(page.getByRole("group", { name: "Highlight actions" })).toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: "Cite highlight in composer" }));
+
+    expect(onCite).toHaveBeenCalledOnce();
+    const [citation, anchor] = onCite.mock.calls[0]!;
+    expect(citation).toMatchObject({
+      version: 1,
+      environmentId: "environment-1",
+      threadId: "thread-1",
+      messageId: MessageId.make("message-1"),
+      text: "highlight",
+      start: 0,
+      end: 9,
+    });
+    expect(anchor.source.dataset.assistantCitationSource).toBe("message-1");
+    expect(anchor.range.toString()).toBe("highlight");
+    await expect
+      .element(page.getByRole("group", { name: "Highlight actions" }))
+      .not.toBeInTheDocument();
+
+    await userEvent.click(paragraph, { position: clickPositionIn(paragraph, 0, 9) });
+    await expect.element(page.getByRole("group", { name: "Highlight actions" })).toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: "Remove highlight" }));
+
+    expect(readThreadHighlights(threadRef)).toHaveLength(0);
+  });
+
+  it("carries a saved note as the citation comment when citing a painted highlight", async () => {
+    seedPainted([{ ...plainHighlight, id: "highlight-2", note: "remember this" }]);
+    const onCite = vi.fn((_citation: AssistantCitation) => true);
+    await using screen = await render(<PainterHarness onCite={onCite} />);
+
+    const paragraph = screen.getByText("highlight me").element() as HTMLElement;
+    await userEvent.click(paragraph, { position: clickPositionIn(paragraph, 0, 9) });
+    await userEvent.click(page.getByRole("button", { name: "Cite highlight in composer" }));
+
+    expect(onCite.mock.calls[0]?.[0].comment).toBe("remember this");
+  });
+
+  it("picks the highlight painted on top when records overlap", async () => {
+    const older = messageHighlight({
+      id: "highlight-old",
+      start: 0,
+      end: 9,
+      text: "highlight",
+      prefix: "",
+      suffix: " me",
+      color: "amber",
+      createdAt: "2026-01-01T00:00:00Z",
+    });
+    const newer = messageHighlight({
+      id: "highlight-new",
+      start: 0,
+      end: 4,
+      text: "high",
+      prefix: "",
+      suffix: "light me",
+      color: "blue",
+      createdAt: "2026-01-02T00:00:00Z",
+    });
+    seedPainted([older, newer]);
+    await using screen = await render(<PainterHarness onCite={() => true} />);
+
+    const paragraph = screen.getByText("highlight me").element() as HTMLElement;
+    await userEvent.click(paragraph, { position: clickPositionIn(paragraph, 0, 4) });
+    await expect.element(page.getByRole("group", { name: "Highlight actions" })).toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: "Remove highlight" }));
+
+    expect(readThreadHighlights(threadRef).map((highlight) => highlight.id)).toEqual([
+      "highlight-old",
+    ]);
+  });
+
+  it("acts on the second line of a wrapped highlight", async () => {
+    seedPainted([
+      messageHighlight({
+        id: "highlight-1",
+        start: 6,
+        end: 17,
+        text: "beta gamma",
+        prefix: "alpha ",
+        suffix: " delta",
+        color: "green",
+        createdAt: "2026-01-01T00:00:00Z",
+      }),
+    ]);
+    await using screen = await render(
+      <PainterHarness onCite={() => true} text="alpha beta gamma delta" width={80} />,
+    );
+
+    const paragraph = screen.getByText(/alpha beta/).element() as HTMLElement;
+    await userEvent.click(paragraph, { position: clickPositionIn(paragraph, 6, 17, 1) });
+
+    await expect.element(page.getByRole("group", { name: "Highlight actions" })).toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: "Remove highlight" }));
+
+    expect(readThreadHighlights(threadRef)).toHaveLength(0);
+  });
+
+  it("does not open highlight actions for a click on plain text", async () => {
+    seedPainted([]);
+    await using screen = await render(<PainterHarness onCite={() => true} />);
+
+    const paragraph = screen.getByText("highlight me").element() as HTMLElement;
+    await userEvent.click(paragraph, { position: clickPositionIn(paragraph, 0, 9) });
+
+    await expect
+      .poll(() => page.getByRole("group", { name: "Highlight actions" }).elements().length)
+      .toBe(0);
+    await expect
+      .poll(() => page.getByRole("group", { name: "Selection actions" }).elements().length)
+      .toBe(0);
+  });
+
+  it("replaces a selection toolbar with the clicked highlight's actions", async () => {
+    seedPainted([plainHighlight]);
+    await using screen = await render(<PainterHarness onCite={() => true} />);
+
+    selectText(screen.getByText("highlight me").element() as HTMLElement);
+    await expect.element(page.getByRole("group", { name: "Selection actions" })).toBeVisible();
+
+    const paragraph = screen.getByText("highlight me").element() as HTMLElement;
+    await userEvent.click(paragraph, { position: clickPositionIn(paragraph, 0, 9) });
+
+    await expect.element(page.getByRole("group", { name: "Highlight actions" })).toBeVisible();
+    await expect
+      .element(page.getByRole("group", { name: "Selection actions" }))
+      .not.toBeInTheDocument();
   });
 });

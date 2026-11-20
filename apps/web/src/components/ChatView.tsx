@@ -3410,6 +3410,7 @@ export default function ChatView(props: ChatViewProps) {
         pendingSurfaceIds: pendingFileSurfaceIds,
         onOpenFile: openFileSurfaceStable,
         onPendingChange: handleFilePendingChangeStable,
+        onInsertMarkdownFileHighlights: insertMarkdownFileHighlightsStable,
       }}
     />
   ) : null;

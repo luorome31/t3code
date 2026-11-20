@@ -1,6 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { AssistantCitation, ScopedThreadRef } from "@t3tools/contracts";
-import { HighlighterIcon, MoreHorizontalIcon, StickyNoteIcon, Trash2Icon } from "lucide-react";
+import { HighlighterIcon, StickyNoteIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
 import { requestFileHighlightReveal } from "~/fileHighlightRevealStore";
@@ -30,7 +30,6 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
-import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -475,54 +474,54 @@ export function ThreadHighlightsPanel({
                           </div>
                         </div>
                       ) : highlight.note !== undefined ? (
-                        <button
-                          type="button"
-                          className="mt-1 w-full cursor-pointer text-left"
-                          aria-label={`Edit note for highlight ${position}`}
-                          onClick={() =>
-                            setNoteEditor({ id: highlight.id, draft: highlight.note ?? "" })
-                          }
+                        <span
+                          className="mt-1 block whitespace-pre-wrap break-words border-l-2 pl-2 text-xs text-muted-foreground"
+                          style={{
+                            borderColor: `var(${highlightColorDefinition(highlight.color).cssVariable})`,
+                          }}
                         >
-                          <span
-                            className="block whitespace-pre-wrap break-words border-l-2 pl-2 text-xs text-muted-foreground"
-                            style={{
-                              borderColor: `var(${highlightColorDefinition(highlight.color).cssVariable})`,
-                            }}
-                          >
-                            {highlight.note}
-                          </span>
-                        </button>
+                          {highlight.note}
+                        </span>
                       ) : null}
                     </div>
-                    <Menu>
-                      <MenuTrigger
-                        render={
-                          <Button
-                            aria-label={`Highlight actions for highlight ${position}`}
-                            size="icon-xs"
-                            variant="ghost"
-                            type="button"
-                          />
-                        }
-                      >
-                        <MoreHorizontalIcon className="size-3.5" />
-                      </MenuTrigger>
-                      <MenuPopup align="end" sideOffset={4}>
-                        <MenuItem
-                          onClick={() =>
-                            setNoteEditor({ id: highlight.id, draft: highlight.note ?? "" })
+                    <div className="flex shrink-0 items-center gap-0.5">
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              type="button"
+                              aria-label={`${highlight.note === undefined ? "Add note" : "Edit note"} for highlight ${position}`}
+                              size="icon-xs"
+                              variant="ghost"
+                              onClick={() =>
+                                setNoteEditor({ id: highlight.id, draft: highlight.note ?? "" })
+                              }
+                            />
                           }
                         >
                           <StickyNoteIcon aria-hidden className="size-3.5" />
+                        </TooltipTrigger>
+                        <TooltipPopup>
                           {highlight.note === undefined ? "Add note" : "Edit note"}
-                        </MenuItem>
-                        <MenuSeparator />
-                        <MenuItem onClick={() => removeOne(highlight)}>
+                        </TooltipPopup>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              type="button"
+                              aria-label={`Delete highlight ${position}`}
+                              size="icon-xs"
+                              variant="ghost"
+                              onClick={() => removeOne(highlight)}
+                            />
+                          }
+                        >
                           <Trash2Icon aria-hidden className="size-3.5" />
-                          Delete
-                        </MenuItem>
-                      </MenuPopup>
-                    </Menu>
+                        </TooltipTrigger>
+                        <TooltipPopup>Delete</TooltipPopup>
+                      </Tooltip>
+                    </div>
                   </div>
                 );
               })}

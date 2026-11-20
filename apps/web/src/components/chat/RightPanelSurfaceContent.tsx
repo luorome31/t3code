@@ -66,6 +66,9 @@ interface RightPanelFileProps {
   readonly pendingSurfaceIds: ReadonlySet<string>;
   readonly onOpenFile: (relativePath: string) => void;
   readonly onPendingChange: (relativePath: string, pending: boolean) => void;
+  readonly onInsertMarkdownFileHighlights: (
+    excerpts: readonly MarkdownFileHighlightExcerpt[],
+  ) => boolean;
 }
 
 export function RightPanelSurfaceContent(props: {
@@ -302,6 +305,7 @@ export function RightPanelSurfaceContent(props: {
             }
             folderTrail={surface.folderTrail}
             onPendingChange={files.onPendingChange}
+            onInsertMarkdownFileHighlights={files.onInsertMarkdownFileHighlights}
             selectedFilePending={surface.kind === "file" && files.pendingSurfaceIds.has(surface.id)}
             workspaceMutationId={props.workspaceMutationId}
           />

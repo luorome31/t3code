@@ -325,7 +325,7 @@ export function AppearanceSettingsPanel() {
           {...searchableSetting("highlight-color")}
           description={
             highlightColorMode === "thread"
-              ? "Threads keep a default highlight color. Change it from the palette beside the selection; this swatch is the starting color for threads that have not picked one."
+              ? "Highlight applies this thread's default color. The palette beside a selection applies another color once, or sets the thread default; this swatch starts threads that have not picked one."
               : "Pick one of these swatches beside the selection each time you highlight."
           }
           resetAction={
