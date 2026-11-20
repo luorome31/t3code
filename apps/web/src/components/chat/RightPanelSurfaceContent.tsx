@@ -302,6 +302,7 @@ export function RightPanelSurfaceContent(props: {
             }
             folderTrail={surface.folderTrail}
             onPendingChange={files.onPendingChange}
+            onInsertMarkdownFileHighlights={props.onInsertMarkdownFileHighlights}
             selectedFilePending={surface.kind === "file" && files.pendingSurfaceIds.has(surface.id)}
             workspaceMutationId={props.workspaceMutationId}
           />

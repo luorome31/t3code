@@ -1,4 +1,5 @@
 import type { ScopedThreadRef } from "@t3tools/contracts";
+import { useGT, useMessages } from "gt-react";
 import { ChevronDownIcon, EraserIcon, HighlighterIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -30,6 +31,8 @@ export function HighlightToolbarActions({
   readonly onAdd: (color: HighlightColor) => void;
   readonly onRemove: () => void;
 }) {
+  const gt = useGT();
+  const m = useMessages();
   const colorMode = useHighlightColorMode();
   const threadDefaultColor = useThreadDefaultColor(threadRef);
   const setThreadDefaultColor = useHighlightStore((state) => state.setThreadDefaultColor);
@@ -45,12 +48,14 @@ export function HighlightToolbarActions({
         disabled={disabled}
         aria-label={
           !supported
-            ? "Highlights are not supported in this browser"
+            ? gt("Highlights are not supported in this browser")
             : tooLong
-              ? `Selection is too long to highlight (maximum ${MAX_HIGHLIGHT_TEXT_LENGTH} characters)`
+              ? gt("Selection is too long to highlight (maximum {count} characters)", {
+                  count: MAX_HIGHLIGHT_TEXT_LENGTH,
+                })
               : hasExistingHighlight
-                ? "Remove highlight"
-                : "Highlight selection"
+                ? gt("Remove highlight")
+                : gt("Highlight selection")
         }
         onClick={hasExistingHighlight ? onRemove : undefined}
       >
@@ -60,12 +65,12 @@ export function HighlightToolbarActions({
           <HighlighterIcon aria-hidden="true" className="size-3.5" />
         )}
         {!supported
-          ? "Unavailable"
+          ? gt("Unavailable")
           : hasExistingHighlight
-            ? "Remove highlight"
+            ? gt("Remove highlight")
             : tooLong
-              ? "Too long"
-              : "Highlight"}
+              ? gt("Too long")
+              : gt("Highlight")}
       </Button>
     );
   }
@@ -88,11 +93,11 @@ export function HighlightToolbarActions({
           type="button"
           size="xs"
           variant="glass"
-          aria-label="Highlight selection"
+          aria-label={gt("Highlight selection")}
           onClick={() => onAdd(threadDefaultColor)}
         >
           <HighlighterIcon aria-hidden="true" className="size-3.5" />
-          Highlight
+          {gt("Highlight")}
         </Button>
         <Tooltip>
           <TooltipTrigger
@@ -101,7 +106,7 @@ export function HighlightToolbarActions({
                 type="button"
                 size="xs"
                 variant="glass"
-                aria-label="Thread highlight color"
+                aria-label={gt("Thread highlight color")}
                 aria-expanded={paletteOpen}
                 onClick={() => setPaletteOpen(!paletteOpen)}
               />
@@ -117,22 +122,37 @@ export function HighlightToolbarActions({
               className={cn("size-3 transition-transform", paletteOpen && "rotate-180")}
             />
           </TooltipTrigger>
-          <TooltipPopup>Thread highlight color</TooltipPopup>
+          <TooltipPopup>{gt("Thread highlight color")}</TooltipPopup>
         </Tooltip>
         {paletteOpen ? (
           <div
             role="group"
-            aria-label="Thread highlight palette"
-            className="flex items-center gap-1 border-l border-border/60 pl-1"
+            aria-label={gt("Thread highlight palette")}
+            className="flex flex-col items-start gap-1 border-l border-border/60 pl-1"
           >
             <HighlightColorPicker
               size="sm"
-              value={threadDefaultColor}
+              ariaLabel={gt("One-off highlight colors")}
+              swatchAriaLabel={(color) => gt("Highlight selection as {color}", { color })}
               onChange={(color) => {
-                setThreadDefaultColor(threadRef, color);
+                // One-time: the choice applies to this selection and changes nothing else.
                 setPaletteOpen(false);
+                onAdd(color);
               }}
             />
+            <div className="flex items-center gap-1.5 border-t border-border/60 pt-1">
+              <span className="text-2xs text-muted-foreground">{gt("Thread default")}</span>
+              <HighlightColorPicker
+                size="sm"
+                value={threadDefaultColor}
+                ariaLabel={gt("Thread default highlight color")}
+                swatchAriaLabel={(color) => gt("Set thread default to {color}", { color })}
+                onChange={(color) => {
+                  setThreadDefaultColor(threadRef, color);
+                  setPaletteOpen(false);
+                }}
+              />
+            </div>
           </div>
         ) : null}
       </div>
@@ -140,21 +160,21 @@ export function HighlightToolbarActions({
   }
 
   return (
-    <div className="flex items-center gap-1" role="group" aria-label="Highlight color">
+    <div className="flex items-center gap-1" role="group" aria-label={gt("Highlight color")}>
       {HIGHLIGHT_COLORS.map((color) => (
         <Tooltip key={color.id}>
           <TooltipTrigger
             render={
               <button
                 type="button"
-                aria-label={`Highlight selection as ${color.label}`}
+                aria-label={gt("Highlight selection as {color}", { color: m(color.label) })}
                 onClick={() => onAdd(color.id)}
                 className="size-4.5 cursor-pointer rounded-full border-2 border-border outline-none transition-[box-shadow,scale] hover:scale-105 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                 style={{ backgroundColor: `var(${color.cssVariable})` }}
               />
             }
           />
-          <TooltipPopup>{color.label}</TooltipPopup>
+          <TooltipPopup>{m(color.label)}</TooltipPopup>
         </Tooltip>
       ))}
     </div>

@@ -3,6 +3,11 @@ import { useEffect, useState } from "react";
 
 import { resolveAssistantCitationRanges } from "~/lib/assistantTextSelection";
 import {
+  registerHighlightHitTargets,
+  removeHighlightHitTargets,
+  type HighlightHitTarget,
+} from "~/lib/highlightHitTargets";
+import {
   registerHighlightContribution,
   removeHighlightContribution,
 } from "~/lib/highlightPainting";
@@ -60,17 +65,20 @@ export function useAssistantHighlights(input: {
       typeof Highlight === "undefined"
     ) {
       removeHighlightContribution(owner);
+      removeHighlightHitTargets(owner);
       return;
     }
     const assistantHighlights = assistantHighlightsOf(highlights);
     if (assistantHighlights.length === 0) {
       removeHighlightContribution(owner);
+      removeHighlightHitTargets(owner);
       return;
     }
 
     const messageIds = new Set<string>();
     const byMessage = new Map<string, ThreadHighlight[]>();
     const priorityByColor = new Map<HighlightColor, number>();
+    const priorityById = new Map<string, number>();
     for (const highlight of assistantHighlights) {
       messageIds.add(highlight.source.messageId);
       const messageHighlights = byMessage.get(highlight.source.messageId);
@@ -78,6 +86,7 @@ export function useAssistantHighlights(input: {
       else byMessage.set(highlight.source.messageId, [highlight]);
       const createdAt = Date.parse(highlight.createdAt);
       const priority = 1 + (Number.isFinite(createdAt) ? createdAt / 1e13 : 0);
+      priorityById.set(highlight.id, priority);
       priorityByColor.set(
         highlight.color,
         Math.max(priorityByColor.get(highlight.color) ?? 0, priority),
@@ -86,6 +95,7 @@ export function useAssistantHighlights(input: {
 
     const paint = () => {
       const rangesByColor = new Map<HighlightColor, Range[]>();
+      const hitTargets: HighlightHitTarget[] = [];
       for (const source of container.querySelectorAll<HTMLElement>(SOURCE_SELECTOR)) {
         if (
           source.dataset.assistantCitationEnvironment !== environmentId ||
@@ -103,13 +113,21 @@ export function useAssistantHighlights(input: {
         for (let index = 0; index < ranges.length; index += 1) {
           const range = ranges[index];
           if (range === null || range === undefined) continue;
-          const color = messageHighlights[index]!.color;
+          const highlight = messageHighlights[index]!;
+          const color = highlight.color;
           const colorRanges = rangesByColor.get(color);
           if (colorRanges) colorRanges.push(range);
           else rangesByColor.set(color, [range]);
+          hitTargets.push({
+            id: highlight.id,
+            color,
+            range,
+            priority: priorityById.get(highlight.id) ?? 0,
+          });
         }
       }
       registerHighlightContribution(owner, { rangesByColor, priorityByColor });
+      registerHighlightHitTargets(owner, { targets: hitTargets, priorityByColor });
     };
 
     paint();
@@ -125,6 +143,7 @@ export function useAssistantHighlights(input: {
     return () => {
       observer.disconnect();
       removeHighlightContribution(owner);
+      removeHighlightHitTargets(owner);
     };
   }, [container, environmentId, highlights, owner, threadId]);
 }

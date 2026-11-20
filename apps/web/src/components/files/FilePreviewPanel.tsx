@@ -103,6 +103,7 @@ import { FileBreadcrumbs } from "./FileBreadcrumbs";
 import { breadcrumbPathOf, retainedBreadcrumbTrail, trailChildOf } from "./filePath";
 import { FileMarkdownPreview, type MarkdownFileHighlightReveal } from "./FileMarkdownPreview";
 import { consumeFileHighlightReveal, useFileHighlightReveal } from "~/fileHighlightRevealStore";
+import type { MarkdownFileHighlightExcerpt } from "~/highlightStore";
 import {
   type FileCommentAnnotationEntry,
   type FileCommentAnnotationGroup,
@@ -167,6 +168,9 @@ interface FilePreviewPanelProps {
   onPendingChange: (relativePath: string, pending: boolean) => void;
   selectedFilePending: boolean;
   workspaceMutationId: string | null;
+  onInsertMarkdownFileHighlights?:
+    | ((excerpts: readonly MarkdownFileHighlightExcerpt[]) => boolean)
+    | undefined;
 }
 
 const MermaidFilePreview = lazy(() =>
@@ -1151,6 +1155,7 @@ function RenderedMarkdownSurface({
   readOnly,
   revealHighlight,
   onHighlightRevealHandled,
+  onInsertMarkdownFileHighlights,
   onPendingChange,
 }: Omit<
   EditableFileSurfaceProps,
@@ -1167,6 +1172,9 @@ function RenderedMarkdownSurface({
   workspaceMutationId: string | null;
   revealHighlight: MarkdownFileHighlightReveal | null;
   onHighlightRevealHandled: (id: number) => void;
+  onInsertMarkdownFileHighlights?:
+    | ((excerpts: readonly MarkdownFileHighlightExcerpt[]) => boolean)
+    | undefined;
 }) {
   const saveTarget = { environmentId, cwd, relativePath };
   useFileSaveSession(saveTarget, onPendingChange);
@@ -1181,6 +1189,7 @@ function RenderedMarkdownSurface({
         workspaceMutationId={workspaceMutationId}
         revealHighlight={revealHighlight}
         onHighlightRevealHandled={onHighlightRevealHandled}
+        onInsertMarkdownFileHighlights={onInsertMarkdownFileHighlights}
         onTaskListChange={
           readOnly
             ? undefined
@@ -1241,6 +1250,7 @@ export default function FilePreviewPanel({
   onPendingChange,
   selectedFilePending,
   workspaceMutationId,
+  onInsertMarkdownFileHighlights,
 }: FilePreviewPanelProps) {
   const relativePath =
     attachment === undefined ? resolveFilePreviewPath(requestedPath, cwd) : requestedPath;
@@ -1830,6 +1840,7 @@ export default function FilePreviewPanel({
                     id,
                   });
                 }}
+                onInsertMarkdownFileHighlights={onInsertMarkdownFileHighlights}
                 onPendingChange={onPendingChange}
               />
             ) : tableDelimiter && renderTable ? (

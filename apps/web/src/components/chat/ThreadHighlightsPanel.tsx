@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { AssistantCitation, ScopedThreadRef } from "@t3tools/contracts";
-import { HighlighterIcon, MoreHorizontalIcon, StickyNoteIcon, Trash2Icon } from "lucide-react";
+import { useGT, useMessages } from "gt-react";
+import { HighlighterIcon, StickyNoteIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
 import { requestFileHighlightReveal } from "~/fileHighlightRevealStore";
@@ -30,7 +31,6 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
-import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -60,10 +60,11 @@ function messageCitationOf(
 function highlightGroupIdentity(
   highlight: ThreadHighlight,
   tab: HighlightTab,
+  assistantMessageLabel: string,
 ): { readonly key: string; readonly label: string } | null {
   if (tab === "messages") {
     return highlight.source.kind === "assistant-message"
-      ? { key: highlight.source.messageId, label: "Assistant message" }
+      ? { key: highlight.source.messageId, label: assistantMessageLabel }
       : null;
   }
   return highlight.source.kind === "markdown-file"
@@ -77,12 +78,13 @@ function highlightGroupIdentity(
 function groupedHighlights(
   highlights: readonly ThreadHighlight[],
   tab: HighlightTab,
+  assistantMessageLabel: string,
 ): HighlightGroup[] {
   const groups = new Map<string, HighlightGroup>();
   for (const highlight of [...highlights].sort((left, right) =>
     left.createdAt.localeCompare(right.createdAt),
   )) {
-    const identity = highlightGroupIdentity(highlight, tab);
+    const identity = highlightGroupIdentity(highlight, tab, assistantMessageLabel);
     if (identity === null) continue;
     const group = groups.get(identity.key);
     if (group) group.highlights.push(highlight);
@@ -107,6 +109,8 @@ function HighlightRowColorTrigger({
   readonly onOpenChange: (open: boolean) => void;
   readonly onRecolor: (color: HighlightColor) => void;
 }) {
+  const gt = useGT();
+  const m = useMessages();
   const definition = highlightColorDefinition(highlight.color);
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
@@ -117,7 +121,7 @@ function HighlightRowColorTrigger({
               render={
                 <button
                   type="button"
-                  aria-label={`Set color for highlight ${position}`}
+                  aria-label={gt("Set color for highlight {position}", { position })}
                   className="mt-0.5 grid size-5 shrink-0 cursor-pointer place-items-center rounded-full outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                 />
               }
@@ -130,11 +134,11 @@ function HighlightRowColorTrigger({
             </PopoverTrigger>
           }
         />
-        <TooltipPopup>{definition.label}</TooltipPopup>
+        <TooltipPopup>{m(definition.label)}</TooltipPopup>
       </Tooltip>
       <PopoverPopup align="start" sideOffset={6} padding="compact">
         <div className="flex flex-col gap-2">
-          <span className="text-xs font-medium">Highlight color</span>
+          <span className="text-xs font-medium">{gt("Highlight color")}</span>
           <HighlightColorPicker
             value={highlight.color}
             onChange={(color) => {
@@ -159,6 +163,8 @@ export function ThreadHighlightsPanel({
     excerpts: readonly MarkdownFileHighlightExcerpt[],
   ) => boolean;
 }) {
+  const gt = useGT();
+  const m = useMessages();
   const navigate = useNavigate();
   const highlights = useThreadHighlights(threadRef);
   const [tab, setTab] = useState<HighlightTab>(() =>
@@ -187,7 +193,7 @@ export function ThreadHighlightsPanel({
   for (const highlight of activeHighlights) {
     countByColor.set(highlight.color, (countByColor.get(highlight.color) ?? 0) + 1);
   }
-  const groups = groupedHighlights(filteredHighlights, tab);
+  const groups = groupedHighlights(filteredHighlights, tab, gt("Assistant message"));
   const orderedHighlights = groups.flatMap((group) => group.highlights);
   const exists = new Set(orderedHighlights.map((highlight) => highlight.id));
   const positionById = new Map(
@@ -301,45 +307,51 @@ export function ThreadHighlightsPanel({
     <div className="flex h-full min-h-0 flex-col">
       <div className="border-b border-border/60 px-3 py-2">
         <ToggleGroup
-          aria-label="Highlight source"
+          aria-label={gt("Highlight source")}
           value={[tab]}
           onValueChange={(next) => {
             const value = next[0];
             if (value === "messages" || value === "files") selectTab(value);
           }}
         >
-          <Toggle value="messages">Messages</Toggle>
-          <Toggle value="files">Markdown files</Toggle>
+          <Toggle value="messages">{gt("Messages")}</Toggle>
+          <Toggle value="files">{gt("Markdown files")}</Toggle>
         </ToggleGroup>
       </div>
       <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
         <Checkbox
-          aria-label="Select all highlights"
+          aria-label={gt("Select all highlights")}
           checked={allSelected}
           indeterminate={someSelected}
           onCheckedChange={(checked) => setAllSelected(checked === true)}
         />
         <span className="text-xs text-muted-foreground">
           {colorFilter.size === 0 || activeHighlights.length === 0
-            ? `${activeHighlights.length} ${activeHighlights.length === 1 ? "highlight" : "highlights"}`
-            : `${filteredHighlights.length} of ${activeHighlights.length} ${activeHighlights.length === 1 ? "highlight" : "highlights"}`}
+            ? gt("{count, plural, one {{count} highlight} other {{count} highlights}}", {
+                count: activeHighlights.length,
+              })
+            : gt(
+                "{total, plural, one {{count} of {total} highlight} other {{count} of {total} highlights}}",
+                { count: filteredHighlights.length, total: activeHighlights.length },
+              )}
         </span>
         {activeHighlights.length > 0 ? (
           <div
             className="ml-auto flex items-center gap-1.5"
             role="group"
-            aria-label="Filter by color"
+            aria-label={gt("Filter by color")}
           >
             {HIGHLIGHT_COLORS.map((color) => {
               const count = countByColor.get(color.id) ?? 0;
               const active = colorFilter.has(color.id);
+              const label = m(color.label);
               return (
                 <Tooltip key={color.id}>
                   <TooltipTrigger
                     render={
                       <button
                         type="button"
-                        aria-label={`Filter ${color.label}`}
+                        aria-label={gt("Filter {color}", { color: label })}
                         aria-pressed={active}
                         disabled={count === 0 && !active}
                         onClick={() => toggleColorFilter(color.id)}
@@ -356,7 +368,9 @@ export function ThreadHighlightsPanel({
                     }
                   />
                   <TooltipPopup>
-                    {count === 0 ? `${color.label} (none here)` : `${color.label} (${count})`}
+                    {count === 0
+                      ? gt("{color} (none here)", { color: label })
+                      : gt("{color} ({count})", { color: label, count })}
                   </TooltipPopup>
                 </Tooltip>
               );
@@ -366,13 +380,15 @@ export function ThreadHighlightsPanel({
       </div>
       {selected.length > 0 ? (
         <div className="flex items-center gap-1 border-b border-border/60 px-3 py-1.5">
-          <span className="text-2xs text-muted-foreground">{selected.length} selected</span>
+          <span className="text-2xs text-muted-foreground">
+            {gt("{count} selected", { count: selected.length })}
+          </span>
           <div className="ml-auto flex items-center gap-1">
             <Button size="xs" variant="outline" onClick={insertSelected}>
-              Insert into chat
+              {gt("Insert into chat")}
             </Button>
             <Button size="xs" variant="ghost-destructive" onClick={requestDelete}>
-              Delete
+              {gt("Delete", { $context: "verb, deletes highlights" })}
             </Button>
           </div>
         </div>
@@ -382,19 +398,19 @@ export function ThreadHighlightsPanel({
           <HighlighterIcon aria-hidden className="size-6 text-muted-foreground" />
           <p className="text-sm font-medium">
             {highlights.length === 0
-              ? "No highlights yet"
+              ? gt("No highlights yet")
               : activeHighlights.length === 0
                 ? tab === "messages"
-                  ? "No message highlights yet"
-                  : "No Markdown highlights yet"
-                : "No highlights match the filter"}
+                  ? gt("No message highlights yet")
+                  : gt("No Markdown highlights yet")
+                : gt("No highlights match the filter")}
           </p>
           <p className="max-w-64 text-xs text-muted-foreground">
             {highlights.length === 0 || activeHighlights.length === 0
               ? tab === "messages"
-                ? "Select text in an assistant message and choose Highlight."
-                : "Select text in a rendered Markdown file and choose Highlight."
-              : "Click a color dot again to turn its filter off."}
+                ? gt("Select text in an assistant message and choose Highlight.")
+                : gt("Select text in a rendered Markdown file and choose Highlight.")
+              : gt("Click a color dot again to turn its filter off.")}
           </p>
         </div>
       ) : (
@@ -413,7 +429,10 @@ export function ThreadHighlightsPanel({
                     className="group flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-accent/40"
                   >
                     <Checkbox
-                      aria-label={`Select highlight ${position}: ${highlight.selector.text.slice(0, 60)}`}
+                      aria-label={gt("Select highlight {position}: {text}", {
+                        position,
+                        text: highlight.selector.text.slice(0, 60),
+                      })}
                       checked={selectedIds.has(highlight.id) && exists.has(highlight.id)}
                       className="mt-0.5"
                       onCheckedChange={(checked) => setSelected(highlight.id, checked === true)}
@@ -439,8 +458,8 @@ export function ThreadHighlightsPanel({
                         <div className="mt-1.5">
                           <textarea
                             autoFocus
-                            aria-label={`Note editor for highlight ${position}`}
-                            placeholder="Add a note for this highlight..."
+                            aria-label={gt("Note editor for highlight {position}", { position })}
+                            placeholder={gt("Add a note for this highlight...")}
                             rows={2}
                             className="field-sizing-content max-h-32 min-h-9 w-full resize-none rounded-md border border-border bg-background/50 px-2 py-1.5 text-xs text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring"
                             value={noteEditor.draft}
@@ -461,68 +480,75 @@ export function ThreadHighlightsPanel({
                           />
                           {noteTooLong ? (
                             <p role="status" className="pt-1 text-xs text-destructive">
-                              Notes can contain up to {MAX_HIGHLIGHT_NOTE_LENGTH.toLocaleString()}{" "}
-                              characters.
+                              {gt("Notes can contain up to {count, number} characters.", {
+                                count: MAX_HIGHLIGHT_NOTE_LENGTH,
+                              })}
                             </p>
                           ) : null}
                           <div className="mt-1 flex items-center justify-end gap-1">
                             <Button size="xs" variant="ghost" onClick={cancelNote}>
-                              Cancel
+                              {gt("Cancel")}
                             </Button>
                             <Button size="xs" onClick={saveNote} disabled={noteTooLong}>
-                              {noteTooLong ? "Shorten note" : "Save note"}
+                              {noteTooLong ? gt("Shorten note") : gt("Save note")}
                             </Button>
                           </div>
                         </div>
                       ) : highlight.note !== undefined ? (
-                        <button
-                          type="button"
-                          className="mt-1 w-full cursor-pointer text-left"
-                          aria-label={`Edit note for highlight ${position}`}
-                          onClick={() =>
-                            setNoteEditor({ id: highlight.id, draft: highlight.note ?? "" })
-                          }
+                        <span
+                          className="mt-1 block whitespace-pre-wrap break-words border-l-2 pl-2 text-xs text-muted-foreground"
+                          style={{
+                            borderColor: `var(${highlightColorDefinition(highlight.color).cssVariable})`,
+                          }}
                         >
-                          <span
-                            className="block whitespace-pre-wrap break-words border-l-2 pl-2 text-xs text-muted-foreground"
-                            style={{
-                              borderColor: `var(${highlightColorDefinition(highlight.color).cssVariable})`,
-                            }}
-                          >
-                            {highlight.note}
-                          </span>
-                        </button>
+                          {highlight.note}
+                        </span>
                       ) : null}
                     </div>
-                    <Menu>
-                      <MenuTrigger
-                        render={
-                          <Button
-                            aria-label={`Highlight actions for highlight ${position}`}
-                            size="icon-xs"
-                            variant="ghost"
-                            type="button"
-                          />
-                        }
-                      >
-                        <MoreHorizontalIcon className="size-3.5" />
-                      </MenuTrigger>
-                      <MenuPopup align="end" sideOffset={4}>
-                        <MenuItem
-                          onClick={() =>
-                            setNoteEditor({ id: highlight.id, draft: highlight.note ?? "" })
+                    <div className="flex shrink-0 items-center gap-0.5">
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              type="button"
+                              aria-label={
+                                highlight.note === undefined
+                                  ? gt("Add note for highlight {position}", { position })
+                                  : gt("Edit note for highlight {position}", { position })
+                              }
+                              size="icon-xs"
+                              variant="ghost"
+                              onClick={() =>
+                                setNoteEditor({ id: highlight.id, draft: highlight.note ?? "" })
+                              }
+                            />
                           }
                         >
                           <StickyNoteIcon aria-hidden className="size-3.5" />
-                          {highlight.note === undefined ? "Add note" : "Edit note"}
-                        </MenuItem>
-                        <MenuSeparator />
-                        <MenuItem onClick={() => removeOne(highlight)}>
+                        </TooltipTrigger>
+                        <TooltipPopup>
+                          {highlight.note === undefined ? gt("Add note") : gt("Edit note")}
+                        </TooltipPopup>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              type="button"
+                              aria-label={gt("Delete highlight {position}", { position })}
+                              size="icon-xs"
+                              variant="ghost"
+                              onClick={() => removeOne(highlight)}
+                            />
+                          }
+                        >
                           <Trash2Icon aria-hidden className="size-3.5" />
-                          Delete
-                        </MenuItem>
-                      </MenuPopup>
-                    </Menu>
+                        </TooltipTrigger>
+                        <TooltipPopup>
+                          {gt("Delete", { $context: "verb, deletes highlights" })}
+                        </TooltipPopup>
+                      </Tooltip>
+                    </div>
                   </div>
                 );
               })}
@@ -533,15 +559,17 @@ export function ThreadHighlightsPanel({
       <Dialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <DialogPopup>
           <DialogHeader>
-            <DialogTitle>Delete {selected.length} highlights?</DialogTitle>
-            <DialogDescription>This cannot be undone.</DialogDescription>
+            <DialogTitle>
+              {gt("Delete {count} highlights?", { count: selected.length })}
+            </DialogTitle>
+            <DialogDescription>{gt("This cannot be undone.")}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setConfirmDeleteOpen(false)}>
-              Cancel
+              {gt("Cancel")}
             </Button>
             <Button type="button" variant="destructive" onClick={removeSelected}>
-              Delete
+              {gt("Delete", { $context: "verb, deletes highlights" })}
             </Button>
           </DialogFooter>
         </DialogPopup>

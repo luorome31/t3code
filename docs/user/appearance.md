@@ -50,17 +50,21 @@ devices.
 
 Under **Settings → Appearance → Highlight colors**, pick how new highlights get their color:
 
-- **Thread default** keeps one color per thread. Pick a different color from the palette beside
-  **Highlight** to set this thread's color; the swatch in settings is the starting color for
-  threads that have not picked one.
+- **Thread default** makes **Highlight** apply the thread's default color. Pick a swatch in the
+  first row of the palette to apply a color to the current selection. Use the **Thread default**
+  row to change the thread's default color. The swatch in settings is the starting color for new
+  threads.
 - **Per selection** shows a palette of swatches beside the selection, and each highlight uses
   the color you click.
 
-Open **Highlights** in the thread details card to manage them under the **Messages** and
-**Markdown files** tabs. Click a highlight's color dot to change its color, add or edit a note
-under a highlight, filter the list by color, delete them, or insert selected quotes into the
-composer. For message highlights, a note is inserted into the composer attached to its quote as
-the citation comment. A Markdown file excerpt is inserted with its file path.
+Click highlighted text and choose **Cite** to insert it into the composer, or **Remove highlight**
+to delete the highlight and its note.
+
+Open **Highlights** in the thread details card to manage highlights in **Messages** and
+**Markdown files**. Use the note and trash icons on each row to add or edit a note or delete the
+highlight. Click a highlight's color dot to change its color. You can also filter by color and
+insert selected highlights into the composer. A message highlight's note is included as a citation
+comment. A Markdown file excerpt is inserted with its file path.
 
 ## Conversation navigation
 

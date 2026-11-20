@@ -310,14 +310,16 @@ export function AppearanceSettingsPanel() {
         <ThreadDetailsItemsRow />
         <SettingsRow
           {...searchableSetting("response-metrics")}
-          description="Show first-output latency, estimated TPS and provider-reported output tokens below each completed response."
+          description={gt(
+            "Show first-output latency, estimated TPS and provider-reported output tokens below each completed response.",
+          )}
           control={
             <Switch
               checked={settings.responseMetricsEnabled}
               onCheckedChange={(checked) =>
                 updateSettings({ responseMetricsEnabled: Boolean(checked) })
               }
-              aria-label="Response performance statistics"
+              aria-label={gt("Response performance statistics")}
             />
           }
         />
@@ -325,8 +327,10 @@ export function AppearanceSettingsPanel() {
           {...searchableSetting("highlight-color")}
           description={
             highlightColorMode === "thread"
-              ? "Threads keep a default highlight color. Change it from the palette beside the selection; this swatch is the starting color for threads that have not picked one."
-              : "Pick one of these swatches beside the selection each time you highlight."
+              ? gt(
+                  "Highlight applies the thread's default color. Use the selection palette to apply a color once or to set the thread default. New threads start with the color shown here.",
+                )
+              : gt("Pick one of these swatches beside the selection each time you highlight.")
           }
           resetAction={
             <>
@@ -348,15 +352,15 @@ export function AppearanceSettingsPanel() {
           control={
             <div className="flex w-full flex-col gap-2 sm:w-56">
               <ToggleGroup
-                aria-label="Highlight color mode"
+                aria-label={gt("Highlight color mode")}
                 value={[highlightColorMode]}
                 onValueChange={(next) => {
                   const value = next[0];
                   if (value === "thread" || value === "selection") setHighlightColorMode(value);
                 }}
               >
-                <Toggle value="thread">Thread default</Toggle>
-                <Toggle value="selection">Per selection</Toggle>
+                <Toggle value="thread">{gt("Thread default")}</Toggle>
+                <Toggle value="selection">{gt("Per selection")}</Toggle>
               </ToggleGroup>
               {highlightColorMode === "thread" ? (
                 <HighlightColorPicker

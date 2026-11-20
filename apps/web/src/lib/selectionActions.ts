@@ -92,17 +92,19 @@ export function isSelectionRangeVisible(range: Range, viewport: HTMLElement): bo
  * Interactive popovers pass getActionElement to keep editing their fields from replacing the
  * captured source selection.
  */
-export function observeSelectionActions({
+export function observeSelectionActions<ClickTarget>({
   element,
   getActionElement,
   restoreAfterScroll = false,
+  resolveClickTarget,
   onSelection,
   onDismiss,
 }: {
   element: HTMLElement;
   getActionElement?: () => HTMLElement | null;
   restoreAfterScroll?: boolean;
-  onSelection: (pointer: SelectionActionPoint | null) => void;
+  resolveClickTarget: (point: SelectionActionPoint) => ClickTarget | null;
+  onSelection: (pointer: SelectionActionPoint | null, clickTarget: ClickTarget | null) => void;
   onDismiss: (reason: "interaction" | "cancel") => void;
 }) {
   const document = element.ownerDocument;
@@ -111,7 +113,7 @@ export function observeSelectionActions({
   let gestureActive = false;
   let dismissed = false;
   let restorable = false;
-  let pointer: SelectionActionPoint | null = null;
+  let mouseUp: { point: SelectionActionPoint; target: ClickTarget | null } | null = null;
   let timer: number | null = null;
   let frame: number | null = null;
 
@@ -126,7 +128,7 @@ export function observeSelectionActions({
   const cancel = () => {
     cancelPending();
     pointerDown = gestureActive = false;
-    pointer = null;
+    mouseUp = null;
     dismissed = true;
     restorable = false;
   };
@@ -145,7 +147,7 @@ export function observeSelectionActions({
       timer = null;
       frame = view.requestAnimationFrame(() => {
         frame = null;
-        onSelection(pointer);
+        onSelection(mouseUp?.point ?? null, mouseUp?.target ?? null);
       });
     }, delay);
   };
@@ -161,7 +163,7 @@ export function observeSelectionActions({
     gestureActive = false;
     dismissed = true;
     restorable = false;
-    pointer = null;
+    mouseUp = null;
     if (inside) onDismiss("interaction");
     else if (getActionElement?.()) onDismiss("cancel");
   };
@@ -181,8 +183,14 @@ export function observeSelectionActions({
     pointerDown = false;
     if (!gestureActive) return;
     gestureActive = false;
-    pointer = { x: event.clientX, y: event.clientY };
-    schedule(event.detail >= 2 ? SELECTION_MULTI_CLICK_INTERVAL_MS : 0);
+    const point = { x: event.clientX, y: event.clientY };
+    const multiClick = event.detail >= 2;
+    // Layout can move before the deferred selection update, changing what lies beneath the pointer.
+    mouseUp = {
+      point,
+      target: multiClick ? null : resolveClickTarget(point),
+    };
+    schedule(multiClick ? SELECTION_MULTI_CLICK_INTERVAL_MS : 0);
   };
   const onKeyDown = (event: KeyboardEvent) => {
     if (isActionTarget(event.target) && event.key !== "Escape") return;
@@ -191,7 +199,7 @@ export function observeSelectionActions({
     } else if (!pointerDown) {
       cancelPending();
       gestureActive = false;
-      pointer = null;
+      mouseUp = null;
       dismissed = false;
     }
   };
@@ -203,7 +211,7 @@ export function observeSelectionActions({
     cancelPending();
     // Autoscroll during a drag must not cancel that gesture's eventual release.
     if (!pointerDown) {
-      pointer = null;
+      mouseUp = null;
       if (restoreAfterScroll && !dismissed && restorable) schedule(SELECTION_SCROLL_SETTLE_MS);
       else dismissed = true;
     }

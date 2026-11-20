@@ -1,3 +1,5 @@
+import { msg } from "gt-react";
+
 const HIGHLIGHT_COLOR_IDS = ["amber", "red", "green", "blue", "purple", "slate"] as const;
 
 export type HighlightColor = (typeof HIGHLIGHT_COLOR_IDS)[number];
@@ -9,12 +11,12 @@ export interface HighlightColorDefinition {
 }
 
 export const HIGHLIGHT_COLORS: readonly HighlightColorDefinition[] = [
-  { id: "amber", label: "Amber", cssVariable: "--highlight-amber" },
-  { id: "red", label: "Red", cssVariable: "--highlight-red" },
-  { id: "green", label: "Green", cssVariable: "--highlight-green" },
-  { id: "blue", label: "Blue", cssVariable: "--highlight-blue" },
-  { id: "purple", label: "Purple", cssVariable: "--highlight-purple" },
-  { id: "slate", label: "Slate", cssVariable: "--highlight-slate" },
+  { id: "amber", label: msg("Amber"), cssVariable: "--highlight-amber" },
+  { id: "red", label: msg("Red"), cssVariable: "--highlight-red" },
+  { id: "green", label: msg("Green"), cssVariable: "--highlight-green" },
+  { id: "blue", label: msg("Blue"), cssVariable: "--highlight-blue" },
+  { id: "purple", label: msg("Purple"), cssVariable: "--highlight-purple" },
+  { id: "slate", label: msg("Slate"), cssVariable: "--highlight-slate" },
 ];
 
 export const DEFAULT_HIGHLIGHT_COLOR: HighlightColor = "amber";

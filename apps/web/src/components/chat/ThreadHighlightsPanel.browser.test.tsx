@@ -162,8 +162,7 @@ describe("ThreadHighlightsPanel", () => {
       />,
     );
 
-    await userEvent.click(page.getByRole("button", { name: "Highlight actions for highlight 1" }));
-    await userEvent.click(page.getByRole("menuitem", { name: "Add note" }));
+    await userEvent.click(page.getByRole("button", { name: "Add note for highlight 1" }));
     await userEvent.type(
       page.getByRole("textbox", { name: "Note editor for highlight 1" }),
       "why this matters",
@@ -215,6 +214,34 @@ describe("ThreadHighlightsPanel", () => {
 
     const citations = onInsertHighlights.mock.calls[0]?.[0] ?? [];
     expect(citations.find((citation) => citation.text === "alpha")?.comment).toBe("remember this");
+  });
+
+  it("edits a note from the second row without touching the first", async () => {
+    const withNotes = entries.map((entry, index) =>
+      index === 1 ? { ...entry, note: "second row note" } : entry,
+    );
+    setup(withNotes);
+    await using _screen = await render(
+      <ThreadHighlightsPanel
+        threadRef={threadRef}
+        onInsertHighlights={() => true}
+        onInsertMarkdownFileHighlights={() => true}
+      />,
+    );
+
+    await userEvent.click(page.getByRole("button", { name: "Edit note for highlight 2" }));
+    await userEvent.clear(page.getByRole("textbox", { name: "Note editor for highlight 2" }));
+    await userEvent.type(
+      page.getByRole("textbox", { name: "Note editor for highlight 2" }),
+      "edited second row",
+    );
+    await userEvent.click(page.getByRole("button", { name: "Save note" }));
+
+    const highlights = readThreadHighlights(threadRef);
+    expect(highlights.find((highlight) => highlight.id === "highlight-2")?.note).toBe(
+      "edited second row",
+    );
+    expect(highlights.find((highlight) => highlight.id === "highlight-1")?.note).toBeUndefined();
   });
 
   it("filters highlights by color", async () => {
@@ -350,7 +377,7 @@ describe("ThreadHighlightsPanel", () => {
     await expect.element(page.getByText("1 selected")).toBeVisible();
   });
 
-  it("deletes a single highlight from its menu", async () => {
+  it("deletes a single highlight from its row button", async () => {
     setup();
     await using _screen = await render(
       <ThreadHighlightsPanel
@@ -360,8 +387,7 @@ describe("ThreadHighlightsPanel", () => {
       />,
     );
 
-    await userEvent.click(page.getByRole("button", { name: "Highlight actions for highlight 1" }));
-    await userEvent.click(page.getByRole("menuitem", { name: "Delete" }));
+    await userEvent.click(page.getByRole("button", { name: "Delete highlight 1" }));
 
     expect(readThreadHighlights(threadRef).map((highlight) => highlight.id)).toEqual([
       "highlight-2",
