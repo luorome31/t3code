@@ -56,6 +56,7 @@ import {
 import * as Haptics from "expo-haptics";
 import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
 import { useViewabilityAmount, type LegendListRef } from "@legendapp/list/react-native";
+import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { HandoffEndpoints } from "@t3tools/client-runtime/handoff";
 import {
@@ -299,6 +300,7 @@ import { useEnvironmentPresentation } from "../../state/presentation";
 import { useThreadSelection } from "../../state/use-thread-selection";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
+import { smalltalkEnvironment } from "../../state/smalltalk";
 import { useModelMentions } from "../../state/model-mentions";
 import { composerDocumentAttachmentRecord } from "../../lib/composerContext";
 import * as Option from "effect/Option";
@@ -1329,7 +1331,18 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
   readonly skills?: ReadonlyArray<SelectableMarkdownSkill> | undefined;
 }) {
   const gt = useGT();
+  const navigation = useNavigation();
   const liveMarkdown = useLiveThreadLinkLabels(props.markdown, props.environmentId);
+  const smalltalkConfig = useAtomValue(serverEnvironment.configValueAtom(props.environmentId));
+  const smalltalkAllowed = useAtomValue(
+    smalltalkEnvironment.mutate.permissionAtom(props.environmentId),
+  );
+  const smalltalkMutate = useAtomCommand(smalltalkEnvironment.mutate);
+  const [explainBusy, setExplainBusy] = useState(false);
+  const smalltalkSupported =
+    smalltalkConfig?.environment.capabilities.smalltalk === true &&
+    smalltalkConfig.environment.capabilities.smalltalkExcerptSource === true &&
+    smalltalkAllowed;
   const [quoteSelection, setQuoteSelection] = useState<{
     markdown: string;
     selectors: ReturnType<typeof collectMobileAssistantTextSelectors>;
@@ -1346,6 +1359,46 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
       ...selector,
     });
   };
+  // The menu shows plain-language explaining only when the server accepts excerpt sources.
+  const explainText =
+    smalltalkSupported && props.citationSource
+      ? (text: string, path: string) => {
+          if (explainBusy || !text.trim()) return;
+          if (text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH) {
+            Dialog.alert(gt("Selection is too long to explain"));
+            return;
+          }
+          const selectors = collectMobileAssistantTextSelectors(liveMarkdown, path, text);
+          if (selectors.length === 0) {
+            Dialog.alert(
+              gt("Unable to locate quote"),
+              gt("Select more surrounding text to explain its source accurately."),
+            );
+            return;
+          }
+          const selector = selectors[0]!.selector;
+          const citationSource = props.citationSource!;
+          setExplainBusy(true);
+          void smalltalkMutate({
+            environmentId: props.environmentId,
+            input: {
+              action: "create",
+              threadId: citationSource.threadId,
+              source: { kind: "excerpt", messageId: citationSource.messageId, ...selector },
+            },
+          })
+            .then((result) => {
+              if (result._tag === "Success" && result.value) {
+                navigation.navigate("ThreadSmalltalk", {
+                  environmentId: props.environmentId,
+                  threadId: citationSource.threadId,
+                  selectedId: result.value.id,
+                });
+              }
+            })
+            .finally(() => setExplainBusy(false));
+        }
+      : undefined;
   const models = useModelMentions(props.environmentId, props.markdown);
   const threadIcons = useThreadChipIcons(props.environmentId, liveMarkdown);
   const withGallery = useFilePreviewGallery();
@@ -1390,6 +1443,7 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
               }
             : undefined
         }
+        onExplainText={explainText}
         markdownStyles={props.markdownStyles}
         linkHandlers={linkHandlers}
         onUseArtifactTemplate={props.onUseArtifactTemplate}
@@ -1430,6 +1484,7 @@ function AssistantMarkdownBlocks(props: {
   readonly markdown: string;
   readonly citationPath?: string;
   readonly onCiteText?: (text: string, path: string) => void;
+  readonly onExplainText?: (text: string, path: string) => void;
   /** The reply's reference definitions, passed down by the enclosing fold. */
   readonly definitions?: ReadonlyArray<string> | undefined;
   readonly markdownStyles: MarkdownStyleSet;
@@ -1496,6 +1551,15 @@ function AssistantMarkdownBlocks(props: {
             props.onCiteText
               ? (text) =>
                   props.onCiteText?.(
+                    text,
+                    `${props.citationPath ?? ""}${blockIndex}:${segmentIndex}`,
+                  )
+              : undefined
+          }
+          onExplainText={
+            props.onExplainText
+              ? (text) =>
+                  props.onExplainText?.(
                     text,
                     `${props.citationPath ?? ""}${blockIndex}:${segmentIndex}`,
                   )

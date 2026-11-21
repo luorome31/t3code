@@ -53,6 +53,7 @@ const encode = Schema.encodeEffect(Schema.fromJsonString(Smalltalk));
 const decodeSummaries = Schema.decodeUnknownEffect(Schema.Array(SmalltalkSummary));
 const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 const PROGRESS_FLUSH_CHARS = 24;
+const plainExcerptTitle = (text: string) => text.replace(/\s+/g, " ").slice(0, 100);
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -282,27 +283,83 @@ const make = Effect.gen(function* () {
                   sourceThreadId: input.sourceThreadId,
                   messageId: input.messageId,
                 };
-          if (source.kind === "markdown-file" && !source.text.trim()) {
+          if ("text" in source && !source.text.trim()) {
             return yield* new SmalltalkError({ reason: "invalid_source" });
           }
-          const sourceThreadId =
-            source.kind === "markdown-file" ? input.threadId : source.sourceThreadId;
-          const messageId =
-            source.kind === "markdown-file"
-              ? MessageId.make(`file:${source.relativePath}`)
-              : source.messageId;
+          // The SQL unique key treats message_id as source identity, so excerpt and note
+          // sources store under synthesized ids that stay independent of the message
+          // record; the payload keeps the real message id for excerpt jump-backs.
+          let sourceThreadId: ThreadId;
+          let storageMessageId: MessageId;
+          let excerptQuestion = "";
+          if (source.kind === "markdown-file") {
+            sourceThreadId = input.threadId;
+            storageMessageId = MessageId.make(`file:${source.relativePath}`);
+          } else if (source.kind === "highlight-note") {
+            sourceThreadId = input.threadId;
+            storageMessageId = MessageId.make(`note:${source.noteId}`);
+          } else if (source.kind === "excerpt") {
+            const projection = yield* threads
+              .getThreadProjection(input.threadId)
+              .pipe(
+                Effect.mapError((cause) => new SmalltalkError({ reason: "invalid_source", cause })),
+              );
+            // Fork-inherited items carry their origin thread; the client only knows the displayed one.
+            const visible = projection.visibleTurnItems.find(
+              (entry) =>
+                entry.item.type === "assistant_message" &&
+                entry.item.messageId === source.messageId &&
+                entry.item.status === "completed",
+            );
+            if (!visible) return yield* new SmalltalkError({ reason: "invalid_source" });
+            const records = yield* threads
+              .getThreadRecords(visible.sourceThreadId, ["messages", "runs"], {
+                messageIds: [source.messageId],
+              })
+              .pipe(
+                Effect.mapError((cause) => new SmalltalkError({ reason: "invalid_source", cause })),
+              );
+            const message = records.messages.find(
+              (row) => row.id === source.messageId && row.role === "assistant" && !row.streaming,
+            );
+            const run = records.runs.find((row) => row.id === message?.runId);
+            if (!message || !message.text.trim() || run?.status === "running") {
+              return yield* new SmalltalkError({ reason: "invalid_source" });
+            }
+            const related = yield* threads
+              .getThreadRecords(visible.sourceThreadId, ["messages"], {
+                messageRoles: ["user"],
+                messageRunIds: message.runId === null ? [] : [message.runId],
+              })
+              .pipe(
+                Effect.mapError((cause) => new SmalltalkError({ reason: "invalid_source", cause })),
+              );
+            excerptQuestion = (
+              related.messages.find((row) => row.runId === message.runId)?.text ?? ""
+            ).slice(0, 20_000);
+            sourceThreadId = visible.sourceThreadId;
+            storageMessageId = MessageId.make(
+              `excerpt:${source.messageId}:${source.start}:${source.end}`,
+            );
+          } else {
+            sourceThreadId = source.sourceThreadId;
+            storageMessageId = source.messageId;
+          }
           const existing = yield* sql<{
             id: string;
           }>`SELECT id FROM smalltalk WHERE thread_id = ${input.threadId}
-          AND source_thread_id = ${sourceThreadId} AND message_id = ${messageId}`.pipe(
+          AND source_thread_id = ${sourceThreadId} AND message_id = ${storageMessageId}`.pipe(
             Effect.mapError(storageError),
           );
           if (existing[0]) {
             const record = yield* get({ threadId: input.threadId, id: existing[0].id });
             if (
-              source.kind === "markdown-file" &&
-              record.filePath === source.relativePath &&
-              record.sourceText !== source.text
+              (source.kind === "markdown-file" &&
+                record.filePath === source.relativePath &&
+                record.sourceText !== source.text) ||
+              (source.kind === "highlight-note" &&
+                record.sourceKind === "highlight-note" &&
+                record.sourceText !== source.text)
             ) {
               const settings = yield* settingsService.getSettings.pipe(
                 Effect.mapError((cause) => new SmalltalkError({ reason: "configuration", cause })),
@@ -316,7 +373,10 @@ const make = Effect.gen(function* () {
                 {
                   ...record,
                   sourceText: source.text,
-                  title: source.relativePath.slice(0, 100),
+                  title:
+                    source.kind === "markdown-file"
+                      ? source.relativePath.slice(0, 100)
+                      : plainExcerptTitle(source.text),
                   explanation: "",
                   updatedAt: yield* now,
                 },
@@ -326,12 +386,36 @@ const make = Effect.gen(function* () {
             return record;
           }
           let origin: Pick<Smalltalk, "sourceText" | "question" | "title" | "filePath">;
+          let anchor: Smalltalk["anchor"];
           if (source.kind === "markdown-file") {
             origin = {
               sourceText: source.text,
               question: "",
               title: source.relativePath.slice(0, 100),
               filePath: source.relativePath,
+            };
+            anchor = null;
+          } else if (source.kind === "highlight-note") {
+            origin = {
+              sourceText: source.text,
+              question: "",
+              title: plainExcerptTitle(source.text),
+              filePath: null,
+            };
+            anchor = null;
+          } else if (source.kind === "excerpt") {
+            origin = {
+              sourceText: source.text,
+              question: excerptQuestion,
+              title: plainExcerptTitle(source.text),
+              filePath: null,
+            };
+            anchor = {
+              text: source.text,
+              start: source.start,
+              end: source.end,
+              prefix: source.prefix,
+              suffix: source.suffix,
             };
           } else {
             const projection = yield* threads
@@ -385,13 +469,16 @@ const make = Effect.gen(function* () {
                 .slice(0, 100),
               filePath: null,
             };
+            anchor = null;
           }
           const timestamp = yield* now;
           const record: Smalltalk = {
             id: yield* random.uuidV4(),
             threadId: input.threadId,
             sourceThreadId,
-            messageId,
+            messageId: source.kind === "excerpt" ? source.messageId : storageMessageId,
+            sourceKind: source.kind,
+            anchor,
             ...origin,
             status: "cancelled",
             createdAt: timestamp,
@@ -407,7 +494,7 @@ const make = Effect.gen(function* () {
           };
           const json = yield* encode(record).pipe(Effect.mapError(storageError));
           yield* sql`INSERT INTO smalltalk (id, thread_id, source_thread_id, message_id, title, status, created_at, updated_at, request_id, payload_json)
-          VALUES (${record.id}, ${record.threadId}, ${record.sourceThreadId}, ${record.messageId}, ${record.title}, ${record.status},
+          VALUES (${record.id}, ${record.threadId}, ${record.sourceThreadId}, ${storageMessageId}, ${record.title}, ${record.status},
           ${record.createdAt}, ${record.updatedAt}, ${record.requestId}, ${json})`.pipe(
             Effect.mapError(storageError),
           );

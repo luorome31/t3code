@@ -4,9 +4,10 @@ import {
   type AssistantCitation,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { useGT } from "gt-react";
-import { QuoteIcon } from "lucide-react";
+import { MessageCircleMoreIcon, QuoteIcon } from "lucide-react";
 import { use, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { HighlightColor, ThreadHighlight } from "~/highlightStore";
@@ -29,9 +30,14 @@ import {
   resolveSelectionActionPosition,
   type SelectionActionPoint,
 } from "~/lib/selectionActions";
+import { selectedSmalltalkAtom, smalltalkEnvironment } from "../../state/smalltalk";
+import { serverEnvironment } from "../../state/server";
+import { useAtomCommand } from "../../state/use-atom-command";
+import { useRightPanelStore } from "../../rightPanelStore";
 import { HighlightToolbarActions } from "../highlights/HighlightToolbarActions";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { BackgroundThreadContext } from "./backgroundThread";
 
 interface ClickedHighlight {
@@ -63,6 +69,15 @@ export function AssistantSelectionToolbar({
   const { environmentId, threadId } = threadRef;
   const threadKey = scopedThreadKey(threadRef);
   const position = selection?.position ?? clickedHighlight?.position ?? null;
+  const smalltalkConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
+  const smalltalkAllowed = useAtomValue(smalltalkEnvironment.mutate.permissionAtom(environmentId));
+  const smalltalkMutate = useAtomCommand(smalltalkEnvironment.mutate);
+  const selectSmalltalk = useAtomSet(selectedSmalltalkAtom(threadKey));
+  const [smalltalkBusy, setSmalltalkBusy] = useState(false);
+  const smalltalkSupported =
+    smalltalkConfig?.environment.capabilities.smalltalk === true &&
+    smalltalkConfig.environment.capabilities.smalltalkExcerptSource === true &&
+    smalltalkAllowed;
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the toolbar DOM node and clamps its position inside the window before paint, and re-clamps when its own width changes (the thread palette expands inline)
   useLayoutEffect(() => {
@@ -273,6 +288,38 @@ export function AssistantSelectionToolbar({
       }
       clearSelection();
     };
+    const explainTooLong = selection.citation.text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH;
+    const explainLabel = explainTooLong
+      ? gt("Selection is too long to explain")
+      : gt("Explain selection in plain language");
+    const explainSelection = () => {
+      if (explainTooLong || !smalltalkSupported) return;
+      setSmalltalkBusy(true);
+      void smalltalkMutate({
+        environmentId,
+        input: {
+          action: "create",
+          threadId,
+          source: {
+            kind: "excerpt",
+            messageId: selection.citation.messageId,
+            text: selection.citation.text,
+            start: selection.citation.start,
+            end: selection.citation.end,
+            prefix: selection.citation.prefix,
+            suffix: selection.citation.suffix,
+          },
+        },
+      })
+        .then((result) => {
+          if (result._tag === "Success" && result.value) {
+            selectSmalltalk(result.value.id);
+            useRightPanelStore.getState().open(threadRef, "smalltalk");
+            clearSelection();
+          }
+        })
+        .finally(() => setSmalltalkBusy(false));
+    };
     return createPortal(
       <div
         ref={toolbarRef}
@@ -312,6 +359,25 @@ export function AssistantSelectionToolbar({
           onAdd={addHighlight}
           onRemove={removeHighlight}
         />
+        {smalltalkSupported ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="glass"
+                  aria-label={explainLabel}
+                  disabled={explainTooLong || smalltalkBusy}
+                  onClick={explainSelection}
+                />
+              }
+            >
+              <MessageCircleMoreIcon aria-hidden="true" className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipPopup>{explainLabel}</TooltipPopup>
+          </Tooltip>
+        ) : null}
       </div>,
       document.body,
     );

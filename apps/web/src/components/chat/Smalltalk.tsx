@@ -363,7 +363,7 @@ function SmalltalkContent({
           <TooltipPopup>{record.preset.name}</TooltipPopup>
         </Tooltip>
         <div className="ml-auto flex items-center gap-0.5">
-          {record.filePath === null ? (
+          {record.filePath === null && record.sourceKind !== "highlight-note" ? (
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -375,17 +375,25 @@ function SmalltalkContent({
                     onClick={() => {
                       void navigate(
                         assistantCitationNavigation(
-                          {
-                            version: 1,
-                            environmentId: threadRef.environmentId,
-                            threadId: threadRef.threadId,
-                            messageId: record.messageId,
-                            text: record.sourceText.slice(0, 200),
-                            start: 0,
-                            end: Math.min(record.sourceText.length, 200),
-                            prefix: "",
-                            suffix: "",
-                          },
+                          record.anchor !== null
+                            ? {
+                                version: 1,
+                                environmentId: threadRef.environmentId,
+                                threadId: threadRef.threadId,
+                                messageId: record.messageId,
+                                ...record.anchor,
+                              }
+                            : {
+                                version: 1,
+                                environmentId: threadRef.environmentId,
+                                threadId: threadRef.threadId,
+                                messageId: record.messageId,
+                                text: record.sourceText.slice(0, 200),
+                                start: 0,
+                                end: Math.min(record.sourceText.length, 200),
+                                prefix: "",
+                                suffix: "",
+                              },
                           null,
                           { silent: true },
                         ),

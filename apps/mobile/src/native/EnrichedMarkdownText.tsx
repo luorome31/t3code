@@ -454,13 +454,26 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
           flavor="github"
           selectable
           contextMenuItems={
-            props.onCiteText
+            props.onCiteText || props.onExplainText
               ? [
-                  {
-                    text: gt("Cite", { $context: "verb, quote selected text" }),
-                    icon: "quote.bubble",
-                    onPress: ({ text }) => props.onCiteText?.(text),
-                  },
+                  ...(props.onCiteText
+                    ? [
+                        {
+                          text: gt("Cite", { $context: "verb, quote selected text" }),
+                          icon: "quote.bubble",
+                          onPress: ({ text }: { text: string }) => props.onCiteText?.(text),
+                        },
+                      ]
+                    : []),
+                  ...(props.onExplainText
+                    ? [
+                        {
+                          text: gt("Explain in plain language"),
+                          icon: "text.bubble",
+                          onPress: ({ text }: { text: string }) => props.onExplainText?.(text),
+                        },
+                      ]
+                    : []),
                 ]
               : undefined
           }

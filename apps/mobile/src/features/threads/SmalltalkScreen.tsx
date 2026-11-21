@@ -246,7 +246,7 @@ function MobileSmalltalkContent({
           accessibilityLabel={`Preset: ${record.preset.name}`}
         />
         <View className="flex-row items-center">
-          {record.filePath === null ? (
+          {record.filePath === null && record.sourceKind !== "highlight-note" ? (
             <SmalltalkIconButton
               name="arrow.turn.left.up"
               label="跳转到原回答"

@@ -62,9 +62,10 @@ to delete the highlight and its note.
 
 Open **Highlights** in the thread details card to manage highlights in **Messages** and
 **Markdown files**. Use the note and trash icons on each row to add or edit a note or delete the
-highlight. Click a highlight's color dot to change its color. You can also filter by color and
-insert selected highlights into the composer. A message highlight's note is included as a citation
-comment. A Markdown file excerpt is inserted with its file path.
+highlight. A saved note also shows an icon that explains that note in plain language; see
+[Smalltalk](smalltalk.md). Click a highlight's color dot to change its color. You can also filter
+by color and insert selected highlights into the composer. A message highlight's note is included
+as a citation comment. A Markdown file excerpt is inserted with its file path.
 
 ## Conversation navigation
 

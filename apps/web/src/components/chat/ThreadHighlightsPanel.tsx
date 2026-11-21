@@ -1,7 +1,9 @@
 import { useNavigate } from "@tanstack/react-router";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { AssistantCitation, ScopedThreadRef } from "@t3tools/contracts";
 import { useGT, useMessages } from "gt-react";
-import { HighlighterIcon, StickyNoteIcon, Trash2Icon } from "lucide-react";
+import { HighlighterIcon, MessageCircleMoreIcon, StickyNoteIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
 import { requestFileHighlightReveal } from "~/fileHighlightRevealStore";
@@ -20,6 +22,9 @@ import {
 } from "~/lib/highlightColors";
 import { cn } from "~/lib/utils";
 import { useRightPanelStore } from "~/rightPanelStore";
+import { selectedSmalltalkAtom, smalltalkEnvironment } from "../../state/smalltalk";
+import { serverEnvironment } from "../../state/server";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { HighlightColorPicker } from "../highlights/HighlightColorPicker";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -167,6 +172,17 @@ export function ThreadHighlightsPanel({
   const m = useMessages();
   const navigate = useNavigate();
   const highlights = useThreadHighlights(threadRef);
+  const smalltalkConfig = useAtomValue(serverEnvironment.configValueAtom(threadRef.environmentId));
+  const smalltalkAllowed = useAtomValue(
+    smalltalkEnvironment.mutate.permissionAtom(threadRef.environmentId),
+  );
+  const smalltalkMutate = useAtomCommand(smalltalkEnvironment.mutate);
+  const selectSmalltalk = useAtomSet(selectedSmalltalkAtom(scopedThreadKey(threadRef)));
+  const [noteSmalltalkId, setNoteSmalltalkId] = useState<string | null>(null);
+  const noteSmalltalkSupported =
+    smalltalkConfig?.environment.capabilities.smalltalk === true &&
+    smalltalkConfig.environment.capabilities.smalltalkExcerptSource === true &&
+    smalltalkAllowed;
   const [tab, setTab] = useState<HighlightTab>(() =>
     highlights.length > 0 &&
     highlights.every((highlight) => highlight.source.kind === "markdown-file")
@@ -302,6 +318,25 @@ export function ThreadHighlightsPanel({
     setNoteEditor(null);
   };
   const cancelNote = () => setNoteEditor(null);
+  const explainNote = (highlight: ThreadHighlight) => {
+    if (highlight.note === undefined) return;
+    setNoteSmalltalkId(highlight.id);
+    void smalltalkMutate({
+      environmentId: threadRef.environmentId,
+      input: {
+        action: "create",
+        threadId: threadRef.threadId,
+        source: { kind: "highlight-note", noteId: highlight.id, text: highlight.note },
+      },
+    })
+      .then((result) => {
+        if (result._tag === "Success" && result.value) {
+          selectSmalltalk(result.value.id);
+          useRightPanelStore.getState().open(threadRef, "smalltalk");
+        }
+      })
+      .finally(() => setNoteSmalltalkId(null));
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -495,14 +530,35 @@ export function ThreadHighlightsPanel({
                           </div>
                         </div>
                       ) : highlight.note !== undefined ? (
-                        <span
-                          className="mt-1 block whitespace-pre-wrap break-words border-l-2 pl-2 text-xs text-muted-foreground"
-                          style={{
-                            borderColor: `var(${highlightColorDefinition(highlight.color).cssVariable})`,
-                          }}
-                        >
-                          {highlight.note}
-                        </span>
+                        <div className="mt-1 flex items-start gap-1">
+                          <span
+                            className="min-w-0 flex-1 whitespace-pre-wrap break-words border-l-2 pl-2 text-xs text-muted-foreground"
+                            style={{
+                              borderColor: `var(${highlightColorDefinition(highlight.color).cssVariable})`,
+                            }}
+                          >
+                            {highlight.note}
+                          </span>
+                          {noteSmalltalkSupported ? (
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={
+                                  <Button
+                                    type="button"
+                                    aria-label={gt("Explain note in plain language")}
+                                    size="icon-xs"
+                                    variant="ghost"
+                                    disabled={noteSmalltalkId === highlight.id}
+                                    onClick={() => explainNote(highlight)}
+                                  />
+                                }
+                              >
+                                <MessageCircleMoreIcon aria-hidden className="size-3.5" />
+                              </TooltipTrigger>
+                              <TooltipPopup>{gt("Explain note in plain language")}</TooltipPopup>
+                            </Tooltip>
+                          ) : null}
+                        </div>
                       ) : null}
                     </div>
                     <div className="flex shrink-0 items-center gap-0.5">

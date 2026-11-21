@@ -33,6 +33,7 @@ const threadId = ThreadId.make("thread");
 const otherThreadId = ThreadId.make("other");
 const messageId = MessageId.make("answer");
 const secondMessageId = MessageId.make("answer-2");
+const forkedMessageId = MessageId.make("forked-answer");
 const selection = { instanceId: ProviderInstanceId.make("codex"), model: "test-model" };
 const create = {
   action: "create" as const,
@@ -76,6 +77,13 @@ const fixture = (driverKind = "codex") =>
           streaming: false,
           runId: "run",
         },
+        {
+          id: forkedMessageId,
+          role: "assistant",
+          text: "A forked reply explains inheritance.",
+          streaming: false,
+          runId: "run",
+        },
       ],
       runs: [{ id: "run", status: "completed" }],
       visibleTurnItems: [
@@ -86,6 +94,11 @@ const fixture = (driverKind = "codex") =>
         {
           sourceThreadId: threadId,
           item: { type: "assistant_message", messageId: secondMessageId, status: "completed" },
+        },
+        // Inherited from a fork: the displayed thread shows it, but it belongs to the source thread.
+        {
+          sourceThreadId: otherThreadId,
+          item: { type: "assistant_message", messageId: forkedMessageId, status: "completed" },
         },
       ],
     };
@@ -368,6 +381,176 @@ it.effect("restarts a file explanation when the file changes mid-generation", ()
         const result = yield* service.get(record);
         assert.strictEqual(result.sourceText, changed.text);
         assert.strictEqual(result.explanation, "The second version says something else.");
+      }).pipe(Effect.provide(f.layer));
+    }),
+  ).pipe(Effect.provide(database.pipe(Layer.provideMerge(dependencies)))),
+);
+
+it.effect("explains a selection excerpt independently of the whole answer and other passages", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      yield* Effect.gen(function* () {
+        const service = yield* SmalltalkService.SmalltalkService;
+        const whole = (yield* service.mutate(create))!;
+        yield* Queue.take(f.jobs);
+        const excerpt = {
+          kind: "excerpt" as const,
+          messageId,
+          text: "commits all changes atomically",
+          start: 3,
+          end: 31,
+          prefix: "A transaction ",
+          suffix: ".",
+        };
+        const record = (yield* service.mutate({ action: "create", threadId, source: excerpt }))!;
+        assert.strictEqual(record.sourceKind, "excerpt");
+        assert.strictEqual(record.sourceThreadId, threadId);
+        assert.strictEqual(record.messageId, messageId);
+        assert.deepStrictEqual(record.anchor, {
+          text: excerpt.text,
+          start: excerpt.start,
+          end: excerpt.end,
+          prefix: excerpt.prefix,
+          suffix: excerpt.suffix,
+        });
+        assert.notStrictEqual(record.id, whole.id);
+        const job = yield* Queue.take(f.jobs);
+        assert.strictEqual(job.sourceText, excerpt.text);
+        assert.strictEqual(
+          (yield* service.mutate({ action: "create", threadId, source: excerpt }))?.id,
+          record.id,
+        );
+        assert.strictEqual(yield* Queue.size(f.jobs), 0);
+        const otherPassage = { ...excerpt, text: "all changes", start: 5, end: 16 };
+        const second = (yield* service.mutate({
+          action: "create",
+          threadId,
+          source: otherPassage,
+        }))!;
+        assert.notStrictEqual(second.id, record.id);
+        assert.notStrictEqual(second.id, whole.id);
+        yield* Queue.take(f.jobs);
+        const summaries = Option.getOrThrow(
+          yield* service.subscribe({ threadId }).pipe(Stream.runHead),
+        );
+        assert.strictEqual(summaries.length, 3);
+        const hidden = yield* service
+          .mutate({
+            action: "create",
+            threadId,
+            source: { ...excerpt, messageId: MessageId.make("hidden") },
+          })
+          .pipe(Effect.flip);
+        assert.strictEqual(hidden.reason, "invalid_source");
+      }).pipe(Effect.provide(f.layer));
+    }),
+  ).pipe(Effect.provide(database.pipe(Layer.provideMerge(dependencies)))),
+);
+
+it.effect("resolves a fork-inherited excerpt to its source thread", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      yield* Effect.gen(function* () {
+        const service = yield* SmalltalkService.SmalltalkService;
+        const record = (yield* service.mutate({
+          action: "create",
+          threadId,
+          source: {
+            kind: "excerpt",
+            messageId: forkedMessageId,
+            text: "reply explains inheritance",
+            start: 8,
+            end: 32,
+            prefix: "A forked ",
+            suffix: ".",
+          },
+        }))!;
+        assert.strictEqual(record.sourceThreadId, otherThreadId);
+        assert.strictEqual(record.messageId, forkedMessageId);
+        const rows = yield* f.sql<{
+          source_thread_id: string;
+        }>`SELECT source_thread_id FROM smalltalk WHERE id = ${record.id}`;
+        assert.strictEqual(rows[0]?.source_thread_id, "other");
+      }).pipe(Effect.provide(f.layer));
+    }),
+  ).pipe(Effect.provide(database.pipe(Layer.provideMerge(dependencies)))),
+);
+
+it.effect(
+  "explains a saved highlight note, reuses it unchanged, and refreshes it when the note is edited",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const f = yield* fixture();
+        yield* Effect.gen(function* () {
+          const service = yield* SmalltalkService.SmalltalkService;
+          const note = {
+            kind: "highlight-note" as const,
+            noteId: "highlight-1",
+            text: "Remember: atomic means all or nothing.",
+          };
+          const record = (yield* service.mutate({ action: "create", threadId, source: note }))!;
+          assert.strictEqual(record.sourceKind, "highlight-note");
+          assert.strictEqual(record.sourceThreadId, threadId);
+          assert.strictEqual(record.filePath, null);
+          assert.strictEqual(record.anchor, null);
+          assert.strictEqual(record.title, note.text);
+          const job = yield* Queue.take(f.jobs);
+          assert.strictEqual(job.sourceText, note.text);
+          assert.strictEqual(job.instructions, SYSTEM_SMALLTALK_PRESET.prompt);
+          assert.strictEqual(
+            (yield* service.mutate({ action: "create", threadId, source: note }))?.id,
+            record.id,
+          );
+          assert.strictEqual(yield* Queue.size(f.jobs), 0);
+          yield* Deferred.succeed(job.gate, "All or nothing.");
+          yield* settled(service, record.id, "completed");
+          const other = (yield* service.mutate({
+            action: "create",
+            threadId,
+            source: { ...note, noteId: "highlight-2", text: "Cache hits skip work." },
+          }))!;
+          assert.notStrictEqual(other.id, record.id);
+          yield* Queue.take(f.jobs);
+          const edited = { ...note, text: "Edited: atomicity also covers rollbacks." };
+          const refreshed = (yield* service.mutate({
+            action: "create",
+            threadId,
+            source: edited,
+          }))!;
+          assert.strictEqual(refreshed.id, record.id);
+          assert.strictEqual(refreshed.sourceText, edited.text);
+          assert.strictEqual(refreshed.explanation, "");
+          const retry = yield* Queue.take(f.jobs);
+          assert.strictEqual(retry.sourceText, edited.text);
+          yield* Deferred.succeed(retry.gate, "Rollbacks too.");
+          yield* settled(service, record.id, "completed");
+          const final = yield* service.get({ threadId, id: record.id });
+          assert.strictEqual(final.sourceText, edited.text);
+          assert.strictEqual(final.explanation, "Rollbacks too.");
+          const rows = yield* f.sql<{
+            message_id: string;
+          }>`SELECT message_id FROM smalltalk WHERE id = ${record.id}`;
+          assert.strictEqual(rows[0]?.message_id, "note:highlight-1");
+        }).pipe(Effect.provide(f.layer));
+      }),
+    ).pipe(Effect.provide(database.pipe(Layer.provideMerge(dependencies)))),
+);
+
+it.effect("decodes records written before excerpt and note sources existed", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      yield* Effect.gen(function* () {
+        const service = yield* SmalltalkService.SmalltalkService;
+        const record = (yield* service.mutate(create))!;
+        yield* Queue.take(f.jobs);
+        yield* f.sql`UPDATE smalltalk SET payload_json = json_remove(payload_json, '$.sourceKind', '$.anchor') WHERE id = ${record.id}`;
+        const legacy = yield* service.get(record);
+        assert.strictEqual(legacy.sourceKind, "message");
+        assert.strictEqual(legacy.anchor, null);
       }).pipe(Effect.provide(f.layer));
     }),
   ).pipe(Effect.provide(database.pipe(Layer.provideMerge(dependencies)))),

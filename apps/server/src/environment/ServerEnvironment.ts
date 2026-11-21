@@ -266,6 +266,7 @@ export const make = Effect.gen(function* () {
       threadTitleRegeneration: true,
       smalltalk: true,
       smalltalkFileSource: true,
+      smalltalkExcerptSource: true,
       commandOutputStreaming: true,
       threadVisitedTracking: true,
       threadPullRequests: true,

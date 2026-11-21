@@ -1,6 +1,10 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { MessageId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { NonNegativeInt, MessageId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import {
+  ASSISTANT_CITATION_CONTEXT_LENGTH,
+  ASSISTANT_CITATION_MAX_TEXT_LENGTH,
+} from "./assistantCitations.ts";
 import { ModelSelection } from "./modelSelection.ts";
 
 export const DEFAULT_SMALLTALK_PROMPT =
@@ -19,6 +23,19 @@ export const SYSTEM_SMALLTALK_PRESET: SmalltalkPreset = {
 };
 export const SmalltalkStatus = Schema.Literals(["generating", "completed", "failed", "cancelled"]);
 export const SMALLTALK_SOURCE_TEXT_MAX_LENGTH = 200_000;
+/** The web keeps highlight notes at this length; longer notes can never reach the server. */
+const SMALLTALK_NOTE_TEXT_MAX_LENGTH = 2_000;
+/** A selected passage carries the same bounds as a citation quote. */
+const SmalltalkExcerptSelector = Schema.Struct({
+  text: Schema.String.check(
+    Schema.isNonEmpty(),
+    Schema.isMaxLength(ASSISTANT_CITATION_MAX_TEXT_LENGTH),
+  ),
+  start: NonNegativeInt,
+  end: NonNegativeInt,
+  prefix: Schema.String.check(Schema.isMaxLength(ASSISTANT_CITATION_CONTEXT_LENGTH)),
+  suffix: Schema.String.check(Schema.isMaxLength(ASSISTANT_CITATION_CONTEXT_LENGTH)),
+}).check(Schema.makeFilter((selector) => selector.end > selector.start));
 export const SmalltalkSource = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("message"),
@@ -32,6 +49,16 @@ export const SmalltalkSource = Schema.Union([
       Schema.isNonEmpty(),
       Schema.isMaxLength(SMALLTALK_SOURCE_TEXT_MAX_LENGTH),
     ),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("excerpt"),
+    messageId: MessageId,
+    ...SmalltalkExcerptSelector.fields,
+  }).check(Schema.makeFilter((source) => source.text.trim().length > 0)),
+  Schema.Struct({
+    kind: Schema.Literal("highlight-note"),
+    noteId: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+    text: TrimmedNonEmptyString.check(Schema.isMaxLength(SMALLTALK_NOTE_TEXT_MAX_LENGTH)),
   }),
 ]);
 export type SmalltalkSource = typeof SmalltalkSource.Type;
@@ -55,8 +82,22 @@ export const SmalltalkSummary = Schema.Struct({
   streamingText: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
 });
 export type SmalltalkSummary = typeof SmalltalkSummary.Type;
+export const SmalltalkSourceKind = Schema.Literals([
+  "message",
+  "markdown-file",
+  "excerpt",
+  "highlight-note",
+]);
+export type SmalltalkSourceKind = typeof SmalltalkSourceKind.Type;
+/** Where an excerpt explanation jumps back to: the real message plus its rendered-text selector. */
+export const SmalltalkExcerptAnchor = SmalltalkExcerptSelector;
+export type SmalltalkExcerptAnchor = typeof SmalltalkExcerptAnchor.Type;
 export const Smalltalk = Schema.Struct({
   ...SmalltalkSummary.fields,
+  sourceKind: SmalltalkSourceKind.pipe(Schema.withDecodingDefault(Effect.succeed("message"))),
+  anchor: Schema.NullOr(SmalltalkExcerptAnchor).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   sourceText: Schema.String,
   question: Schema.String,
   explanation: Schema.String,
