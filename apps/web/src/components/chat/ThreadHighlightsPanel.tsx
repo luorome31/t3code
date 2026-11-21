@@ -1,8 +1,10 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { AssistantCitation, ScopedThreadRef } from "@t3tools/contracts";
-import { useGT, useMessages } from "gt-react";
+import { msg, useGT, useMessages } from "gt-react";
 import { HighlighterIcon, MessageCircleMoreIcon, StickyNoteIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
@@ -37,6 +39,7 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { toastManager } from "../ui/toast";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
@@ -178,7 +181,7 @@ export function ThreadHighlightsPanel({
   );
   const smalltalkMutate = useAtomCommand(smalltalkEnvironment.mutate);
   const selectSmalltalk = useAtomSet(selectedSmalltalkAtom(scopedThreadKey(threadRef)));
-  const [noteSmalltalkId, setNoteSmalltalkId] = useState<string | null>(null);
+  const [creatingNoteExplanation, setCreatingNoteExplanation] = useState(false);
   const noteSmalltalkSupported =
     smalltalkConfig?.environment.capabilities.smalltalk === true &&
     smalltalkConfig.environment.capabilities.smalltalkExcerptSource === true &&
@@ -319,8 +322,8 @@ export function ThreadHighlightsPanel({
   };
   const cancelNote = () => setNoteEditor(null);
   const explainNote = (highlight: ThreadHighlight) => {
-    if (highlight.note === undefined) return;
-    setNoteSmalltalkId(highlight.id);
+    if (highlight.note === undefined || creatingNoteExplanation) return;
+    setCreatingNoteExplanation(true);
     void smalltalkMutate({
       environmentId: threadRef.environmentId,
       input: {
@@ -330,12 +333,21 @@ export function ThreadHighlightsPanel({
       },
     })
       .then((result) => {
-        if (result._tag === "Success" && result.value) {
+        if (result._tag === "Failure") {
+          toastManager.add({
+            type: "warning",
+            title: gt("Could not create this explanation"),
+            description:
+              thrownErrorMessage(squashAtomCommandFailure(result), m) ?? m(msg("Try again.")),
+          });
+          return;
+        }
+        if (result.value) {
           selectSmalltalk(result.value.id);
           useRightPanelStore.getState().open(threadRef, "smalltalk");
         }
       })
-      .finally(() => setNoteSmalltalkId(null));
+      .finally(() => setCreatingNoteExplanation(false));
   };
 
   return (
@@ -548,7 +560,7 @@ export function ThreadHighlightsPanel({
                                     aria-label={gt("Explain note in plain language")}
                                     size="icon-xs"
                                     variant="ghost"
-                                    disabled={noteSmalltalkId === highlight.id}
+                                    disabled={creatingNoteExplanation}
                                     onClick={() => explainNote(highlight)}
                                   />
                                 }
