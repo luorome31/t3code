@@ -54,7 +54,9 @@ export const SmalltalkSource = Schema.Union([
     kind: Schema.Literal("excerpt"),
     messageId: MessageId,
     ...SmalltalkExcerptSelector.fields,
-  }).check(Schema.makeFilter((source) => source.text.trim().length > 0)),
+  }).check(
+    Schema.makeFilter((source) => source.end > source.start && source.text.trim().length > 0),
+  ),
   Schema.Struct({
     kind: Schema.Literal("highlight-note"),
     noteId: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),

@@ -5,8 +5,10 @@ import {
   type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import { useGT } from "gt-react";
+import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { msg, useGT } from "gt-react";
 import { MessageCircleMoreIcon, QuoteIcon } from "lucide-react";
 import { use, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -39,6 +41,7 @@ import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { BackgroundThreadContext } from "./backgroundThread";
+import { m } from "~/i18n/messages";
 
 interface ClickedHighlight {
   readonly highlight: ThreadHighlight;
@@ -60,6 +63,7 @@ export function AssistantSelectionToolbar({
     position: SelectionActionPoint;
     sourceAnchor: AssistantCitationSourceAnchor;
     existingHighlightId: string | null;
+    excerptSource: boolean;
   } | null>(null);
   const [clickedHighlight, setClickedHighlight] = useState<ClickedHighlight | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -173,6 +177,7 @@ export function AssistantSelectionToolbar({
           ...captured.selector,
         },
         existingHighlightId,
+        excerptSource: captured.source.dataset.assistantExcerptSource === "true",
         position: resolveSelectionActionPosition({
           bounds: viewportRect,
           selectionRect: rects.item(rects.length - 1) ?? rect,
@@ -293,7 +298,7 @@ export function AssistantSelectionToolbar({
       ? gt("Selection is too long to explain")
       : gt("Explain selection in plain language");
     const explainSelection = () => {
-      if (explainTooLong || !smalltalkSupported) return;
+      if (explainTooLong || !smalltalkSupported || !selection.excerptSource) return;
       setSmalltalkBusy(true);
       void smalltalkMutate({
         environmentId,
@@ -312,7 +317,17 @@ export function AssistantSelectionToolbar({
         },
       })
         .then((result) => {
-          if (result._tag === "Success" && result.value) {
+          if (result._tag === "Failure") {
+            // The selection stays so the action can be retried.
+            toastManager.add({
+              type: "warning",
+              title: gt("Could not create this explanation"),
+              description:
+                thrownErrorMessage(squashAtomCommandFailure(result), m) ?? m(msg("Try again.")),
+            });
+            return;
+          }
+          if (result.value) {
             selectSmalltalk(result.value.id);
             useRightPanelStore.getState().open(threadRef, "smalltalk");
             clearSelection();
@@ -359,7 +374,7 @@ export function AssistantSelectionToolbar({
           onAdd={addHighlight}
           onRemove={removeHighlight}
         />
-        {smalltalkSupported ? (
+        {smalltalkSupported && selection.excerptSource ? (
           <Tooltip>
             <TooltipTrigger
               render={

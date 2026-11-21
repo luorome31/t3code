@@ -40,6 +40,39 @@ describe("Smalltalk contracts", () => {
     expect(() => decodeMutation({ action: "create", threadId })).toThrow();
   });
 
+  it("decodes an excerpt and rejects a range that ends before it starts", () => {
+    expect(
+      decodeMutation({
+        action: "create",
+        threadId,
+        source: {
+          kind: "excerpt",
+          messageId,
+          text: "hi",
+          start: 0,
+          end: 5,
+          prefix: "",
+          suffix: "",
+        },
+      }),
+    ).toMatchObject({ source: { kind: "excerpt", messageId, start: 0, end: 5 } });
+    expect(() =>
+      decodeMutation({
+        action: "create",
+        threadId,
+        source: {
+          kind: "excerpt",
+          messageId,
+          text: "hi",
+          start: 500,
+          end: 5,
+          prefix: "",
+          suffix: "",
+        },
+      }),
+    ).toThrow();
+  });
+
   it("decodes summaries written before file sources as message sources", () => {
     const legacy = {
       id: "smalltalk",

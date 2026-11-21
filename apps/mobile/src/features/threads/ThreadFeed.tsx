@@ -1322,6 +1322,8 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
   readonly markdown: string;
   readonly environmentId: EnvironmentId;
   readonly citationSource?: Pick<AssistantCitation, "threadId" | "messageId">;
+  /** The server accepts excerpts only from a completed, real assistant message. */
+  readonly excerptSourceEligible?: boolean;
   readonly onCiteAssistantText?: (citation: AssistantCitation) => void;
   readonly markdownStyles: MarkdownStyleSet;
   readonly linkHandlers: MarkdownLinkHandlers;
@@ -1331,6 +1333,7 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
   readonly skills?: ReadonlyArray<SelectableMarkdownSkill> | undefined;
 }) {
   const gt = useGT();
+  const messages = useMessages();
   const navigation = useNavigation();
   const liveMarkdown = useLiveThreadLinkLabels(props.markdown, props.environmentId);
   const smalltalkConfig = useAtomValue(serverEnvironment.configValueAtom(props.environmentId));
@@ -1346,6 +1349,7 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
   const [quoteSelection, setQuoteSelection] = useState<{
     markdown: string;
     selectors: ReturnType<typeof collectMobileAssistantTextSelectors>;
+    action: "cite" | "explain";
   } | null>(null);
   if (quoteSelection !== null && quoteSelection.markdown !== liveMarkdown) setQuoteSelection(null);
   const quoteChoices = quoteSelection?.selectors ?? [];
@@ -1360,45 +1364,64 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
     });
   };
   // The menu shows plain-language explaining only when the server accepts excerpt sources.
-  const explainText =
-    smalltalkSupported && props.citationSource
-      ? (text: string, path: string) => {
-          if (explainBusy || !text.trim()) return;
-          if (text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH) {
-            Dialog.alert(gt("Selection is too long to explain"));
-            return;
-          }
-          const selectors = collectMobileAssistantTextSelectors(liveMarkdown, path, text);
-          if (selectors.length === 0) {
-            Dialog.alert(
-              gt("Unable to locate quote"),
-              gt("Select more surrounding text to explain its source accurately."),
-            );
-            return;
-          }
-          const selector = selectors[0]!.selector;
-          const citationSource = props.citationSource!;
-          setExplainBusy(true);
-          void smalltalkMutate({
-            environmentId: props.environmentId,
-            input: {
-              action: "create",
-              threadId: citationSource.threadId,
-              source: { kind: "excerpt", messageId: citationSource.messageId, ...selector },
-            },
-          })
-            .then((result) => {
-              if (result._tag === "Success" && result.value) {
-                navigation.navigate("ThreadSmalltalk", {
-                  environmentId: props.environmentId,
-                  threadId: citationSource.threadId,
-                  selectedId: result.value.id,
-                });
-              }
-            })
-            .finally(() => setExplainBusy(false));
+  const explainAllowed =
+    smalltalkSupported &&
+    props.excerptSourceEligible === true &&
+    props.citationSource !== undefined;
+  const explainSelection = (selector: (typeof quoteChoices)[number]["selector"]) => {
+    const citationSource = props.citationSource;
+    if (!citationSource) return;
+    setQuoteSelection(null);
+    setExplainBusy(true);
+    void smalltalkMutate({
+      environmentId: props.environmentId,
+      input: {
+        action: "create",
+        threadId: citationSource.threadId,
+        source: { kind: "excerpt", messageId: citationSource.messageId, ...selector },
+      },
+    })
+      .then((result) => {
+        if (result._tag === "Failure") {
+          Dialog.alert(
+            gt("Could not create this explanation"),
+            errorDisplayMessage(squashAtomCommandFailure(result), messages) ?? gt("Try again."),
+          );
+          return;
         }
-      : undefined;
+        if (result.value) {
+          navigation.navigate("ThreadSmalltalk", {
+            environmentId: props.environmentId,
+            threadId: citationSource.threadId,
+            selectedId: result.value.id,
+          });
+        }
+      })
+      .finally(() => setExplainBusy(false));
+  };
+  const explainText = explainAllowed
+    ? (text: string, path: string) => {
+        if (explainBusy || !text.trim()) return;
+        if (text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH) {
+          Dialog.alert(gt("Selection is too long to explain"));
+          return;
+        }
+        const selectors = collectMobileAssistantTextSelectors(liveMarkdown, path, text);
+        if (selectors.length === 0) {
+          Dialog.alert(
+            gt("Unable to locate quote"),
+            gt("Select more surrounding text to explain its source accurately."),
+          );
+          return;
+        }
+        if (selectors.length === 1) {
+          explainSelection(selectors[0]!.selector);
+          return;
+        }
+        // The selection menu reports the chosen text but not which occurrence it came from.
+        setQuoteSelection({ markdown: liveMarkdown, selectors, action: "explain" });
+      }
+    : undefined;
   const models = useModelMentions(props.environmentId, props.markdown);
   const threadIcons = useThreadChipIcons(props.environmentId, liveMarkdown);
   const withGallery = useFilePreviewGallery();
@@ -1439,7 +1462,7 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
                   return;
                 }
                 if (selectors.length === 1) cite(selectors[0]!);
-                else setQuoteSelection({ markdown: liveMarkdown, selectors });
+                else setQuoteSelection({ markdown: liveMarkdown, selectors, action: "cite" });
               }
             : undefined
         }
@@ -1451,7 +1474,9 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
         skills={props.skills}
         models={models}
       />
-      {quoteChoices.length > 0 && props.onCiteAssistantText ? (
+      {quoteChoices.length > 0 &&
+      quoteSelection !== null &&
+      (quoteSelection.action === "cite" ? props.onCiteAssistantText : explainAllowed) ? (
         <Sheet title={gt("Choose quote source")} onClose={() => setQuoteSelection(null)}>
           <ScrollView
             contentInsetAdjustmentBehavior="automatic"
@@ -1468,7 +1493,11 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
                     count: choice.count,
                   })}
                   description={`${choice.selector.prefix}${choice.selector.text}${choice.selector.suffix}`}
-                  onPress={() => cite(choice)}
+                  onPress={() =>
+                    quoteSelection.action === "cite"
+                      ? cite(choice)
+                      : explainSelection(choice.selector)
+                  }
                 />
               ))}
             </ListSection>
@@ -2744,6 +2773,12 @@ function renderFeedEntry(
               markdown={renderedText}
               environmentId={props.environmentId}
               citationSource={{ threadId: props.threadId, messageId: message.id }}
+              excerptSourceEligible={
+                !isUser &&
+                !message.streaming &&
+                message.projectedItem?.item.type === "assistant_message" &&
+                message.projectedItem.item.status === "completed"
+              }
               onCiteAssistantText={props.onCiteAssistantText}
               markdownStyles={styles}
               linkHandlers={props.markdownLinkHandlers}

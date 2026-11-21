@@ -63,6 +63,11 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
             itemKey={row.id}
             request={ctx.citationRequest}
             listRef={ctx.listRef}
+            excerptSource={
+              row.projectedItem?.item.type === "assistant_message" &&
+              row.projectedItem.item.status === "completed" &&
+              !row.message.streaming
+            }
           >
             <ChatMarkdown
               text={messageText}

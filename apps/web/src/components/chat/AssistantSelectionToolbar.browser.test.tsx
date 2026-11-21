@@ -2,10 +2,13 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   EnvironmentId,
   MessageId,
+  SmalltalkError,
   ThreadId,
   type AssistantCitation,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
+import { AsyncResult } from "effect/reactivity";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -23,8 +26,51 @@ import { DEFAULT_HIGHLIGHT_COLOR, highlightRegistryName } from "~/lib/highlightC
 import { topmostHighlightHitAt } from "~/lib/highlightHitTargets";
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
 import { render } from "../../../test/render";
+import { useRightPanelStore } from "../../rightPanelStore";
+import { toastManager } from "../ui/toast";
 import { AssistantHighlightPainter } from "./AssistantHighlightPainter";
 import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
+
+const smalltalkState = vi.hoisted(() => ({
+  config: false,
+  mutate: vi.fn(),
+  openPanel: vi.fn(),
+}));
+
+vi.mock(import("~/state/server"), async (original) => {
+  const actual = await original();
+  const { Atom } = await import("effect/reactivity");
+  const smalltalkExcerptConfig = Atom.make({
+    environment: {
+      platform: { os: "linux" },
+      capabilities: { smalltalk: true, smalltalkExcerptSource: true },
+    },
+  });
+  const noConfig = Atom.make(null);
+  return {
+    ...actual,
+    serverEnvironment: {
+      ...actual.serverEnvironment,
+      configValueAtom: (() => (smalltalkState.config ? smalltalkExcerptConfig : noConfig)) as never,
+    },
+  };
+});
+vi.mock(import("~/state/smalltalk"), async (original) => {
+  const actual = await original();
+  const { Atom } = await import("effect/reactivity");
+  return {
+    ...actual,
+    smalltalkEnvironment: {
+      ...actual.smalltalkEnvironment,
+      mutate: { ...actual.smalltalkEnvironment.mutate, permissionAtom: () => Atom.make(true) },
+    },
+    selectedSmalltalkAtom: (() => Atom.make<string | null>(null)) as never,
+  };
+});
+vi.mock(import("~/state/use-atom-command"), async (original) => ({
+  ...(await original()),
+  useAtomCommand: (() => smalltalkState.mutate) as never,
+}));
 
 const threadRef: ScopedThreadRef = scopeThreadRef(
   EnvironmentId.make("environment-1"),
@@ -34,14 +80,20 @@ const threadRef: ScopedThreadRef = scopeThreadRef(
 function Harness({
   onCite,
   text = "highlight me",
+  excerptSource = false,
 }: {
   onCite: (citation: AssistantCitation) => boolean;
   text?: string;
+  /** Marks the source as a completed real assistant message, as the timeline does. */
+  excerptSource?: boolean;
 }) {
   const [viewport, setViewport] = useState<HTMLDivElement | null>(null);
   return (
     <div ref={setViewport} style={{ width: 480, height: 200 }}>
-      <div data-assistant-citation-source={MessageId.make("message-1")}>
+      <div
+        data-assistant-citation-source={MessageId.make("message-1")}
+        {...(excerptSource ? { "data-assistant-excerpt-source": "true" } : {})}
+      >
         <p>{text}</p>
       </div>
       <AssistantSelectionToolbar
@@ -150,6 +202,9 @@ function setup() {
   });
   if (typeof localStorage !== "undefined") localStorage.clear();
   window.getSelection()?.removeAllRanges();
+  smalltalkState.config = false;
+  smalltalkState.mutate.mockReset();
+  smalltalkState.openPanel.mockReset();
 }
 
 describe("AssistantSelectionToolbar", () => {
@@ -268,6 +323,86 @@ describe("AssistantSelectionToolbar", () => {
     await userEvent.click(page.getByRole("button", { name: "Highlight selection as Blue" }));
 
     expect(readThreadHighlights(threadRef)[0]?.color).toBe("blue");
+  });
+});
+
+describe("AssistantSelectionToolbar plain-language explain", () => {
+  it("explains the selected text of a completed assistant message as an excerpt", async () => {
+    setup();
+    smalltalkState.config = true;
+    smalltalkState.mutate.mockResolvedValue(AsyncResult.success({ id: "smalltalk-1" }));
+    await using screen = await render(<Harness onCite={() => true} excerptSource />);
+    const { open } = useRightPanelStore.getState();
+    using _panel = {
+      [Symbol.dispose]: () => useRightPanelStore.setState({ open }),
+    };
+    useRightPanelStore.setState({ open: smalltalkState.openPanel });
+
+    selectText(screen.getByText("highlight me").element() as HTMLElement, 0, "highlight".length);
+    await userEvent.click(
+      page.getByRole("button", { name: "Explain selection in plain language" }),
+    );
+
+    expect(smalltalkState.mutate).toHaveBeenCalledWith({
+      environmentId: threadRef.environmentId,
+      input: {
+        action: "create",
+        threadId: threadRef.threadId,
+        source: {
+          kind: "excerpt",
+          messageId: MessageId.make("message-1"),
+          text: "highlight",
+          start: 0,
+          end: 9,
+          prefix: "",
+          suffix: " me",
+        },
+      },
+    });
+    expect(smalltalkState.openPanel).toHaveBeenCalledWith(threadRef, "smalltalk");
+    await expect
+      .element(page.getByRole("group", { name: "Selection actions" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("keeps the selection and warns when the explanation cannot be created", async () => {
+    setup();
+    smalltalkState.config = true;
+    smalltalkState.mutate.mockResolvedValue(
+      AsyncResult.failure(Cause.fail(new SmalltalkError({ reason: "invalid_source" }))),
+    );
+    using toast = vi.spyOn(toastManager, "add");
+    await using screen = await render(<Harness onCite={() => true} excerptSource />);
+
+    selectText(screen.getByText("highlight me").element() as HTMLElement, 0, "highlight".length);
+    await userEvent.click(
+      page.getByRole("button", { name: "Explain selection in plain language" }),
+    );
+
+    await vi.waitFor(() => expect(toast).toHaveBeenCalledOnce());
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "warning",
+        title: "Could not create this explanation",
+        description: "Choose a completed, nonempty response in this thread.",
+      }),
+    );
+    await expect.element(page.getByRole("group", { name: "Selection actions" })).toBeVisible();
+    expect(smalltalkState.openPanel).not.toHaveBeenCalled();
+  });
+
+  it("hides the explain action for selections the server would reject", async () => {
+    setup();
+    smalltalkState.config = true;
+    await using screen = await render(<Harness onCite={() => true} />);
+
+    selectText(screen.getByText("highlight me").element() as HTMLElement);
+    await expect
+      .element(page.getByRole("button", { name: "Cite selection in composer" }))
+      .toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: "Explain selection in plain language" }))
+      .not.toBeInTheDocument();
   });
 });
 
