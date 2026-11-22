@@ -68,12 +68,19 @@ describe("timestamps in an explicit time zone", () => {
   });
 
   it("formats an hour the zone repeats when clocks go back", () => {
-    // America/New_York left DST on 2026-11-01: 05:30 UTC is 1:30 AM EST after the fall-back.
-    const fallBack = "2026-11-01T05:30:00.000Z";
-    expect(formatShortTimestamp(fallBack, "24-hour", zone)).toBe("1:30");
-    expect(formatChatTimestampTooltip(fallBack, "24-hour", zone)).toMatch(
-      /^1:30, 1st November 2026$/,
-    );
+    // In New York, 05:30 UTC is 1:30 AM EDT and 06:30 UTC is 1:30 AM EST.
+    const expectedTime = new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: false,
+      timeZone: "UTC",
+    }).format(new Date("2026-11-01T01:30:00.000Z"));
+    for (const instant of ["2026-11-01T05:30:00.000Z", "2026-11-01T06:30:00.000Z"]) {
+      expect(formatShortTimestamp(instant, "24-hour", zone)).toBe(expectedTime);
+      expect(formatChatTimestampTooltip(instant, "24-hour", zone)).toBe(
+        `${expectedTime}, 1st November 2026`,
+      );
+    }
   });
 
   it("reuses formatters on the day-aware hot path once the zone's are warm", () => {
