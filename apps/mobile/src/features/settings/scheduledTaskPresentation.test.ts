@@ -2,6 +2,18 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { formatNextScheduledTaskRun } from "./scheduledTaskPresentation";
 
+// Node re-resolves the default zone when TZ is assigned, so a test can pin the device zone.
+function useTimeZone(timeZone: string): Disposable {
+  const previous = process.env.TZ;
+  process.env.TZ = timeZone;
+  return {
+    [Symbol.dispose]: () => {
+      if (previous === undefined) delete process.env.TZ;
+      else process.env.TZ = previous;
+    },
+  };
+}
+
 describe("formatNextScheduledTaskRun", () => {
   it("names the rounded unit for a run later today", () => {
     const now = new Date(2026, 10, 3, 10, 0, 0).getTime();
@@ -36,6 +48,26 @@ describe("formatNextScheduledTaskRun", () => {
     });
     expect(formatNextScheduledTaskRun(next, now, undefined, "America/New_York")).toBe(
       `Next run next Monday at ${time}`,
+    );
+  });
+
+  it("adds the year from the chosen zone's calendar, not the device's", () => {
+    // Tokyo is already in 2027 for both instants, so comparing years there hides the year;
+    // the chosen zone is still in 2026 at "now" and needs the 2027 in the next run's date.
+    using _deviceZone = useTimeZone("Asia/Tokyo");
+    const now = Date.parse("2026-12-31T20:00:00.000Z");
+    const next = new Date("2027-01-09T03:00:00.000Z");
+    expect(formatNextScheduledTaskRun(next.toISOString(), now, undefined, "America/New_York")).toBe(
+      `Next run ${next.toLocaleDateString([], {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "America/New_York",
+      })} at ${next.toLocaleTimeString([], {
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone: "America/New_York",
+      })}`,
     );
   });
 

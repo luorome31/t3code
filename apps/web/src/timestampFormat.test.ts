@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  calendarDayIndex,
   formatChatTimestampTooltip,
   formatDayAwareTimestamp,
+  formatDayHeader,
   formatFullTimestamp,
   formatShortTimestamp,
   formatUpcomingTimestamp,
@@ -19,6 +21,12 @@ function useTimeZone(timeZone: string): Disposable {
     },
   };
 }
+
+const dayHeaderOptionsIn: Intl.DateTimeFormatOptions = {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+};
 
 describe("timestamps in an explicit time zone", () => {
   // 23:00 UTC on July 1 is 7 PM on July 1 in New York, whatever the host zone.
@@ -66,6 +74,65 @@ describe("timestamps in an explicit time zone", () => {
     expect(formatChatTimestampTooltip(fallBack, "24-hour", zone)).toMatch(
       /^1:30, 1st November 2026$/,
     );
+  });
+
+  it("reuses formatters on the day-aware hot path once the zone's are warm", () => {
+    // Old messages hit every zoned formatter the path reads: time, calendar day, numeric date.
+    const old = "2026-06-20T12:00:00.000Z";
+    expect(formatDayAwareTimestamp(old, "24-hour", now, zone)).not.toBe("");
+
+    const realDateTimeFormat = Intl.DateTimeFormat;
+    let constructions = 0;
+    class CountingDateTimeFormat extends realDateTimeFormat {
+      constructor(...args: ConstructorParameters<typeof realDateTimeFormat>) {
+        super(...args);
+        constructions += 1;
+      }
+    }
+    // The counting subclass covers the `new` path the measured window exercises.
+    Intl.DateTimeFormat = CountingDateTimeFormat as unknown as typeof Intl.DateTimeFormat;
+    try {
+      for (let call = 0; call < 100; call += 1) {
+        expect(formatDayAwareTimestamp(old, "24-hour", now, zone)).not.toBe("");
+      }
+    } finally {
+      Intl.DateTimeFormat = realDateTimeFormat;
+    }
+    expect(constructions).toBe(0);
+  });
+});
+
+describe("day headers and grouping in an explicit time zone", () => {
+  // 03:30 and 04:30 UTC on November 1 are 23:30 and 00:30 in New York, across its midnight.
+  const beforeMidnight = "2026-11-01T03:30:00.000Z";
+  const afterMidnight = "2026-11-01T04:30:00.000Z";
+  const zone = "America/New_York";
+
+  it("groups rows by the zone's calendar day", () => {
+    expect(calendarDayIndex(beforeMidnight, zone)).not.toBe(calendarDayIndex(afterMidnight, zone));
+    // 20:00 UTC on October 31 is 16:00 in New York, the same zone day as 23:30 there.
+    expect(calendarDayIndex("2026-10-31T20:00:00.000Z", zone)).toBe(
+      calendarDayIndex(beforeMidnight, zone),
+    );
+  });
+
+  it("headers keep the locale's short month-day-year in the zone", () => {
+    const headerIn = (iso: string) =>
+      new Intl.DateTimeFormat(undefined, { ...dayHeaderOptionsIn, timeZone: zone }).format(
+        new Date(iso),
+      );
+    expect(formatDayHeader(beforeMidnight, zone)).toBe(headerIn(beforeMidnight));
+    expect(formatDayHeader(afterMidnight, zone)).toBe(headerIn(afterMidnight));
+  });
+
+  it("keeps the device zone's header and grouping without an override", () => {
+    // 20:00 UTC on October 31 is already November 1 in Tokyo, whatever the host zone is.
+    using _deviceZone = useTimeZone("Asia/Tokyo");
+    const monthEnd = "2026-10-31T20:00:00.000Z";
+    expect(formatDayHeader(monthEnd)).toBe(
+      new Date(monthEnd).toLocaleDateString(undefined, dayHeaderOptionsIn),
+    );
+    expect(calendarDayIndex(monthEnd)).toBe(calendarDayIndex("2026-11-01T02:00:00.000Z"));
   });
 });
 

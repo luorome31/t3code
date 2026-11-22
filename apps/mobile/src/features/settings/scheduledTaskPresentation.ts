@@ -40,15 +40,21 @@ export function formatScheduledTaskInterval(everyMs: number, resolve: MessageRes
   return resolve(msg("Every {duration}", { duration: parts.join(" ") }));
 }
 
-function localCalendarDay(date: Date): number {
-  // Compare calendar days, not 24-hour spans: DST days can have 23 or 25 hours.
-  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / DAY;
+interface CalendarDay {
+  year: number;
+  /** Days since the epoch, so differences stay whole days across DST shifts. */
+  index: number;
+}
+
+function localCalendarDay(date: Date): CalendarDay {
+  const year = date.getFullYear();
+  return { year, index: Date.UTC(year, date.getMonth(), date.getDate()) / DAY };
 }
 
 const zonedDayFormatterCache = new Map<string, Intl.DateTimeFormat>();
 
-/** Days since the epoch in the given zone, so differences stay whole days across DST shifts. */
-function zonedCalendarDay(date: Date, timeZone: string): number {
+/** The calendar day in the given zone; index differences stay whole days across DST shifts. */
+function zonedCalendarDay(date: Date, timeZone: string): CalendarDay {
   let formatter = zonedDayFormatterCache.get(timeZone);
   if (!formatter) {
     formatter = new Intl.DateTimeFormat("en-US", {
@@ -62,10 +68,11 @@ function zonedCalendarDay(date: Date, timeZone: string): number {
   const parts = formatter.formatToParts(date);
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     Number(parts.find((entry) => entry.type === type)?.value);
-  return Date.UTC(part("year"), part("month") - 1, part("day")) / DAY;
+  const year = part("year");
+  return { year, index: Date.UTC(year, part("month") - 1, part("day")) / DAY };
 }
 
-function calendarDay(date: Date, timeZone: string | undefined): number {
+function calendarDay(date: Date, timeZone: string | undefined): CalendarDay {
   return timeZone ? zonedCalendarDay(date, timeZone) : localCalendarDay(date);
 }
 
@@ -91,7 +98,9 @@ export function formatNextScheduledTaskRun(
   if (!Number.isFinite(remaining)) return resolve(msg("Next run unavailable"));
   if (remaining <= 0) return resolve(msg("Next run due"));
 
-  const days = calendarDay(next, timeZone) - calendarDay(current, timeZone);
+  const nextDay = calendarDay(next, timeZone);
+  const todayDay = calendarDay(current, timeZone);
+  const days = nextDay.index - todayDay.index;
   if (days === 0) {
     if (remaining < MINUTE) return resolve(msg("Next run in less than a minute"));
     const minutes = Math.round(remaining / MINUTE);
@@ -116,7 +125,7 @@ export function formatNextScheduledTaskRun(
   if (days <= 7) {
     // 1970-01-01 was a Thursday, so an epoch-day index maps onto `getDay` indexes directly.
     const weekday = timeZone
-      ? (calendarDay(next, timeZone) + 4) % 7
+      ? (nextDay.index + 4) % 7
       : (next.getDay() as 0 | 1 | 2 | 3 | 4 | 5 | 6);
     return resolve(
       msg(
@@ -128,7 +137,7 @@ export function formatNextScheduledTaskRun(
   const date = next.toLocaleDateString([], {
     month: "short",
     day: "numeric",
-    ...(next.getFullYear() !== current.getFullYear() ? { year: "numeric" as const } : {}),
+    ...(nextDay.year !== todayDay.year ? { year: "numeric" as const } : {}),
     ...zoneOptions,
   });
   return resolve(msg("Next run {date} at {time}", { date, time }));

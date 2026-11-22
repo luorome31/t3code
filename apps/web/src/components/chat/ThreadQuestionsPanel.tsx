@@ -1,10 +1,12 @@
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import type { OrchestrationV2Question, ScopedThreadRef } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+import { T, useGT } from "gt-react";
 import { ListOrderedIcon, PaperclipIcon, QuoteIcon } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useClientSettings } from "../../hooks/useSettings";
-import { formatShortTimestamp } from "../../timestampFormat";
+import { useDisplayTimeZone } from "../../hooks/useDisplayTimezone";
+import { calendarDayIndex, formatDayHeader, formatShortTimestamp } from "../../timestampFormat";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -23,6 +25,8 @@ export function ThreadQuestionsPanel({
 }) {
   const outline = useQuestionOutline(threadRef);
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
+  const displayTimeZone = useDisplayTimeZone();
+  const gt = useGT();
   const listRef = useRef<LegendListRef | null>(null);
   const revealedRef = useRef<string | null>(null);
   const currentIndex = outline.questions.findIndex(
@@ -48,9 +52,11 @@ export function ThreadQuestionsPanel({
     <div className="flex h-full min-h-0 flex-col" data-question-outline-panel>
       <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
         <div className="min-w-0">
-          <h2 className="text-sm font-medium">Question outline</h2>
+          <h2 className="text-sm font-medium">
+            <T>Question outline</T>
+          </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Follow your questions through this conversation.
+            <T>Follow your questions through this conversation.</T>
           </p>
         </div>
         <span className="shrink-0 rounded-md bg-muted/60 px-2 py-1 font-mono text-xs tabular-nums text-muted-foreground">
@@ -64,7 +70,7 @@ export function ThreadQuestionsPanel({
         >
           <p className="text-xs text-muted-foreground">{outline.error}</p>
           <Button size="xs" variant="outline" onClick={outline.refresh}>
-            Retry
+            <T>Retry</T>
           </Button>
         </div>
       ) : null}
@@ -75,12 +81,14 @@ export function ThreadQuestionsPanel({
         >
           <ListOrderedIcon aria-hidden className="size-7 text-muted-foreground/60" />
           <p className="text-sm font-medium">
-            {outline.isPending ? "Loading questions…" : "No questions yet"}
+            {outline.isPending ? <T>Loading questions…</T> : <T>No questions yet</T>}
           </p>
           <p className="text-xs leading-relaxed text-muted-foreground">
-            {outline.isPending
-              ? "Earlier questions are included, too."
-              : "Your questions will appear here when the conversation starts."}
+            {outline.isPending ? (
+              <T>Earlier questions are included, too.</T>
+            ) : (
+              <T>Your questions will appear here when the conversation starts.</T>
+            )}
           </p>
         </div>
       ) : (
@@ -96,19 +104,15 @@ export function ThreadQuestionsPanel({
             currentMessageId: outline.currentMessageId,
             request: outline.request,
             timestampFormat,
+            displayTimeZone,
           }}
           renderItem={({ item: question, index }) => {
             const iso = DateTime.formatIso(question.createdAt);
-            const date = new Date(iso).toLocaleDateString(undefined, {
-              month: "short",
-              day: "numeric",
-              year: "numeric",
-            });
             const previous = outline.questions[index - 1];
-            const previousDate = previous
-              ? new Date(DateTime.formatIso(previous.createdAt)).toDateString()
-              : null;
-            const startsDay = previousDate !== new Date(iso).toDateString();
+            const startsDay =
+              !previous ||
+              calendarDayIndex(iso, displayTimeZone) !==
+                calendarDayIndex(DateTime.formatIso(previous.createdAt), displayTimeZone);
             const active = question.messageId === outline.currentMessageId;
             const pending = question.messageId === outline.request?.question.messageId;
             const preview = questionPreview(question);
@@ -116,7 +120,7 @@ export function ThreadQuestionsPanel({
               <div className="pb-1">
                 {startsDay ? (
                   <div className="px-3 pt-3 pb-2 text-2xs font-medium tracking-wide text-muted-foreground">
-                    {date}
+                    {formatDayHeader(iso, displayTimeZone)}
                   </div>
                 ) : null}
                 <Tooltip>
@@ -124,7 +128,10 @@ export function ThreadQuestionsPanel({
                     render={
                       <button
                         type="button"
-                        aria-label={`Question ${index + 1}: ${preview}`}
+                        aria-label={gt("Question {index}: {preview}", {
+                          index: index + 1,
+                          preview,
+                        })}
                         aria-current={active ? "location" : undefined}
                         aria-busy={pending || undefined}
                         className={cn(
@@ -163,14 +170,20 @@ export function ThreadQuestionsPanel({
                         {question.hasCitations ? (
                           <QuoteIcon aria-hidden className="size-3" />
                         ) : null}
-                        <time dateTime={iso}>{formatShortTimestamp(iso, timestampFormat)}</time>
+                        <time dateTime={iso}>
+                          {formatShortTimestamp(iso, timestampFormat, displayTimeZone)}
+                        </time>
                         {question.attachments.length > 0 ? (
                           <span className="inline-flex items-center gap-1">
                             <PaperclipIcon aria-hidden className="size-3" />
                             {question.attachments.length}
                           </span>
                         ) : null}
-                        {pending ? <span role="status">Jumping…</span> : null}
+                        {pending ? (
+                          <span role="status">
+                            <T>Jumping…</T>
+                          </span>
+                        ) : null}
                       </span>
                     </span>
                   </TooltipTrigger>

@@ -250,21 +250,47 @@ interface CalendarDay {
   index: number;
 }
 
+const zonedCalendarDayFormatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function getZonedCalendarDayFormatter(timeZone: string): Intl.DateTimeFormat {
+  let formatter = zonedCalendarDayFormatterCache.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+    });
+    zonedCalendarDayFormatterCache.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
 function calendarDay(date: Date, timeZone: string | undefined): CalendarDay {
   if (!timeZone) {
     const year = date.getFullYear();
     return { year, index: Date.UTC(year, date.getMonth(), date.getDate()) / 86_400_000 };
   }
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-  }).formatToParts(date);
+  const parts = getZonedCalendarDayFormatter(timeZone).formatToParts(date);
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     Number(parts.find((entry) => entry.type === type)?.value);
   const year = part("year");
   return { year, index: Date.UTC(year, part("month") - 1, part("day")) / 86_400_000 };
+}
+
+const zonedNumericDateFormatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function getZonedNumericDateFormatter(sameYear: boolean, timeZone: string): Intl.DateTimeFormat {
+  const cacheKey = `${sameYear ? "numericDate" : "numericDateYear"}:${timeZone}`;
+  let formatter = zonedNumericDateFormatterCache.get(cacheKey);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(timestampLocale, {
+      ...(sameYear ? numericDateOptions : numericDateWithYearOptions),
+      timeZone,
+    });
+    zonedNumericDateFormatterCache.set(cacheKey, formatter);
+  }
+  return formatter;
 }
 
 function formatNumericDate(date: Date, sameYear: boolean, timeZone: string | undefined): string {
@@ -273,10 +299,7 @@ function formatNumericDate(date: Date, sameYear: boolean, timeZone: string | und
       wallClockAsUtc(date),
     );
   }
-  return new Intl.DateTimeFormat(timestampLocale, {
-    ...(sameYear ? numericDateOptions : numericDateWithYearOptions),
-    timeZone,
-  }).format(date);
+  return getZonedNumericDateFormatter(sameYear, timeZone).format(date);
 }
 
 export function formatDayAwareTimestamp(
@@ -321,6 +344,42 @@ export function formatUpcomingTimestamp(
   if (dayDiff === 0) return time;
   if (dayDiff === 1) return resolve(msg("tomorrow at {time}", { time }));
   return `${formatNumericDate(date, targetDay.year === today.year, timeZone)} ${time}`;
+}
+
+/** Calendar-day index of an ISO date in the given zone, for grouping rows that share a day. */
+export function calendarDayIndex(isoDate: string, timeZone?: string): number | null {
+  const date = parseTimestampDate(isoDate);
+  if (!date) return null;
+  return calendarDay(date, timeZone).index;
+}
+
+const dayHeaderOptions: Intl.DateTimeFormatOptions = {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+};
+const dayHeaderFormatter = new Intl.DateTimeFormat(undefined, {
+  ...dayHeaderOptions,
+  timeZone: "UTC",
+});
+const zonedDayHeaderFormatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function getZonedDayHeaderFormatter(timeZone: string): Intl.DateTimeFormat {
+  let formatter = zonedDayHeaderFormatterCache.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(undefined, { ...dayHeaderOptions, timeZone });
+    zonedDayHeaderFormatterCache.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
+/** A grouped day's short month-day-year header, in the zone the row times render in. */
+export function formatDayHeader(isoDate: string, timeZone?: string): string {
+  const date = parseTimestampDate(isoDate);
+  if (!date) return "";
+  return timeZone
+    ? getZonedDayHeaderFormatter(timeZone).format(date)
+    : dayHeaderFormatter.format(wallClockAsUtc(date));
 }
 
 /** `label` is the whole phrase ("5m ago"); `value` and `suffix` split it for styled layouts. */
