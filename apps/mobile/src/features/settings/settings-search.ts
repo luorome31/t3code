@@ -159,6 +159,12 @@ const SETTINGS_SEARCH_TERMS = {
     msg("link machine", { $context: "settings search keyword" }),
     msg("fast worktree checkout", { $context: "settings search keyword" }),
     msg("clone cache", { $context: "settings search keyword" }),
+    msg("display time zone", { $context: "settings search keyword" }),
+    msg("time zone", { $context: "settings search keyword" }),
+    msg("timezone", { $context: "settings search keyword" }),
+    msg("clock", { $context: "settings search keyword" }),
+    msg("utc", { $context: "settings search keyword" }),
+    msg("gmt", { $context: "settings search keyword" }),
   ],
   SettingsEnvironmentMaintenance: [
     msg("updates", { $context: "settings search keyword" }),

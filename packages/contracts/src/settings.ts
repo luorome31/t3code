@@ -583,6 +583,10 @@ export const ClientSettingsSchema = Schema.Struct({
   timestampFormat: TimestampFormat.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
   ),
+  displayTimezoneEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  // "system" follows the device clock; otherwise an IANA zone name. Kept while the toggle is
+  // off so turning it back on restores the choice.
+  displayTimezone: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed("system"))),
   // Superseded by voiceMicrophones; read only to seed an empty order.
   voiceMicrophone: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   // Device-local microphone order. Recording uses the first connected entry.
@@ -2167,6 +2171,8 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarProjectSortOrder: Schema.optionalKey(SidebarProjectSortOrder),
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
   timestampFormat: Schema.optionalKey(TimestampFormat),
+  displayTimezoneEnabled: Schema.optionalKey(Schema.Boolean),
+  displayTimezone: Schema.optionalKey(Schema.String),
   voiceMicrophone: Schema.optionalKey(Schema.String),
   voiceMicrophones: Schema.optionalKey(Schema.Array(VoiceMicrophoneEntry)),
   voiceShortcutMode: Schema.optionalKey(VoiceShortcutMode),

@@ -110,6 +110,7 @@ import { SettingsEnvironmentsRouteScreen } from "./features/settings/SettingsEnv
 import { SmalltalkRouteScreen } from "./features/threads/SmalltalkScreen";
 import { SettingsFollowUpRouteScreen } from "./features/settings/SettingsFollowUpRouteScreen";
 import { SettingsLanguageRouteScreen } from "./features/settings/SettingsLanguageRouteScreen";
+import { SettingsDisplayTimezoneRouteScreen } from "./features/settings/SettingsDisplayTimezoneRouteScreen";
 import {
   SettingsEnvironmentMaintenanceRouteScreen,
   SettingsThreadsRouteScreen,
@@ -187,6 +188,7 @@ const ROUTE_TITLES: Readonly<Record<string, string>> = {
   SettingsProjectGrouping: msg("General"),
   SettingsOrganization: msg("General"),
   SettingsLanguage: msg("Language"),
+  SettingsDisplayTimezone: msg("Time zone"),
   SettingsProjectOverview: msg("Projects"),
   SettingsKeyboard: msg("Keyboard"),
   SettingsVoice: msg("Voice"),
@@ -208,6 +210,7 @@ const ROUTE_TITLES: Readonly<Record<string, string>> = {
   NewTaskBranch: msg("Branch"),
   AddProject: msg("Add project"),
   ThreadFiles: msg("Files"),
+  ThreadSmalltalk: msg("Smalltalk", { $context: "the plain-language explanation feature" }),
   SettingsLegal: msg("Legal"),
   ConnectOnboarding: msg("Set up {product}", { product: "T3 Connect" }),
   Connections: msg("Environments"),
@@ -338,6 +341,11 @@ const SETTINGS_SCREENS = {
   SettingsLanguage: createNativeStackScreen({
     screen: SettingsLanguageRouteScreen,
     linking: "settings/language",
+    options: settingsPage(),
+  }),
+  SettingsDisplayTimezone: createNativeStackScreen({
+    screen: SettingsDisplayTimezoneRouteScreen,
+    linking: "settings/display-timezone",
     options: settingsPage(),
   }),
   SettingsProjectOverview: createNativeStackScreen({
@@ -752,7 +760,7 @@ const RootStackConfig = createWorkspaceStackNavigator({
     ThreadSmalltalk: createNativeStackScreen({
       screen: SmalltalkRouteScreen,
       linking: `${THREAD_LINKING_PREFIX}/smalltalk`,
-      options: pageRoute({ title: "Smalltalk" }),
+      options: pageRoute(),
     }),
     ThreadFiles: createNativeStackScreen({
       screen: ThreadFilesTreeScreen,

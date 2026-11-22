@@ -61,4 +61,37 @@ describe("createMessageTimeFormatter", () => {
     const format12 = createMessageTimeFormatter(false, "en-GB");
     expect(format12(new Date(2026, 0, 1, 15, 7).toISOString(), now)).toMatch(/^3:07\spm$/i);
   });
+
+  it("formats in the chosen display zone and picks today from its calendar", () => {
+    const format24 = createMessageTimeFormatter(true, "en-US", "America/New_York");
+    // 04:45 UTC on November 7 is 23:45 on November 6 in New York.
+    const lateEvening = "2026-11-07T04:45:43.877Z";
+    const stillThatEvening = Date.parse("2026-11-07T04:50:00.000Z");
+    expect(format24(lateEvening, stillThatEvening)).toBe("23:45");
+    const nextMorning = Date.parse("2026-11-07T12:00:00.000Z");
+    const dayIn = (iso: string, timeZone: string) =>
+      new Date(iso).toLocaleDateString(undefined, { month: "numeric", day: "numeric", timeZone });
+    // New York is on November 6, so the row leads with the day, unlike a UTC device zone.
+    expect(format24(lateEvening, nextMorning)).toBe(
+      `${dayIn(lateEvening, "America/New_York")} 23:45`,
+    );
+  });
+
+  it("keeps a fixed zone when the system zone changes", () => {
+    vi.useFakeTimers({ now: 0 });
+    const previous = process.env.TZ;
+    try {
+      process.env.TZ = "America/New_York";
+      const format24 = createMessageTimeFormatter(true, undefined, "Asia/Tokyo");
+      const instant = "2026-11-07T04:45:43.877Z";
+      expect(format24(instant, Date.parse(instant) + 60_000)).toBe("13:45");
+      process.env.TZ = "Asia/Bangkok";
+      vi.setSystemTime(Date.now() + 1_000);
+      expect(format24(instant, Date.parse(instant) + 60_000)).toBe("13:45");
+    } finally {
+      vi.useRealTimers();
+      if (previous === undefined) delete process.env.TZ;
+      else process.env.TZ = previous;
+    }
+  });
 });

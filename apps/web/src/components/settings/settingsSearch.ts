@@ -379,7 +379,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "highlight-color",
-    title: "Highlight colors",
+    title: msg("Highlight colors"),
     to: "/settings/appearance",
     searchTerms: [
       "highlights annotation color palette amber red green blue purple slate assistant selection thread default per swatch note filter",
@@ -393,7 +393,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "response-metrics",
-    title: "Response performance statistics",
+    title: msg("Response performance statistics"),
     to: "/settings/appearance",
     searchTerms: ["TPS TTFT tokens speed latency throughput metrics 性能统计 回复性能 首输出"],
   },
@@ -514,6 +514,22 @@ export const SETTINGS_SEARCH_ITEMS = [
     // Shown inside the boring sidebar row only while it is on, so search lands on the parent.
     targetId: "boring-sidebar",
     searchTerms: [msg("beta boring sidebar folder rows multiline branch pull request details")],
+  },
+  {
+    id: "display-timezone",
+    title: msg("Display time zone"),
+    to: "/settings/labs",
+    searchTerms: [
+      msg("beta timestamp clock zone utc gmt est pst cet travel abroad remote server machine"),
+    ],
+  },
+  {
+    id: "display-timezone-picker",
+    title: msg("Time zone"),
+    to: "/settings/labs",
+    // Shown inside the display time zone row only while it is on, so search lands on the parent.
+    targetId: "display-timezone",
+    searchTerms: [msg("iana utc gmt est pst cet cst jst follow system zone")],
   },
   {
     id: "tool-call-visibility",
@@ -809,7 +825,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "conversation-navigation",
-    title: "Conversation navigation",
+    title: msg("Conversation navigation"),
     to: "/settings/chat",
     searchTerms: ["timeline minimap questions outline previous next prompts sidebar navigation"],
   },
@@ -821,7 +837,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "send-scroll-behavior",
-    title: "After sending",
+    title: msg("After sending"),
     to: "/settings/chat",
     searchTerms: ["scroll jump send message history follow position bottom timeline"],
   },
@@ -944,7 +960,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "smalltalk-model",
-    title: "Smalltalk model",
+    title: msg("Smalltalk model"),
     to: "/settings/threads",
     targetId: "smalltalk",
     searchTerms: ["说人话", "explanation", "prompt", "preset", "通俗解释"],
@@ -1072,7 +1088,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "model-picker-order",
-    title: "Model picker order",
+    title: msg("Model picker order"),
     to: "/settings/providers",
     searchTerms: ["provider priority sort reorder favorites models display order"],
     providerSettingsOnly: true,

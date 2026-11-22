@@ -119,6 +119,10 @@
       "types": "./src/scheduledTaskTimeZone.ts",
       "default": "./src/scheduledTaskTimeZone.ts"
     },
+    "./display-timezone": {
+      "types": "./src/displayTimezone.ts",
+      "default": "./src/displayTimezone.ts"
+    },
     "./scheduled-task-worktree": {
       "types": "./src/scheduledTaskWorktree.ts",
       "default": "./src/scheduledTaskWorktree.ts"

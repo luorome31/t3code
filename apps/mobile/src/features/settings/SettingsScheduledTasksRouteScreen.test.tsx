@@ -6,7 +6,7 @@ import {
   ScheduledTaskId,
   type ScheduledTask,
 } from "@t3tools/contracts";
-import { Atom } from "effect/reactivity";
+import { Atom, AsyncResult } from "effect/reactivity";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -61,6 +61,9 @@ vi.mock("../layout/workspace/useSelectWorkspaceDetail", () => ({
   useSelectWorkspaceDetail: () => vi.fn(),
 }));
 vi.mock("../../state/threads", () => ({ threadFamilies: {} }));
+vi.mock("../../state/preferences", () => ({
+  mobilePreferencesAtom: Atom.make(AsyncResult.initial()),
+}));
 vi.mock("../../lib/copyTextWithHaptic", () => ({ tryCopyTextWithHaptic: vi.fn() }));
 vi.mock("../voice-input/useVoiceInputController", () => ({
   useVoiceInputController: () => ({ blocksSubmission: false }),

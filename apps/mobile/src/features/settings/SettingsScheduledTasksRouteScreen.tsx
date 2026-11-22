@@ -70,6 +70,7 @@ import { useEnvironmentQuery } from "../../state/query";
 import { usePaginatedBranches } from "../../state/queries";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useDisplayTimeZone } from "../../state/displayTimezone";
 import { resolveNewTaskBranchLabel } from "../threads/new-task-context-presentation";
 import { useVoiceInputController } from "../voice-input/useVoiceInputController";
 import { ScheduledTaskPromptField } from "./components/ScheduledTaskPromptField";
@@ -1602,6 +1603,7 @@ function EnvironmentTasks({
   const gt = useGT();
   const m = useMessages();
   const locale = useLocale();
+  const displayTimeZone = useDisplayTimeZone();
   const environmentId = environment.environmentId;
   const tasks = useEnvironmentQuery(
     serverEnvironment.scheduledTasksLive({ environmentId, input: {} }),
@@ -1701,7 +1703,12 @@ function EnvironmentTasks({
                   : task.nextRunAt
                     ? gt("{schedule} · {nextRun}", {
                         schedule: describeSchedule(task, tasks.data?.timeZone, m, locale),
-                        nextRun: formatNextScheduledTaskRun(task.nextRunAt, now, m),
+                        nextRun: formatNextScheduledTaskRun(
+                          task.nextRunAt,
+                          now,
+                          m,
+                          displayTimeZone,
+                        ),
                       })
                     : describeSchedule(task, tasks.data?.timeZone, m, locale)}
               </Text>

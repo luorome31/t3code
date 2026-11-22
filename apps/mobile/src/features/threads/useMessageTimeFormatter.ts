@@ -2,6 +2,7 @@ import { requireNativeModule } from "expo";
 import { useEffect, useMemo, useState } from "react";
 import { AppState, Platform } from "react-native";
 import { createMessageTimeFormatter } from "./messageTimestamp";
+import { useDisplayTimeZone } from "../../state/displayTimezone";
 
 function systemUses24HourClock() {
   if (Platform.OS !== "android") return undefined;
@@ -10,6 +11,7 @@ function systemUses24HourClock() {
 
 export function useMessageTimeFormatter() {
   const [is24Hour, setIs24Hour] = useState(systemUses24HourClock);
+  const displayTimeZone = useDisplayTimeZone();
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Refresh the native clock preference when Android returns to the foreground.
   useEffect(() => {
     if (Platform.OS !== "android") return;
@@ -18,5 +20,8 @@ export function useMessageTimeFormatter() {
     });
     return () => subscription.remove();
   }, []);
-  return useMemo(() => createMessageTimeFormatter(is24Hour), [is24Hour]);
+  return useMemo(
+    () => createMessageTimeFormatter(is24Hour, undefined, displayTimeZone),
+    [is24Hour, displayTimeZone],
+  );
 }

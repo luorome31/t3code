@@ -54,6 +54,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { environmentThreadDetails, threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useDisplayTimeZone } from "../../state/displayTimezone";
 import { toolActivityFaviconUrl } from "@t3tools/shared/favicon";
 import { isJavaScriptReplTool } from "@t3tools/shared/toolActivity";
 import { useMarkdownCodeHighlight } from "./markdownCodeHighlightState";
@@ -886,6 +887,7 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
   const gt = useGT();
   const messages = useMessages();
   const openLinkedThread = useOpenLinkedThread();
+  const displayTimeZone = useDisplayTimeZone();
   const streamsOutput =
     useCommandOutputStreaming(props.environmentId) &&
     row.projectedItem.item.type === "command_execution";
@@ -950,7 +952,10 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
               </Text>
             ) : null}
             <Text
-              accessibilityLabel={timestamp.toLocaleString()}
+              accessibilityLabel={timestamp.toLocaleString(
+                undefined,
+                displayTimeZone ? { timeZone: displayTimeZone } : undefined,
+              )}
               className="shrink-0 text-xs text-foreground-subtle"
             >
               {timestamp.toLocaleString(undefined, {
@@ -958,6 +963,7 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
                 day: "numeric",
                 hour: "numeric",
                 minute: "2-digit",
+                ...(displayTimeZone ? { timeZone: displayTimeZone } : {}),
               })}
             </Text>
           </View>

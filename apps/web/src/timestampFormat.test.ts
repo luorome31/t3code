@@ -3,6 +3,8 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   formatChatTimestampTooltip,
   formatDayAwareTimestamp,
+  formatFullTimestamp,
+  formatShortTimestamp,
   formatUpcomingTimestamp,
 } from "./timestampFormat";
 
@@ -32,6 +34,37 @@ describe("timestamps in an explicit time zone", () => {
     );
     expect(formatDayAwareTimestamp("2026-07-01T03:30:00.000Z", "12-hour", now, zone)).toMatch(
       /^yesterday at /,
+    );
+  });
+
+  it("renders the tooltip date and time in that zone", () => {
+    // 20:00 UTC on October 31 is still October 31 in New York but November 1 in Bangkok.
+    const monthEnd = "2026-10-31T20:00:00.000Z";
+    const timeInZone = new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZone: zone,
+    }).format(new Date(monthEnd));
+    expect(formatChatTimestampTooltip(monthEnd, "12-hour", zone)).toBe(
+      `${timeInZone}, 31st October 2026`,
+    );
+  });
+
+  it("keeps short and full timestamps in that zone", () => {
+    const instant = "2026-10-31T20:00:00.000Z";
+    expect(formatShortTimestamp(instant, "24-hour", zone)).toBe("16:00");
+    const full = formatFullTimestamp(instant, "24-hour", zone);
+    expect(full).toContain("16:00");
+    expect(full).not.toContain("20:00");
+  });
+
+  it("formats an hour the zone repeats when clocks go back", () => {
+    // America/New_York left DST on 2026-11-01: 05:30 UTC is 1:30 AM EST after the fall-back.
+    const fallBack = "2026-11-01T05:30:00.000Z";
+    expect(formatShortTimestamp(fallBack, "24-hour", zone)).toBe("1:30");
+    expect(formatChatTimestampTooltip(fallBack, "24-hour", zone)).toMatch(
+      /^1:30, 1st November 2026$/,
     );
   });
 });

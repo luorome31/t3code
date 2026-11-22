@@ -62,6 +62,7 @@ import {
   type ProviderInstanceEntry,
 } from "../../providerInstances";
 import { formatShortTimestamp } from "../../timestampFormat";
+import { useDisplayTimeZone } from "../../hooks/useDisplayTimezone";
 import { getTriggerDisplayModelName } from "./providerIconUtils";
 import { ProviderInstanceIcon, providerTextColor } from "./ProviderInstanceIcon";
 import { cn } from "~/lib/utils";
@@ -382,6 +383,7 @@ export function SubagentNotificationLink(props: {
 }) {
   const gt = useGT();
   const m = useMessages();
+  const displayTimeZone = useDisplayTimeZone();
   // Follow-up tasks share a child conversation; this notice reports a particular task result.
   const agent = useAtomValue(
     environmentThreadDetails.threadAtom(props.parentRef),
@@ -417,7 +419,11 @@ export function SubagentNotificationLink(props: {
             event: {
               status: NOTIFICATION_OUTCOME_STATUS[props.outcome],
               label: m(NOTIFICATION_OUTCOME_LABEL[props.outcome]),
-              timestamp: formatShortTimestamp(props.createdAt, props.timestampFormat),
+              timestamp: formatShortTimestamp(
+                props.createdAt,
+                props.timestampFormat,
+                displayTimeZone,
+              ),
             },
           })}
     />

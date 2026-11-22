@@ -19,12 +19,24 @@ function buildFormatters(timeZone: string) {
 const ZONE_RECHECK_MS = 1_000;
 let formatters: ReturnType<typeof buildFormatters> | null = null;
 let zoneCheckedAt = 0;
-function currentFormatters() {
+const formattersByZone = new Map<string, ReturnType<typeof buildFormatters>>();
+function currentFormatters(timeZone?: string) {
+  if (timeZone) {
+    let zoned = formattersByZone.get(timeZone);
+    if (!zoned) {
+      zoned = buildFormatters(timeZone);
+      formattersByZone.set(timeZone, zoned);
+    }
+    return zoned;
+  }
   const now = Date.now();
   if (formatters && Math.abs(now - zoneCheckedAt) < ZONE_RECHECK_MS) return formatters;
   zoneCheckedAt = now;
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  if (!formatters || formatters.timeZone !== timeZone) formatters = buildFormatters(timeZone);
+  const systemZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (!formatters || formatters.timeZone !== systemZone) {
+    formatters = buildFormatters(systemZone);
+    formattersByZone.set(systemZone, formatters);
+  }
   return formatters;
 }
 
@@ -33,10 +45,11 @@ export function formatMessageTimestamp(
   input: string,
   nowMs: number = Date.now(),
   timeFormatter?: Intl.DateTimeFormat,
+  timeZone?: string,
 ): string {
   const timestamp = Date.parse(input);
   if (Number.isNaN(timestamp)) return "";
-  const f = currentFormatters();
+  const f = currentFormatters(timeZone);
   const time = (timeFormatter ?? f.time).format(timestamp);
   const dateWithYear = f.dateWithYear.format(timestamp);
   if (dateWithYear === f.dateWithYear.format(nowMs)) return time;
@@ -45,21 +58,25 @@ export function formatMessageTimestamp(
 }
 
 /** `is24Hour` overrides the locale's hour cycle with the system clock preference when known. */
-export function createMessageTimeFormatter(is24Hour: boolean | undefined, locale?: string) {
+export function createMessageTimeFormatter(
+  is24Hour: boolean | undefined,
+  locale?: string,
+  timeZone?: string,
+) {
   let cached: { timeZone: string; formatter: Intl.DateTimeFormat } | null = null;
   return (input: string, nowMs?: number): string => {
-    const { timeZone } = currentFormatters();
-    if (cached?.timeZone !== timeZone) {
+    const activeZone = timeZone ?? currentFormatters().timeZone;
+    if (cached?.timeZone !== activeZone) {
       cached = {
-        timeZone,
+        timeZone: activeZone,
         formatter: new Intl.DateTimeFormat(locale, {
           hour: "numeric",
           minute: "2-digit",
-          timeZone,
+          timeZone: activeZone,
           ...(is24Hour === undefined ? {} : { hourCycle: is24Hour ? "h23" : "h12" }),
         }),
       };
     }
-    return formatMessageTimestamp(input, nowMs, cached.formatter);
+    return formatMessageTimestamp(input, nowMs, cached.formatter, timeZone);
   };
 }

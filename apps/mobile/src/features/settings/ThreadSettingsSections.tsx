@@ -21,10 +21,12 @@ import { useEnvironments } from "../../state/environments";
 import { mobilePreferencesAtom, saveMobilePreferences } from "../../state/preferences";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { SettingsRow } from "./components/SettingsRow";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { planAutoSettleSettingsSync, type AutoSettleSettings } from "./autoSettleSettingsSync";
+import { displayTimezoneChoiceLabel } from "./SettingsDisplayTimezoneRouteScreen";
 import { useSettingsEnvironmentFilter } from "./settings-environment-filter";
 import {
   managedSettingReason,
@@ -54,6 +56,7 @@ export function SettingsLabsRouteScreen() {
             "Let agents on a machine work on your other machines, and theirs on it. Turn it on for each machine. While off, nothing new starts over a link; running tasks finish.",
           )}
         />
+        <DisplayTimezoneSection />
         <MachineBetaSection
           title={gt("Fast worktree checkout")}
           icon="bolt.circle"
@@ -262,6 +265,40 @@ export function NewThreadSettingsSection() {
 }
 
 type MachineBetaSetting = "linkedEnvironmentsEnabled" | "fastWorktreeCheckout";
+
+/** Client-local display time zone toggle; the picker row appears only while it is on. */
+function DisplayTimezoneSection() {
+  const gt = useGT();
+  const savePreferences = useAtomCommand(saveMobilePreferences);
+  const preferences = useAtomValue(mobilePreferencesAtom);
+  const enabled = AsyncResult.isSuccess(preferences) && preferences.value.displayTimezoneEnabled;
+  const timeZone = AsyncResult.isSuccess(preferences)
+    ? preferences.value.displayTimezone
+    : undefined;
+  return (
+    <SettingsSection title={gt("Display time zone")}>
+      <SettingsSwitchRow
+        icon="clock"
+        label={gt("Display time zone")}
+        subtitle={gt(
+          "Show chat, activity, run, and comment times in a time zone you pick instead of this device’s. Task schedules, usage windows, and snooze keep their own zones. The choice is kept while this is off.",
+        )}
+        value={enabled === true}
+        onValueChange={(value) => {
+          void savePreferences({ displayTimezoneEnabled: value });
+        }}
+      />
+      {enabled ? (
+        <SettingsRow
+          icon="globe"
+          label={gt("Time zone")}
+          value={displayTimezoneChoiceLabel(timeZone, gt("Follow system"))}
+          target="SettingsDisplayTimezone"
+        />
+      ) : null}
+    </SettingsSection>
+  );
+}
 
 /** One switch per connected machine that offers the beta, since each machine's own setting decides. */
 function MachineBetaSection({

@@ -4,6 +4,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
 import { type TimestampFormat } from "@t3tools/contracts/settings";
 import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../timestampFormat";
+import { useDisplayTimeZone } from "../../hooks/useDisplayTimezone";
 
 export const MESSAGE_HEADING_LEVEL = 3;
 
@@ -23,6 +24,7 @@ export function TimelineRowTimestamp({
   alwaysVisible?: boolean;
 }) {
   const m = useMessages();
+  const displayTimeZone = useDisplayTimeZone();
   return (
     <Tooltip>
       <TooltipTrigger
@@ -36,9 +38,11 @@ export function TimelineRowTimestamp({
           />
         }
       >
-        {formatDayAwareTimestamp(createdAt, timestampFormat, undefined, undefined, m)}
+        {formatDayAwareTimestamp(createdAt, timestampFormat, undefined, displayTimeZone, m)}
       </TooltipTrigger>
-      <TooltipPopup>{formatChatTimestampTooltip(createdAt, timestampFormat, m)}</TooltipPopup>
+      <TooltipPopup>
+        {formatChatTimestampTooltip(createdAt, timestampFormat, displayTimeZone, m)}
+      </TooltipPopup>
     </Tooltip>
   );
 }

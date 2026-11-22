@@ -85,6 +85,7 @@ import { cn } from "~/lib/utils";
 import { markdownProseDirection } from "~/textDirection";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../timestampFormat";
+import { useDisplayTimeZone } from "../../hooks/useDisplayTimezone";
 import { WorkflowOpeningBlock } from "./WorkflowOpeningBlock";
 import { useTallEnoughToFold } from "./useTallEnoughToFold";
 import { TimelineRowCtx, TimelineRowActivityCtx, type TimelineRow } from "./timelineRowContext";
@@ -461,6 +462,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
   const ctx = use(TimelineRowCtx);
   const gt = useGT();
   const m = useMessages();
+  const displayTimeZone = useDisplayTimeZone();
   const { onImageExpand, onFileOpen } = ctx;
   const coarsePointer = useMediaQuery({ pointer: "coarse" });
   // A linked environment's agent sent it from a thread there.
@@ -864,12 +866,17 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             row.message.createdAt,
             ctx.timestampFormat,
             undefined,
-            undefined,
+            displayTimeZone,
             m,
           )}
         </TooltipTrigger>
         <TooltipPopup>
-          {formatChatTimestampTooltip(row.message.createdAt, ctx.timestampFormat, m)}
+          {formatChatTimestampTooltip(
+            row.message.createdAt,
+            ctx.timestampFormat,
+            displayTimeZone,
+            m,
+          )}
         </TooltipPopup>
       </Tooltip>
       <div className={cn("flex items-center gap-0.5", floatActions && "flex-wrap justify-end")}>

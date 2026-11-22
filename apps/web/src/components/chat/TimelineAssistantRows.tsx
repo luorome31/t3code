@@ -30,6 +30,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
 import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../timestampFormat";
+import { useDisplayTimeZone } from "../../hooks/useDisplayTimezone";
 import { readThreadTurnItems } from "../../state/entities";
 import { useV2ItemSupport } from "../../state/v2ItemSupport";
 import { TimelineRowCtx, TimelineRowActivityCtx, type TimelineRow } from "./timelineRowContext";
@@ -237,6 +238,7 @@ function AssistantMessageMeta({
 }) {
   const ctx = use(TimelineRowCtx);
   const m = useMessages();
+  const displayTimeZone = useDisplayTimeZone();
 
   return (
     <div
@@ -280,12 +282,12 @@ function AssistantMessageMeta({
               message.updatedAt,
               ctx.timestampFormat,
               undefined,
-              undefined,
+              displayTimeZone,
               m,
             )}
           </TooltipTrigger>
           <TooltipPopup>
-            {formatChatTimestampTooltip(message.updatedAt, ctx.timestampFormat, m)}
+            {formatChatTimestampTooltip(message.updatedAt, ctx.timestampFormat, displayTimeZone, m)}
           </TooltipPopup>
         </Tooltip>
       )}

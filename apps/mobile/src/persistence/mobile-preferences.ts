@@ -164,6 +164,10 @@ export interface Preferences {
   readonly followUpBehavior?: FollowUpBehavior;
   /** The client `language` setting: a locale code or "system". Unset means English. */
   readonly language?: string;
+  /** Off keeps every time on this device's clock, whatever `displayTimezone` holds. */
+  readonly displayTimezoneEnabled?: boolean;
+  /** An IANA zone name, or "system" to follow this device's clock. Kept while the toggle is off. */
+  readonly displayTimezone?: string;
   readonly sendScrollBehavior?: SendScrollBehavior;
   readonly microphones?: ReadonlyArray<MicrophoneEntry>;
   readonly projectGroupingEnabled?: boolean;
@@ -255,6 +259,8 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     composerEnterBehavior?: ComposerEnterBehavior;
     followUpBehavior?: FollowUpBehavior;
     language?: string;
+    displayTimezoneEnabled?: boolean;
+    displayTimezone?: string;
     sendScrollBehavior?: SendScrollBehavior;
     microphones?: ReadonlyArray<MicrophoneEntry>;
     projectGroupingEnabled?: boolean;
@@ -371,6 +377,11 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     preferences.followUpBehavior = parsed.followUpBehavior;
   }
   if (typeof parsed.language === "string") preferences.language = parsed.language;
+  if (typeof parsed.displayTimezoneEnabled === "boolean") {
+    preferences.displayTimezoneEnabled = parsed.displayTimezoneEnabled;
+  }
+  if (typeof parsed.displayTimezone === "string")
+    preferences.displayTimezone = parsed.displayTimezone;
   if (
     parsed.sendScrollBehavior === "always" ||
     parsed.sendScrollBehavior === "at-end" ||

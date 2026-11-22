@@ -36,6 +36,7 @@ import { useOpenLink } from "~/browser/useOpenLink";
 import { RelativeTime } from "~/components/RelativeTime";
 import { useClientSettings } from "~/hooks/useSettings";
 import { formatFullTimestamp } from "~/timestampFormat";
+import { useDisplayTimeZone } from "~/hooks/useDisplayTimezone";
 
 import { Button } from "../ui/button";
 import { PullRequestEditButton } from "./PullRequestEditButton";
@@ -117,6 +118,7 @@ function CommentIdentity({
 }) {
   const gt = useGT();
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
+  const displayTimeZone = useDisplayTimeZone();
   const actor = comment.author;
   const profileUrl = actor
     ? sourceControlClients.get(detail.provider).authorProfileUrl(actor.login, detail.url)
@@ -144,7 +146,7 @@ function CommentIdentity({
           </time>
         </TooltipTrigger>
         <TooltipPopup>
-          {formatFullTimestamp(comment.createdAt, timestampFormat)}
+          {formatFullTimestamp(comment.createdAt, timestampFormat, displayTimeZone)}
           {comment.url ? ` · ${gt("Open comment on host")}` : ""}
         </TooltipPopup>
       </Tooltip>

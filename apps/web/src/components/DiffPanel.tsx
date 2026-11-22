@@ -70,6 +70,7 @@ import {
 } from "../state/entities";
 import { useClientSettings, updateClientSettings } from "../hooks/useSettings";
 import { formatRelativeTimeLabel, formatShortTimestamp } from "../timestampFormat";
+import { resolveDisplayTimeZone } from "@t3tools/client-runtime/display-timezone";
 import { DiffFilePathCopyButton } from "./DiffFilePathCopyButton";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { DiffStatLabel } from "./chat/DiffStatLabel";
@@ -229,6 +230,10 @@ export default function DiffPanel({
     diffIgnoreWhitespace: settings.diffIgnoreWhitespace,
     diffLayout: settings.diffLayout,
     timestampFormat: settings.timestampFormat,
+    displayTimeZone: resolveDisplayTimeZone(
+      settings.displayTimezoneEnabled,
+      settings.displayTimezone,
+    ),
     wordWrap: settings.wordWrap,
   }));
   const diffLayout = settings.diffLayout;
@@ -924,7 +929,11 @@ export default function DiffPanel({
                             </T>
                           </span>
                           <span className="ml-auto text-xs tabular-nums text-muted-foreground">
-                            {formatShortTimestamp(summary.completedAt, settings.timestampFormat)}
+                            {formatShortTimestamp(
+                              summary.completedAt,
+                              settings.timestampFormat,
+                              settings.displayTimeZone,
+                            )}
                           </span>
                         </span>
                       </DropdownMenuRadioItem>

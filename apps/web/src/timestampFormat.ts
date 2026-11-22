@@ -147,38 +147,87 @@ function ordinalSuffix(day: number): string {
   }
 }
 
+const zonedLongDateFormatterCache = new Map<string, Intl.DateTimeFormat>();
+const zonedEnglishDateFormatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function getZonedLongDateFormatter(locale: string, timeZone: string): Intl.DateTimeFormat {
+  const cacheKey = `${locale}:${timeZone}`;
+  let formatter = zonedLongDateFormatterCache.get(cacheKey);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale, {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      timeZone,
+    });
+    zonedLongDateFormatterCache.set(cacheKey, formatter);
+  }
+  return formatter;
+}
+
+/** English keeps its ordinal day-before-month form; other UI languages use their own long date. */
+function zonedEnglishDate(date: Date, timeZone: string): string {
+  let formatter = zonedEnglishDateFormatterCache.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      timeZone,
+    });
+    zonedEnglishDateFormatterCache.set(timeZone, formatter);
+  }
+  const parts = formatter.formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((entry) => entry.type === type)?.value ?? "";
+  const day = Number(part("day"));
+  return `${day}${ordinalSuffix(day)} ${part("month")} ${part("year")}`;
+}
+
 export function formatChatTimestampTooltip(
   isoDate: string,
   timestampFormat: TimestampFormat,
+  timeZone?: string,
   resolve: MessageResolver = m,
 ): string {
   const date = parseTimestampDate(isoDate);
   if (!date) return "";
-  const time = formatTime(date, timestampFormat);
+  const time = formatTime(date, timestampFormat, timeZone);
   const locale = getActiveLocale();
   if (locale !== DEFAULT_LOCALE) {
-    const longDate = getLongDateFormatter(locale).format(wallClockAsUtc(date));
+    const longDate = timeZone
+      ? getZonedLongDateFormatter(locale, timeZone).format(date)
+      : getLongDateFormatter(locale).format(wallClockAsUtc(date));
     return resolve(
       msg("{time}, {date}", { time, date: longDate, $context: "message time, then its date" }),
     );
   }
+  if (timeZone) return `${time}, ${zonedEnglishDate(date, timeZone)}`;
   const day = date.getDate();
   const month = monthNameFormatter.format(wallClockAsUtc(date));
   const year = date.getFullYear();
   return `${time}, ${day}${ordinalSuffix(day)} ${month} ${year}`;
 }
 
-export function formatFullTimestamp(isoDate: string, timestampFormat: TimestampFormat): string {
-  return new Date(isoDate).toLocaleString(
-    undefined,
-    timestampFormat === "locale" ? undefined : { hour12: timestampFormat === "12-hour" },
-  );
+export function formatFullTimestamp(
+  isoDate: string,
+  timestampFormat: TimestampFormat,
+  timeZone?: string,
+): string {
+  return new Date(isoDate).toLocaleString(undefined, {
+    ...(timestampFormat === "locale" ? {} : { hour12: timestampFormat === "12-hour" }),
+    ...(timeZone ? { timeZone } : {}),
+  });
 }
 
-export function formatShortTimestamp(isoDate: string, timestampFormat: TimestampFormat): string {
+export function formatShortTimestamp(
+  isoDate: string,
+  timestampFormat: TimestampFormat,
+  timeZone?: string,
+): string {
   const date = parseTimestampDate(isoDate);
   if (!date) return "";
-  return formatTime(date, timestampFormat);
+  return formatTime(date, timestampFormat, timeZone);
 }
 
 const numericDateOptions: Intl.DateTimeFormatOptions = { month: "numeric", day: "numeric" };
