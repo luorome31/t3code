@@ -35,25 +35,27 @@ export function HighlightNotes({
     notes.length === 0 ? { draft: "" } : null,
   );
   const addButton = useRef<HTMLButtonElement>(null);
+  const insertButtons = useRef(new Map<string, HTMLButtonElement>());
   const noteTooLong = (editor?.draft.length ?? 0) > MAX_HIGHLIGHT_NOTE_LENGTH;
-  const closeEditor = () => {
+  const closeEditor = (savedNoteId?: string) => {
     flushSync(() => {
       setEditor(null);
       onDirtyChange?.(false);
     });
-    addButton.current?.focus({ preventScroll: true });
+    const insertButton = savedNoteId ? insertButtons.current.get(savedNoteId) : undefined;
+    if (insertButton) insertButton.focus();
+    else addButton.current?.focus({ preventScroll: true });
   };
   const save = () => {
     if (!editor || noteTooLong || !editor.draft.trim()) return;
-    if (
-      !useHighlightStore
-        .getState()
-        .saveHighlightNote(threadRef, highlight.id, editor.draft, editor.original?.id)
-    ) {
+    const savedNoteId = useHighlightStore
+      .getState()
+      .saveHighlightNote(threadRef, highlight.id, editor.draft, editor.original?.id);
+    if (!savedNoteId) {
       toastManager.add({ type: "warning", title: gt("Could not save this note") });
       return;
     }
-    closeEditor();
+    closeEditor(savedNoteId);
   };
 
   const renderEditor = () =>
@@ -95,7 +97,7 @@ export function HighlightNotes({
           </p>
         ) : null}
         <div className="flex justify-end gap-1.5">
-          <Button size="sm" variant="ghost" onClick={closeEditor}>
+          <Button size="sm" variant="ghost" onClick={() => closeEditor()}>
             {gt("Cancel")}
           </Button>
           <Button size="sm" onClick={save} disabled={noteTooLong || !editor.draft.trim()}>
@@ -121,6 +123,10 @@ export function HighlightNotes({
                   <div className="flex items-center justify-between gap-1">
                     {onInsert ? (
                       <Button
+                        ref={(button) => {
+                          if (button) insertButtons.current.set(note.id, button);
+                          else insertButtons.current.delete(note.id);
+                        }}
                         size="sm"
                         variant="ghost"
                         disabled={editor !== null}
