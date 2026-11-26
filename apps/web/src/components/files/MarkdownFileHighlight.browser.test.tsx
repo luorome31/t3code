@@ -19,6 +19,7 @@ import {
   type HighlightColor,
 } from "~/lib/highlightColors";
 import { render } from "../../../test/render";
+import { RightPanelSheet } from "../RightPanelSheet";
 import { FileMarkdownPreview } from "./FileMarkdownPreview";
 import { MarkdownFileHighlightPainter } from "./MarkdownFileHighlightPainter";
 import { MarkdownFileHighlightToolbar } from "./MarkdownFileHighlightToolbar";
@@ -105,7 +106,7 @@ function PaintedToolbarHarness({
 }) {
   const [viewport, setViewport] = useState<HTMLDivElement | null>(null);
   return (
-    <div ref={setViewport} style={{ width: 480, height: 200 }}>
+    <div ref={setViewport} style={{ width: "min(100%, 480px)", height: 200, padding: "24px 8px" }}>
       <p>{text}</p>
       <MarkdownFileHighlightPainter
         container={viewport}
@@ -223,7 +224,7 @@ describe("MarkdownFileHighlightToolbar", () => {
     expect(readThreadHighlights(threadRef)).toHaveLength(0);
   });
 
-  it("cites and removes a painted highlight from a plain click", async () => {
+  it("cites Markdown excerpts with a note only when explicitly inserted, and removes the highlight", async () => {
     reset();
     const highlight: ThreadHighlight = {
       id: "highlight-1",
@@ -231,6 +232,7 @@ describe("MarkdownFileHighlightToolbar", () => {
       selector: { text: "highlight", start: 0, end: 9, prefix: "", suffix: " me" },
       color: "amber",
       createdAt: "2026-01-01T00:00:00Z",
+      notes: [{ id: "note-1", text: "Revisit this decision" }],
     };
     useHighlightStore.setState({
       byThreadKey: { [`${threadRef.environmentId}:${threadRef.threadId}`]: [highlight] },
@@ -257,14 +259,47 @@ describe("MarkdownFileHighlightToolbar", () => {
         .element(page.getByRole("group", { name: "Highlight actions" }))
         .not.toBeInTheDocument();
 
+      await userEvent.click(page.getByRole("button", { name: "Open highlight notes (1)" }));
+      await userEvent.click(page.getByRole("button", { name: "Add to chat draft" }));
+      expect(onCite.mock.calls[1]?.[0]).toEqual({
+        ...onCite.mock.calls[0]![0],
+        comment: "Revisit this decision",
+      });
+
       await userEvent.click(paragraph, { position: clickPositionIn(paragraph, 0, 9) });
       await expect.element(page.getByRole("group", { name: "Highlight actions" })).toBeVisible();
+      await userEvent.click(page.getByRole("button", { name: "More highlight actions" }));
       await userEvent.click(page.getByRole("button", { name: "Remove highlight" }));
 
       expect(readThreadHighlights(threadRef)).toHaveLength(0);
     } finally {
       reset();
     }
+  });
+
+  it.each([850, 390])("opens a Markdown note inside the workspace sheet at %spx", async (width) => {
+    reset();
+    await page.viewport(width, 750);
+    const highlight = fileHighlight("sheet-highlight", "docs/design.md", "beta", 6, "amber");
+    useHighlightStore.setState({
+      byThreadKey: {
+        [`${threadRef.environmentId}:${threadRef.threadId}`]: [
+          { ...highlight, notes: [{ id: "note-1", text: "A note inside the sheet" }] },
+        ],
+      },
+    });
+    await using _screen = await render(
+      <RightPanelSheet open onClose={() => {}} animationDurationMs={0}>
+        <PaintedToolbarHarness text="alpha beta gamma" />
+      </RightPanelSheet>,
+    );
+    const workspace = page.getByRole("dialog", { name: "Workspace panel" });
+    const marker = workspace.getByRole("button", { name: "Open highlight notes (1)" });
+    await userEvent.click(marker);
+    const notes = page.getByRole("dialog", { name: "Highlight notes" });
+    await expect.element(notes.getByText("A note inside the sheet")).toBeVisible();
+    await userEvent.click(notes.getByRole("button", { name: "Add note" }));
+    await expect.element(notes.getByRole("textbox", { name: "Add note" })).toHaveFocus();
   });
 
   it("does not open highlight actions for a click on plain text", async () => {

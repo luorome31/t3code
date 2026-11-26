@@ -161,7 +161,7 @@ import {
 import { AsyncResult } from "effect/reactivity";
 import { isElectron } from "../env";
 import { useActiveThreadRef } from "../hooks/useActiveThreadRef";
-import { composerRequiresModifier } from "../composer-logic";
+import { composerRequiresModifier, formatAssistantCitationForComposer } from "../composer-logic";
 import {
   derivePhase,
   deriveActiveWorkStartedAt,
@@ -681,33 +681,6 @@ export default function ChatView(props: ChatViewProps) {
     return inserted;
   };
   const citeAssistantTextStable = useStableCallback(citeAssistantText);
-  const insertAssistantHighlights = (citations: readonly AssistantCitation[]) => {
-    const inserted = composerRef.current?.insertAssistantCitations(citations) ?? false;
-    if (!inserted) {
-      toastManager.add({
-        type: "warning",
-        title: "The composer is not ready",
-        description: "Try inserting the highlights after pending input is resolved.",
-      });
-    }
-    return inserted;
-  };
-  const insertAssistantHighlightsStable = useStableCallback(insertAssistantHighlights);
-  const insertMarkdownFileHighlights = (excerpts: readonly MarkdownFileHighlightExcerpt[]) => {
-    const inserted =
-      composerRef.current?.insertTextAtEnd(formatMarkdownFileHighlightExcerpts(excerpts), {
-        ensureLeadingBoundary: true,
-      }) ?? false;
-    if (!inserted) {
-      toastManager.add({
-        type: "warning",
-        title: "The composer is not ready",
-        description: "Try inserting the highlights after pending input is resolved.",
-      });
-    }
-    return inserted;
-  };
-  const insertMarkdownFileHighlightsStable = useStableCallback(insertMarkdownFileHighlights);
   const replyToResponseStable = useStableCallback((response: ResponseContextRecord) => {
     const accepted = composerRef.current?.replyToResponse(response) ?? false;
     if (!accepted) {
@@ -1481,6 +1454,63 @@ export default function ChatView(props: ChatViewProps) {
     composerRef,
     setThreadError,
   });
+  const appendHighlightToChatDraft = (text: string, separator: " " | "\n\n") => {
+    if (!text) return false;
+    const drafts = useComposerDraftStore.getState();
+    const current = drafts.getComposerDraft(baseComposerDraftTarget)?.prompt ?? "";
+    const boundary = separator === " " && /\s$/.test(current) ? "" : separator;
+    drafts.setPrompt(baseComposerDraftTarget, current ? `${current}${boundary}${text}` : text);
+    toastManager.add({
+      type: "success",
+      title: gt("Added to chat draft"),
+      ...(pendingUserInputs.length > 0 ? { description: gt("Your answer is unchanged.") } : {}),
+    });
+    return true;
+  };
+  const insertAssistantHighlights = (
+    citations: readonly AssistantCitation[],
+    destination?: "chat-draft",
+  ) => {
+    if (destination === "chat-draft") {
+      return appendHighlightToChatDraft(
+        citations.map((citation) => formatAssistantCitationForComposer(citation)).join(""),
+        " ",
+      );
+    }
+    const inserted = composerRef.current?.insertAssistantCitations(citations) ?? false;
+    if (!inserted) {
+      toastManager.add({
+        type: "warning",
+        title: gt("The composer is not ready"),
+        description: gt("Try inserting the highlights after pending input is resolved."),
+      });
+    }
+    return inserted;
+  };
+  const insertAssistantHighlightsStable = useStableCallback(insertAssistantHighlights);
+  const insertMarkdownFileHighlights = (
+    excerpts: readonly MarkdownFileHighlightExcerpt[],
+    destination?: "chat-draft",
+  ) => {
+    const text = formatMarkdownFileHighlightExcerpts(excerpts);
+    if (destination === "chat-draft") return appendHighlightToChatDraft(text, "\n\n");
+    const inserted =
+      composerRef.current?.insertTextAtEnd(text, {
+        ensureLeadingBoundary: true,
+      }) ?? false;
+    if (!inserted) {
+      toastManager.add({
+        type: "warning",
+        title: gt("The composer is not ready"),
+        description: gt("Try inserting the highlights after pending input is resolved."),
+      });
+    }
+    return inserted;
+  };
+  const insertMarkdownFileHighlightsStable = useStableCallback(insertMarkdownFileHighlights);
+  const insertHighlightNote = useStableCallback((citation: AssistantCitation) =>
+    insertAssistantHighlightsStable([citation], "chat-draft"),
+  );
   const [heldApprovalRequestIds, setHeldApprovalRequestIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -3578,6 +3608,7 @@ export default function ChatView(props: ChatViewProps) {
                   citationHistory={citationHistory}
                   outlineTrackingEnabled={!embedded && outlineTrackingEnabled}
                   onCiteAssistantText={citeAssistantTextStable}
+                  onInsertHighlightNote={insertHighlightNote}
                   onReplyToResponse={replyToResponseStable}
                   {...(activeProject
                     ? { onRunShellCommand: parentPanel?.runShellCommand ?? runShellCommandStable }

@@ -241,6 +241,7 @@ interface MessagesTimelineProps {
   citationHistory?: CitedHistory;
   /** Tracks which assistant reply is being read for the Outline panel. */
   outlineTrackingEnabled?: boolean;
+  onInsertHighlightNote?: (citation: AssistantCitation) => boolean;
   onCiteAssistantText?: (
     citation: AssistantCitation,
     sourceAnchor: AssistantCitationSourceAnchor,
@@ -368,6 +369,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   citationHistory = CITED_HISTORY_LOADING,
   outlineTrackingEnabled = false,
   onCiteAssistantText,
+  onInsertHighlightNote,
   onReplyToResponse,
   isWorking,
   syncing = false,
@@ -1538,6 +1540,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 viewport={timelineViewportElement}
                 threadRef={citationThreadRef}
                 onCite={onCiteAssistantText}
+                onInsertNote={onInsertHighlightNote}
               />
             ) : null}
             <LegendList<MessagesTimelineRow>

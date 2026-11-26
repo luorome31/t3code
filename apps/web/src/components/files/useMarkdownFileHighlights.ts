@@ -95,7 +95,7 @@ export function useMarkdownFileHighlights(input: {
         });
       }
       registerHighlightContribution(owner, { rangesByColor, priorityByColor });
-      registerHighlightHitTargets(owner, { targets: hitTargets, priorityByColor });
+      registerHighlightHitTargets(owner, { container, targets: hitTargets, priorityByColor });
     };
 
     paint();

@@ -25,7 +25,7 @@ import {
 import { DEFAULT_HIGHLIGHT_COLOR, highlightRegistryName } from "~/lib/highlightColors";
 import { topmostHighlightHitAt } from "~/lib/highlightHitTargets";
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
-import { render } from "../../../test/render";
+import { act, render } from "../../../test/render";
 import { useRightPanelStore } from "../../rightPanelStore";
 import { toastManager } from "../ui/toast";
 import { AssistantHighlightPainter } from "./AssistantHighlightPainter";
@@ -108,10 +108,12 @@ function Harness({
 /** A timeline surface whose painted highlights the toolbar can click into. */
 function PainterHarness({
   onCite,
+  onInsertNote,
   text = "highlight me",
   width = 480,
 }: {
   onCite: (citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => boolean;
+  onInsertNote?: (citation: AssistantCitation) => boolean;
   text?: string;
   width?: number;
 }) {
@@ -128,7 +130,12 @@ function PainterHarness({
         ))}
       </div>
       <AssistantHighlightPainter container={viewport} threadRef={threadRef} />
-      <AssistantSelectionToolbar viewport={viewport} threadRef={threadRef} onCite={onCite} />
+      <AssistantSelectionToolbar
+        viewport={viewport}
+        threadRef={threadRef}
+        onCite={onCite}
+        onInsertNote={onInsertNote}
+      />
     </div>
   );
 }
@@ -142,7 +149,6 @@ function messageHighlight(input: {
   suffix: string;
   color: HighlightColor;
   createdAt: string;
-  note?: string;
 }): ThreadHighlight {
   return {
     id: input.id,
@@ -156,7 +162,6 @@ function messageHighlight(input: {
     },
     color: input.color,
     createdAt: input.createdAt,
-    ...(input.note !== undefined ? { note: input.note } : {}),
   };
 }
 
@@ -460,21 +465,112 @@ describe("AssistantSelectionToolbar on painted highlights", () => {
 
     await userEvent.click(paragraph, { position: clickPositionIn(paragraph, 0, 9) });
     await expect.element(page.getByRole("group", { name: "Highlight actions" })).toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: "More highlight actions" }));
     await userEvent.click(page.getByRole("button", { name: "Remove highlight" }));
 
     expect(readThreadHighlights(threadRef)).toHaveLength(0);
   });
 
-  it("carries a saved note as the citation comment when citing a painted highlight", async () => {
-    seedPainted([{ ...plainHighlight, id: "highlight-2", note: "remember this" }]);
+  it("adds and edits notes next to the highlight, and only inserts the selected note", async () => {
+    seedPainted([plainHighlight]);
     const onCite = vi.fn((_citation: AssistantCitation) => true);
-    await using screen = await render(<PainterHarness onCite={onCite} />);
-
+    const onInsertNote = vi.fn((_citation: AssistantCitation) => true);
+    await using screen = await render(
+      <PainterHarness onCite={onCite} onInsertNote={onInsertNote} />,
+    );
     const paragraph = screen.getByText("highlight me").element() as HTMLElement;
-    await userEvent.click(paragraph, { position: clickPositionIn(paragraph, 0, 9) });
-    await userEvent.click(page.getByRole("button", { name: "Cite highlight in composer" }));
+    const clickHighlight = () =>
+      userEvent.click(paragraph, { position: clickPositionIn(paragraph, 0, 9) });
+    await clickHighlight();
+    await userEvent.click(page.getByRole("button", { name: "Add note" }));
+    const dialog = page.getByRole("dialog", { name: "Highlight notes" });
+    const editor = dialog.getByRole("textbox", { name: "Add note" });
+    await expect.element(editor).toHaveFocus();
+    await userEvent.type(editor, "remember this");
+    const save = dialog.getByRole("button", { name: "Save note" });
+    {
+      using _write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+        throw new DOMException("Storage is full", "QuotaExceededError");
+      });
+      await userEvent.click(save);
+      await expect.element(editor).toHaveValue("remember this");
+      expect(readThreadHighlights(threadRef)[0]?.notes).toBeUndefined();
+    }
+    await userEvent.click(save);
+    await userEvent.click(dialog.getByRole("button", { name: "Add note" }));
+    await userEvent.type(editor, "second note");
+    await userEvent.keyboard("{Enter}");
+    const second = dialog.getByRole("listitem").filter({ hasText: "second note" });
+    await userEvent.click(second.getByRole("button", { name: "Note actions" }));
+    await userEvent.click(page.getByRole("menuitem", { name: "Edit note" }));
+    const edit = dialog.getByRole("textbox", { name: "Edit note" });
+    await userEvent.clear(edit);
+    await userEvent.type(edit, "follow up");
+    await userEvent.click(dialog.getByRole("button", { name: "Save note" }));
+    await userEvent.click(dialog.getByRole("button", { name: "Close notes" }));
+    await expect.element(dialog).not.toBeInTheDocument();
 
-    expect(onCite.mock.calls[0]?.[0].comment).toBe("remember this");
+    await clickHighlight();
+    await userEvent.click(page.getByRole("button", { name: "Cite highlight in composer" }));
+    expect(onCite.mock.calls[0]?.[0].comment).toBeUndefined();
+    await userEvent.click(page.getByRole("button", { name: "Open highlight notes (2)" }));
+    const first = dialog.getByRole("listitem").filter({ hasText: "remember this" });
+    await userEvent.click(first.getByRole("button", { name: "Note actions" }));
+    await userEvent.click(page.getByRole("menuitem", { name: "Delete note" }));
+    await userEvent.click(
+      dialog
+        .getByRole("listitem")
+        .filter({ hasText: "follow up" })
+        .getByRole("button", { name: "Add to chat draft" }),
+    );
+    expect(onInsertNote.mock.calls[0]?.[0]).toMatchObject({
+      text: "highlight",
+      comment: "follow up",
+    });
+    await expect.element(dialog).not.toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: "Open highlight notes (1)" }))
+      .toBeVisible();
+  });
+
+  it("keeps a dirty note when another source marker is clicked", async () => {
+    seedPainted([
+      { ...plainHighlight, notes: [{ id: "first", text: "first note" }] },
+      {
+        ...plainHighlight,
+        id: "second-highlight",
+        selector: {
+          text: "another source farther along",
+          start: 13,
+          end: 41,
+          prefix: "highlight me ",
+          suffix: "",
+        },
+        notes: [
+          { id: "second", text: "second note" },
+          { id: "third", text: "third note" },
+        ],
+      },
+    ]);
+    await using _screen = await render(
+      <PainterHarness onCite={() => true} text="highlight me another source farther along" />,
+    );
+    await userEvent.click(page.getByRole("button", { name: "Open highlight notes (1)" }));
+    const dialog = page.getByRole("dialog", { name: "Highlight notes" });
+    await userEvent.click(dialog.getByRole("button", { name: "Add note" }));
+    const editor = dialog.getByRole("textbox", { name: "Add note" });
+    await userEvent.type(editor, "unfinished note");
+    const otherMarker = document.querySelector<HTMLButtonElement>(
+      '[aria-label="Open highlight notes (2)"]',
+    );
+    expect(otherMarker).not.toBeNull();
+    await act(() => otherMarker?.click());
+    await expect.element(editor).toHaveValue("unfinished note");
+    await userEvent.click(dialog.getByRole("button", { name: "Close notes" }));
+    await expect.element(editor).toHaveValue("unfinished note");
+    await userEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+    await act(() => otherMarker?.click());
+    await expect.element(dialog.getByText("second note", { exact: true })).toBeVisible();
   });
 
   it.each(["2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z"])(
@@ -506,6 +602,7 @@ describe("AssistantSelectionToolbar on painted highlights", () => {
       const paragraph = screen.getByText("highlight me").element() as HTMLElement;
       await userEvent.click(paragraph, { position: clickPositionIn(paragraph, 0, 4) });
       await expect.element(page.getByRole("group", { name: "Highlight actions" })).toBeVisible();
+      await userEvent.click(page.getByRole("button", { name: "More highlight actions" }));
       await userEvent.click(page.getByRole("button", { name: "Remove highlight" }));
 
       expect(readThreadHighlights(threadRef).map((highlight) => highlight.id)).toEqual([
@@ -535,6 +632,7 @@ describe("AssistantSelectionToolbar on painted highlights", () => {
     await userEvent.click(paragraph, { position: clickPositionIn(paragraph, 6, 17, 1) });
 
     await expect.element(page.getByRole("group", { name: "Highlight actions" })).toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: "More highlight actions" }));
     await userEvent.click(page.getByRole("button", { name: "Remove highlight" }));
 
     expect(readThreadHighlights(threadRef)).toHaveLength(0);

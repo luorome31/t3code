@@ -87,8 +87,9 @@ describe("isPathSuggestionCurrent", () => {
 describe("formatAssistantCitationForComposer", () => {
   it("binds a multiline comment to its citation without adding standalone prompt text", () => {
     const comment = 'What does "keep" mean? 👋\n  Please show an example.';
-    const text = formatAssistantCitationForComposer(citation, `  ${comment}\n`);
     const boundCitation = { ...citation, comment };
+    const text = formatAssistantCitationForComposer(boundCitation);
+    expect(formatAssistantCitationForComposer(citation, `  ${comment}\n`)).toBe(text);
     expect(text).toBe(`${serializeAssistantCitation(boundCitation)} `);
     expect(collectAssistantCitations(text).map((entry) => entry.citation)).toEqual([boundCitation]);
     expect(expandAssistantCitationsForProvider(text)).toMatch(/^\[assistant-quote-1\] \n\n/);

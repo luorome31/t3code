@@ -1,16 +1,22 @@
 import { EnvironmentId, MessageId, ThreadId } from "@t3tools/contracts";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   DEFAULT_HIGHLIGHT_COLOR_MODE,
   HIGHLIGHT_COLOR_MODE_STORAGE_KEY,
   HIGHLIGHT_COLOR_STORAGE_KEY,
   HIGHLIGHT_STORAGE_KEY,
+  rehydrateHighlights,
   useHighlightStore,
   type ThreadHighlight,
 } from "./highlightStore";
 import { DEFAULT_HIGHLIGHT_COLOR } from "./lib/highlightColors";
 
+const legacyKey = "t3code:thread-highlights:v1";
+const threadRef = {
+  environmentId: EnvironmentId.make("environment-1"),
+  threadId: ThreadId.make("thread-1"),
+};
 const threadKey = `${EnvironmentId.make("environment-1")}:${ThreadId.make("thread-1")}`;
 
 const validHighlight: ThreadHighlight = {
@@ -32,11 +38,11 @@ function resetStore() {
 }
 
 describe("highlightStore persistence", () => {
-  it("rehydrates valid highlights and drops malformed entries", async () => {
+  it("rehydrates valid highlights and drops malformed entries", () => {
     resetStore();
     try {
       localStorage.setItem(
-        HIGHLIGHT_STORAGE_KEY,
+        legacyKey,
         JSON.stringify({
           state: {
             byThreadKey: {
@@ -56,7 +62,7 @@ describe("highlightStore persistence", () => {
       );
       localStorage.setItem(HIGHLIGHT_COLOR_STORAGE_KEY, "blue");
 
-      await useHighlightStore.persist.rehydrate();
+      rehydrateHighlights();
 
       const state = useHighlightStore.getState();
       expect(state.byThreadKey[threadKey]).toHaveLength(1);
@@ -67,11 +73,11 @@ describe("highlightStore persistence", () => {
     }
   });
 
-  it("migrates version 1 message highlights to the source model", async () => {
+  it("migrates version 1 message highlights to the source model", () => {
     resetStore();
     try {
       localStorage.setItem(
-        HIGHLIGHT_STORAGE_KEY,
+        legacyKey,
         JSON.stringify({
           state: {
             byThreadKey: {
@@ -90,7 +96,7 @@ describe("highlightStore persistence", () => {
         }),
       );
 
-      await useHighlightStore.persist.rehydrate();
+      rehydrateHighlights();
 
       expect(useHighlightStore.getState().byThreadKey[threadKey]?.[0]?.source).toEqual({
         kind: "assistant-message",
@@ -104,10 +110,7 @@ describe("highlightStore persistence", () => {
   it("does not rewrite the highlight blob when the default color changes", () => {
     resetStore();
     try {
-      useHighlightStore.setState({
-        byThreadKey: { [threadKey]: [validHighlight] },
-        defaultColor: DEFAULT_HIGHLIGHT_COLOR,
-      });
+      expect(useHighlightStore.getState().addHighlight(threadRef, validHighlight).ok).toBe(true);
       const before = localStorage.getItem(HIGHLIGHT_STORAGE_KEY);
       expect(before).not.toBeNull();
 
@@ -121,11 +124,11 @@ describe("highlightStore persistence", () => {
     }
   });
 
-  it("rehydrates thread default colors and drops invalid ones", async () => {
+  it("rehydrates thread default colors and drops invalid ones", () => {
     resetStore();
     try {
       localStorage.setItem(
-        HIGHLIGHT_STORAGE_KEY,
+        legacyKey,
         JSON.stringify({
           state: {
             byThreadKey: { [threadKey]: [validHighlight] },
@@ -140,7 +143,7 @@ describe("highlightStore persistence", () => {
       );
       localStorage.setItem(HIGHLIGHT_COLOR_MODE_STORAGE_KEY, "selection");
 
-      await useHighlightStore.persist.rehydrate();
+      rehydrateHighlights();
 
       const state = useHighlightStore.getState();
       expect(state.threadDefaultColors[threadKey]).toBe("purple");
@@ -151,31 +154,76 @@ describe("highlightStore persistence", () => {
     }
   });
 
-  it("keeps a persisted note on rehydrate and drops an oversized one", async () => {
+  it.each([3, 4])("imports notes from legacy version %s and survives a downgrade", (version) => {
     resetStore();
     try {
       localStorage.setItem(
-        HIGHLIGHT_STORAGE_KEY,
+        legacyKey,
         JSON.stringify({
           state: {
             byThreadKey: {
               [threadKey]: [
                 { ...validHighlight, note: "why this matters" },
                 { ...validHighlight, id: "highlight-2", note: "x".repeat(2001) },
+                {
+                  ...validHighlight,
+                  id: "highlight-3",
+                  notes: [
+                    { id: "note-1", text: "one" },
+                    { id: "note-2", text: "two" },
+                    { id: "note-2", text: "duplicate" },
+                    { id: "note-3", text: "   " },
+                  ],
+                },
               ],
             },
           },
-          version: 3,
+          version,
         }),
       );
 
-      await useHighlightStore.persist.rehydrate();
+      rehydrateHighlights();
 
       const highlights = useHighlightStore.getState().byThreadKey[threadKey] ?? [];
-      expect(highlights.find((highlight) => highlight.id === "highlight-1")?.note).toBe(
-        "why this matters",
+      expect(highlights.map((highlight) => highlight.notes)).toEqual([
+        [{ id: "highlight-1", text: "why this matters" }],
+        undefined,
+        [
+          { id: "note-1", text: "one" },
+          { id: "note-2", text: "two" },
+        ],
+      ]);
+      localStorage.setItem(
+        legacyKey,
+        JSON.stringify({ state: { byThreadKey: { [threadKey]: [validHighlight] } }, version: 3 }),
       );
-      expect(highlights.find((highlight) => highlight.id === "highlight-2")?.note).toBeUndefined();
+      rehydrateHighlights();
+      expect(useHighlightStore.getState().byThreadKey[threadKey]).toEqual(highlights);
+    } finally {
+      resetStore();
+    }
+  });
+
+  it("leaves the saved notes unchanged when storage rejects a save or deletion", () => {
+    resetStore();
+    try {
+      const highlight = { ...validHighlight, notes: [{ id: "note-1", text: "saved note" }] };
+      localStorage.setItem(
+        HIGHLIGHT_STORAGE_KEY,
+        JSON.stringify({ state: { byThreadKey: { [threadKey]: [highlight] } }, version: 4 }),
+      );
+      rehydrateHighlights();
+      const before = localStorage.getItem(HIGHLIGHT_STORAGE_KEY);
+      using _write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+        throw new DOMException("Storage is full", "QuotaExceededError");
+      });
+      const store = useHighlightStore.getState();
+      expect(store.saveHighlightNote(threadRef, highlight.id, "unsaved note", "note-1")).toBe(
+        false,
+      );
+      expect(store.removeHighlightNote(threadRef, highlight.id, "note-1")).toBe(false);
+      expect(useHighlightStore.getState().byThreadKey[threadKey]).toEqual([highlight]);
+      expect(localStorage.getItem(HIGHLIGHT_STORAGE_KEY)).toBe(before);
     } finally {
       resetStore();
     }

@@ -45,7 +45,8 @@ export function findAssistantCitationSourceAnchor(
 }
 
 const CONTROL_SELECTOR = "button, input, textarea, select, [role=button], [contenteditable]";
-const EXCLUDED_SELECTOR = `${CONTROL_SELECTOR}, [hidden], [aria-hidden=true], script, style, template, noscript, svg`;
+const NON_SOURCE_SELECTOR = `${CONTROL_SELECTOR}, [hidden], script, style, template, noscript, svg`;
+const EXCLUDED_SELECTOR = `${NON_SOURCE_SELECTOR}, [aria-hidden=true]`;
 const BLOCK_SELECTOR =
   "address, article, aside, blockquote, dd, div, dl, dt, figcaption, figure, footer, h1, h2, h3, h4, h5, h6, header, hr, li, main, nav, ol, p, pre, section, table, td, th, tr, ul";
 
@@ -250,14 +251,15 @@ function rangeForSelector(
   else range.setStartBefore(first.node);
   if (isText(last.node)) range.setEnd(last.node, Math.min(last.node.length, end - last.start));
   else range.setEndAfter(last.node);
-  return isUsableRange(root, range) ? range : null;
+  return range.collapsed ? null : range;
 }
 
 export function resolveAssistantCitationRanges(
   root: HTMLElement,
   selectors: readonly AssistantTextSelector[],
 ): (Range | null)[] {
-  if (excludedAncestor(root) !== null) return selectors.map(() => null);
+  // A modal can hide the source’s ancestors from assistive technology without removing it.
+  if (root.closest(NON_SOURCE_SELECTOR)) return selectors.map(() => null);
   const stream = readAssistantText(root);
   return selectors.map((selector) => rangeForSelector(root, stream, selector));
 }

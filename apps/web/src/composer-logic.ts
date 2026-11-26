@@ -50,7 +50,10 @@ export function isPathSuggestionCurrent(
   );
 }
 
-export function formatAssistantCitationForComposer(citation: AssistantCitation, comment = "") {
+export function formatAssistantCitationForComposer(
+  citation: AssistantCitation,
+  comment = citation.comment ?? "",
+) {
   return `${serializeAssistantCitation(withAssistantCitationComment(citation, comment))} `;
 }
 

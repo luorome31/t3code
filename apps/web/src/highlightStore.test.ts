@@ -182,43 +182,39 @@ describe("highlightStore", () => {
     expect(result.ok && result.highlight.color).toBe("blue");
   });
 
-  it("sets, edits, and clears a per-highlight note", () => {
+  it("adds, edits, and removes individual notes without changing their siblings", () => {
     const first = add();
     if (!first.ok) throw new Error("expected a highlight");
+    const id = first.highlight.id;
+    const { saveHighlightNote, removeHighlightNote } = useHighlightStore.getState();
+    expect(saveHighlightNote(threadRef, id, " why this ")).toBe(true);
+    expect(saveHighlightNote(threadRef, id, "Follow up separately")).toBe(true);
+    const notes = () =>
+      useHighlightStore.getState().byThreadKey["environment-1:thread-1"]?.[0]?.notes;
+    const [one, two] = notes() ?? [];
+    if (!one || !two) throw new Error("expected two notes");
+    expect(one.text).toBe("why this");
 
-    useHighlightStore.getState().setHighlightNote(threadRef, first.highlight.id, " why this ");
-    expect(
-      useHighlightStore
-        .getState()
-        .byThreadKey["environment-1:thread-1"]?.find(
-          (highlight) => highlight.id === first.highlight.id,
-        )?.note,
-    ).toBe("why this");
-
-    useHighlightStore.getState().setHighlightNote(threadRef, first.highlight.id, "updated");
-    useHighlightStore.getState().setHighlightNote(threadRef, first.highlight.id, "   ");
-    expect(
-      useHighlightStore
-        .getState()
-        .byThreadKey["environment-1:thread-1"]?.find(
-          (highlight) => highlight.id === first.highlight.id,
-        )?.note,
-    ).toBeUndefined();
+    expect(saveHighlightNote(threadRef, id, "updated", one.id)).toBe(true);
+    expect(notes()).toEqual([{ ...one, text: "updated" }, two]);
+    removeHighlightNote(threadRef, id, one.id);
+    expect(notes()).toEqual([two]);
+    expect(saveHighlightNote(threadRef, id, "stale edit", one.id)).toBe(false);
+    removeHighlightNote(threadRef, id, two.id);
+    expect(notes()).toBeUndefined();
   });
 
-  it("ignores a note that is too long or missing", () => {
+  it("rejects an empty or oversized note, or a missing highlight", () => {
     const first = add();
     if (!first.ok) throw new Error("expected a highlight");
-
-    useHighlightStore
-      .getState()
-      .setHighlightNote(threadRef, first.highlight.id, "x".repeat(MAX_HIGHLIGHT_NOTE_LENGTH + 1));
+    const { saveHighlightNote } = useHighlightStore.getState();
+    expect(saveHighlightNote(threadRef, first.highlight.id, "   ")).toBe(false);
     expect(
-      useHighlightStore
-        .getState()
-        .byThreadKey["environment-1:thread-1"]?.find(
-          (highlight) => highlight.id === first.highlight.id,
-        )?.note,
+      saveHighlightNote(threadRef, first.highlight.id, "x".repeat(MAX_HIGHLIGHT_NOTE_LENGTH + 1)),
+    ).toBe(false);
+    expect(saveHighlightNote(threadRef, "missing", "text")).toBe(false);
+    expect(
+      useHighlightStore.getState().byThreadKey["environment-1:thread-1"]?.[0]?.notes,
     ).toBeUndefined();
   });
 

@@ -14,6 +14,7 @@ import type {
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { lazy, Suspense } from "react";
 import type { MarkdownFileHighlightExcerpt } from "~/highlightStore";
+import type { HighlightInsert } from "~/lib/highlightCitation";
 import SideChatPane from "./SideChatPane";
 import type { ComposerImageAttachment, DraftId } from "../../composerDraftStore";
 import type { ShortcutMatchContext } from "../../keybindings";
@@ -83,10 +84,8 @@ export function RightPanelSurfaceContent(props: {
     annotation: PreviewAnnotationPayload,
     image: ComposerImageAttachment | null,
   ) => void;
-  readonly onInsertHighlights: (citations: readonly AssistantCitation[]) => boolean;
-  readonly onInsertMarkdownFileHighlights: (
-    excerpts: readonly MarkdownFileHighlightExcerpt[],
-  ) => boolean;
+  readonly onInsertHighlights: HighlightInsert<readonly AssistantCitation[]>;
+  readonly onInsertMarkdownFileHighlights: HighlightInsert<readonly MarkdownFileHighlightExcerpt[]>;
   readonly onCloseSurface: (surface: RightPanelSurface) => void;
   readonly terminal: RightPanelTerminalProps;
   readonly pullRequest: RightPanelPullRequestProps;

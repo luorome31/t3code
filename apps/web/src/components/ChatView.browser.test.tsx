@@ -3,6 +3,7 @@ import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environ
 import {
   EnvironmentId,
   IssueTrackerKind,
+  MessageId,
   ORCHESTRATION_V2_WS_METHODS,
   RunId,
   ThreadId,
@@ -12,6 +13,7 @@ import {
   type ThreadIssueLink,
 } from "@t3tools/contracts";
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
+import { collectAssistantCitations } from "@t3tools/shared/assistantCitations";
 import {
   compileResolvedKeybindingsConfig,
   mergeWithDefaultKeybindings,
@@ -27,6 +29,7 @@ import { AppRoot } from "~/AppRoot";
 import "~/components/ChatView";
 import { DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import { selectThreadDiffPanelSelection, useDiffPanelStore } from "~/diffPanelStore";
+import { useHighlightStore } from "~/highlightStore";
 import { __setClientSettingsForTests } from "~/hooks/useSettings";
 import stylesheet from "~/index.css?inline";
 import { environmentContextRecord } from "~/lib/composerContextRecords";
@@ -292,6 +295,70 @@ it("opens a linked Linear issue from an inactive thread's sidebar badge", async 
       }),
     )
     .toBeVisible();
+});
+
+it("adds a highlight note to the thread draft without changing a pending answer", async () => {
+  await page.viewport(1400, 900);
+  const thread = threadWithQuestion("thread-note-question", "Which file should change?");
+  const threadRef = scopeThreadRef(ENVIRONMENT_ID, thread.id);
+  using _environment = installFakeEnvironment([
+    {
+      ...thread,
+      items: thread.items.map((item) =>
+        item.type === "user_input_request"
+          ? { ...item, questions: item.questions.map((q) => ({ ...q, allowCustomAnswer: true })) }
+          : item,
+      ),
+    },
+  ]);
+  __setClientSettingsForTests({
+    ...DEFAULT_CLIENT_SETTINGS,
+    onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
+  });
+  const highlights = useHighlightStore.getState();
+  using _cleanup = { [Symbol.dispose]: () => highlights.clearThread(threadRef) };
+  const text = `Answer 0 for ${thread.id}.`;
+  const added = highlights.addHighlight(threadRef, {
+    source: { kind: "assistant-message", messageId: MessageId.make(`${thread.id}-assistant-0`) },
+    selector: { text, start: 0, end: text.length, prefix: "", suffix: "" },
+  });
+  if (!added.ok) throw new Error(added.reason);
+  highlights.saveHighlightNote(threadRef, added.highlight.id, "keep this evidence");
+  highlights.saveHighlightNote(threadRef, added.highlight.id, "different note");
+  const drafts = useComposerDraftStore.getState();
+  drafts.setPrompt(threadRef, "existing draft");
+  const path = `/${ENVIRONMENT_ID}/${thread.id}`;
+  const router = getRouter(createMemoryHistory({ initialEntries: [path] }));
+  await router.load();
+  await using _app = await render(<AppRoot router={router} />, {
+    // AppRoot brings its own router.
+    router: false,
+  });
+  const answer = page.getByTestId("composer-editor");
+  await expect.element(page.getByText("Which file should change?")).toBeVisible();
+  await userEvent.click(answer);
+  await insertText("my pending answer");
+  await expect.element(answer).toHaveTextContent("my pending answer");
+  const marker = page.getByRole("button", { name: "Open highlight notes (2)" });
+  await expect.element(marker).toBeInTheDocument();
+  await act(() => (marker.element() as HTMLButtonElement).click());
+  const selected = page
+    .getByRole("dialog", { name: "Highlight notes" })
+    .getByRole("listitem")
+    .filter({ hasText: "different note" });
+  const insert = selected.getByRole("button", { name: "Add to chat draft" });
+  const commandCount = dispatchedCommands().length;
+  await userEvent.click(insert);
+  const prompt = drafts.getComposerDraft(threadRef)?.prompt;
+  expect(prompt).toMatch(/^existing draft /);
+  expect(collectAssistantCitations(prompt ?? "").map(({ citation }) => citation)).toEqual([
+    expect.objectContaining({ text, comment: "different note" }),
+  ]);
+  expect(document.activeElement).not.toBe(answer.element());
+  expect(answer.element().textContent).toBe("my pending answer");
+  expect(router.history.location.pathname).toBe(path);
+  await expect.element(page.getByText("Your answer is unchanged.")).toBeVisible();
+  expect(dispatchedCommands()).toHaveLength(commandCount);
 });
 
 it("a machine chip stashed in one thread restores with its machine in another", async () => {

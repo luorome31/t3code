@@ -10,6 +10,7 @@ export interface HighlightHitTarget {
 }
 
 export interface HighlightHitContribution {
+  readonly container: HTMLElement;
   readonly targets: readonly HighlightHitTarget[];
   /** Per-color paint priority over every record of the pane, resolved or not. */
   readonly priorityByColor: ReadonlyMap<HighlightColor, number>;
@@ -20,16 +21,29 @@ const INTERACTIVE_SELECTOR =
 const CLICK_SLOP_PX = 1;
 const colorPaintOrder = new Map(HIGHLIGHT_COLORS.map((color, index) => [color.id, index]));
 const contributions = new Map<object, HighlightHitContribution>();
+const listeners = new Set<() => void>();
+
+export function subscribeToHighlightHitTargets(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+export function readHighlightHitTargets(container: HTMLElement): HighlightHitTarget[] {
+  return Array.from(contributions.values()).flatMap((contribution) =>
+    contribution.container === container ? contribution.targets : [],
+  );
+}
 
 export function registerHighlightHitTargets(
   owner: object,
   contribution: HighlightHitContribution,
 ): void {
   contributions.set(owner, contribution);
+  for (const listener of listeners) listener();
 }
 
 export function removeHighlightHitTargets(owner: object): void {
-  contributions.delete(owner);
+  if (contributions.delete(owner)) for (const listener of listeners) listener();
 }
 
 function rectsContainPoint(rects: DOMRectList, x: number, y: number): boolean {

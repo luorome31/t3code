@@ -7,6 +7,7 @@ import { toastManager } from "~/components/ui/toast";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { m } from "~/i18n/messages";
 import type { MarkdownFileHighlightExcerpt } from "~/highlightStore";
+import type { HighlightInsert } from "~/lib/highlightCitation";
 import {
   resolveAssistantCitationRange,
   type AssistantTextSelector,
@@ -32,7 +33,7 @@ export function FileMarkdownPreview(props: {
   readonly revealHighlight?: MarkdownFileHighlightReveal | null;
   readonly onHighlightRevealHandled?: ((id: number) => void) | undefined;
   readonly onInsertMarkdownFileHighlights?:
-    | ((excerpts: readonly MarkdownFileHighlightExcerpt[]) => boolean)
+    | HighlightInsert<readonly MarkdownFileHighlightExcerpt[]>
     | undefined;
   readonly onTaskListChange?:
     | ((input: { readonly markerOffset: number; readonly checked: boolean }) => void)
@@ -93,12 +94,16 @@ export function FileMarkdownPreview(props: {
         relativePath={props.relativePath}
       />
       <MarkdownFileHighlightToolbar
+        key={props.relativePath}
+        container={container}
         viewport={viewport}
         threadRef={props.threadRef}
         workspaceRoot={props.cwd}
         relativePath={props.relativePath}
         onCite={
-          insertHighlights === undefined ? undefined : (excerpt) => insertHighlights([excerpt])
+          insertHighlights === undefined
+            ? undefined
+            : (excerpt, destination) => insertHighlights([excerpt], destination)
         }
       />
     </div>

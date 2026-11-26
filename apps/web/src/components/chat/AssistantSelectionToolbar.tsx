@@ -12,7 +12,7 @@ import { msg, useGT } from "gt-react";
 import { MessageCircleMoreIcon, QuoteIcon } from "lucide-react";
 import { use, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { HighlightColor, ThreadHighlight } from "~/highlightStore";
+import type { HighlightColor } from "~/highlightStore";
 import {
   MAX_HIGHLIGHTS_PER_THREAD,
   MAX_HIGHLIGHT_TEXT_LENGTH,
@@ -24,6 +24,7 @@ import {
   captureAssistantTextSelection,
   type AssistantCitationSourceAnchor,
 } from "~/lib/assistantTextSelection";
+import { messageHighlightCitation } from "~/lib/highlightCitation";
 import { topmostHighlightHitAt } from "~/lib/highlightHitTargets";
 import { observeResize } from "~/lib/observeResize";
 import {
@@ -36,6 +37,14 @@ import { selectedSmalltalkAtom, smalltalkEnvironment } from "../../state/smallta
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useRightPanelStore } from "../../rightPanelStore";
+import { HighlightContextActions } from "../highlights/HighlightContextActions";
+import { HighlightNoteMarkers } from "../highlights/HighlightNoteMarkers";
+import {
+  HighlightNoteSurface,
+  highlightNoteTarget,
+  useHighlightNoteGuard,
+  type HighlightNoteTarget,
+} from "../highlights/HighlightNoteSurface";
 import { HighlightToolbarActions } from "../highlights/HighlightToolbarActions";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
@@ -44,7 +53,7 @@ import { BackgroundThreadContext } from "./backgroundThread";
 import { m } from "~/i18n/messages";
 
 interface ClickedHighlight {
-  readonly highlight: ThreadHighlight;
+  readonly id: string;
   readonly range: Range;
   readonly position: SelectionActionPoint;
 }
@@ -53,10 +62,12 @@ export function AssistantSelectionToolbar({
   viewport,
   threadRef,
   onCite,
+  onInsertNote,
 }: {
   viewport: HTMLElement | null;
   threadRef: ScopedThreadRef;
   onCite: (citation: AssistantCitation, sourceAnchor: AssistantCitationSourceAnchor) => boolean;
+  onInsertNote?: ((citation: AssistantCitation) => boolean) | undefined;
 }) {
   const [selection, setSelection] = useState<{
     citation: AssistantCitation;
@@ -66,12 +77,20 @@ export function AssistantSelectionToolbar({
     excerptSource: boolean;
   } | null>(null);
   const [clickedHighlight, setClickedHighlight] = useState<ClickedHighlight | null>(null);
+  const noteGuard = useHighlightNoteGuard();
+  const [noteTarget, setNoteTarget] = useState<HighlightNoteTarget | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<ReturnType<typeof observeSelectionActions> | null>(null);
   const backgroundThread = use(BackgroundThreadContext);
   const gt = useGT();
   const { environmentId, threadId } = threadRef;
   const threadKey = scopedThreadKey(threadRef);
+  const activeId = noteTarget?.id ?? clickedHighlight?.id;
+  const activeHighlight = useHighlightStore((state) =>
+    activeId === undefined
+      ? undefined
+      : state.byThreadKey[threadKey]?.find((highlight) => highlight.id === activeId),
+  );
   const position = selection?.position ?? clickedHighlight?.position ?? null;
   const smalltalkConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const smalltalkAllowed = useAtomValue(smalltalkEnvironment.mutate.permissionAtom(environmentId));
@@ -104,15 +123,13 @@ export function AssistantSelectionToolbar({
       setClickedHighlight(null);
     };
     // A plain click has no selection of its own, so it acts on the painted highlight under it.
-    const clickHighlight = (
-      pointer: SelectionActionPoint,
-    ): { highlight: ThreadHighlight; range: Range } | null => {
+    const clickHighlight = (pointer: SelectionActionPoint): { id: string; range: Range } | null => {
       const hit = topmostHighlightHitAt(viewport, pointer.x, pointer.y);
       if (hit === null) return null;
       const highlight = readThreadHighlights({ environmentId, threadId }).find(
         (candidate) => candidate.id === hit.id && candidate.source.kind === "assistant-message",
       );
-      return highlight === undefined ? null : { highlight, range: hit.range };
+      return highlight === undefined ? null : { id: hit.id, range: hit.range };
     };
     const update = (
       pointer: SelectionActionPoint | null,
@@ -129,7 +146,7 @@ export function AssistantSelectionToolbar({
         ) {
           setSelection(null);
           setClickedHighlight({
-            highlight: clicked.highlight,
+            id: clicked.id,
             range: clicked.range,
             position: resolveSelectionActionPosition({
               bounds: viewport.getBoundingClientRect(),
@@ -227,7 +244,6 @@ export function AssistantSelectionToolbar({
     };
   }, [backgroundThread, environmentId, threadId, viewport]);
 
-  if (!selection && !clickedHighlight) return null;
   const highlightSupported =
     typeof CSS !== "undefined" && Boolean(CSS.highlights) && typeof Highlight !== "undefined";
   const dismiss = () => {
@@ -239,7 +255,8 @@ export function AssistantSelectionToolbar({
     window.getSelection()?.removeAllRanges();
     dismiss();
   };
-  if (selection !== null) {
+  type Selection = NonNullable<typeof selection>;
+  const renderSelection = (selection: Selection) => {
     const citeTooLong = selection.citation.text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH;
     const highlightTooLong = selection.citation.text.length > MAX_HIGHLIGHT_TEXT_LENGTH;
     const cite = () => {
@@ -287,7 +304,9 @@ export function AssistantSelectionToolbar({
                     "Highlight limit reached ({count} per thread). Remove a highlight to add another.",
                     { count: MAX_HIGHLIGHTS_PER_THREAD },
                   )
-                : gt("This text is already highlighted"),
+                : result.reason === "storage"
+                  ? gt("Could not save this highlight")
+                  : gt("This text is already highlighted"),
         });
         return;
       }
@@ -396,68 +415,87 @@ export function AssistantSelectionToolbar({
       </div>,
       document.body,
     );
-  }
-  const clicked = clickedHighlight!;
-  const citeClickedHighlight = () => {
-    if (viewport === null) return false;
-    const highlight = clicked.highlight;
-    if (highlight.source.kind !== "assistant-message") return false;
-    const citation: AssistantCitation = {
-      version: 1,
-      environmentId,
-      threadId,
-      messageId: highlight.source.messageId,
-      ...highlight.selector,
-      ...(highlight.note !== undefined ? { comment: highlight.note } : {}),
+  };
+  const openNotes = (id: string, trigger: HTMLElement) => {
+    if (noteTarget?.id === id || !noteGuard.canLeave()) return;
+    dismiss();
+    setNoteTarget(highlightNoteTarget(id, trigger));
+  };
+  const renderClickedHighlight = () => {
+    const clicked = clickedHighlight;
+    if (!clicked || !activeHighlight || !viewport) return null;
+    const cite = () => {
+      const citation = messageHighlightCitation(threadRef, activeHighlight);
+      if (!citation || citation.text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH) return false;
+      const start = clicked.range.startContainer;
+      const source = (
+        start.nodeType === Node.ELEMENT_NODE ? (start as Element) : start.parentElement
+      )?.closest<HTMLElement>("[data-assistant-citation-source]");
+      if (!source || !onCite(citation, { source, range: clicked.range, viewport })) return false;
+      dismiss();
+      return true;
     };
-    if (citation.text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH) return false;
-    const start = clicked.range.startContainer;
-    const source = (
-      start.nodeType === Node.ELEMENT_NODE ? (start as Element) : start.parentElement
-    )?.closest<HTMLElement>("[data-assistant-citation-source]");
-    if (!source || !onCite(citation, { source, range: clicked.range, viewport })) return false;
-    dismiss();
-    return true;
-  };
-  const removeClickedHighlight = () => {
-    useHighlightStore.getState().removeHighlights(threadRef, [clicked.highlight.id]);
-    dismiss();
-  };
-  return createPortal(
-    <div
-      ref={toolbarRef}
-      role="group"
-      aria-label={gt("Highlight actions")}
-      className="fixed z-50 flex max-w-[calc(100vw-1rem)] items-center gap-1"
-      style={{ left: clicked.position.x, top: clicked.position.y }}
-      onPointerDown={(event) => event.preventDefault()}
-      onKeyDown={(event) => {
-        event.stopPropagation();
-        if (event.key === "Escape" && !event.nativeEvent.isComposing) {
-          event.preventDefault();
-          dismiss();
-        }
-      }}
-    >
-      <Button
-        type="button"
-        size="xs"
-        variant="glass"
-        aria-label={gt("Cite highlight in composer")}
-        onClick={citeClickedHighlight}
+    return createPortal(
+      <div
+        ref={toolbarRef}
+        role="group"
+        aria-label={gt("Highlight actions")}
+        className="fixed z-50 flex max-w-[calc(100vw-1rem)] flex-wrap items-center gap-1"
+        style={{ left: clicked.position.x, top: clicked.position.y }}
+        onPointerDown={(event) => event.preventDefault()}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.key === "Escape" && !event.nativeEvent.isComposing) {
+            event.preventDefault();
+            dismiss();
+          }
+        }}
       >
-        <QuoteIcon aria-hidden="true" className="size-3.5" />
-        {gt("Cite", { $context: "verb, button that quotes the selected text" })}
-      </Button>
-      <HighlightToolbarActions
+        <HighlightContextActions
+          key={clicked.id}
+          count={activeHighlight.notes?.length ?? 0}
+          onCite={cite}
+          onNotes={(trigger) => openNotes(clicked.id, trigger)}
+          onRemove={() => {
+            useHighlightStore.getState().removeHighlights(threadRef, [clicked.id]);
+            dismiss();
+          }}
+        />
+      </div>,
+      document.body,
+    );
+  };
+
+  return (
+    <>
+      <HighlightNoteMarkers
+        container={viewport}
+        viewport={viewport}
         threadRef={threadRef}
-        supported={highlightSupported}
-        tooLong={false}
-        hasExistingHighlight={true}
-        onAdd={() => undefined}
-        onRemove={removeClickedHighlight}
+        onOpen={openNotes}
       />
-    </div>,
-    document.body,
+      {noteTarget && activeHighlight ? (
+        <HighlightNoteSurface
+          key={noteTarget.id}
+          threadRef={threadRef}
+          highlight={activeHighlight}
+          target={noteTarget}
+          noteGuard={noteGuard}
+          onClose={() => setNoteTarget(null)}
+          onInsert={
+            onInsertNote
+              ? (highlight, note) => {
+                  const citation = messageHighlightCitation(threadRef, highlight, note.text);
+                  return citation !== null && onInsertNote(citation);
+                }
+              : undefined
+          }
+        />
+      ) : selection ? (
+        renderSelection(selection)
+      ) : (
+        renderClickedHighlight()
+      )}
+    </>
   );
 }

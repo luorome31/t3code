@@ -16,12 +16,12 @@ describe("formatMarkdownFileHighlightExcerpt", () => {
     ).toBe("From `docs/design.md`:\n\n> first line\n> second line");
   });
 
-  it("separates multiple excerpts with a blank line", () => {
+  it("separates excerpts and keeps the selected note outside the source quote", () => {
     expect(
       formatMarkdownFileHighlightExcerpts([
         { workspaceRoot: "/repo", relativePath: "a.md", text: "one" },
-        { workspaceRoot: "/repo", relativePath: "b.md", text: "two" },
+        { workspaceRoot: "/repo", relativePath: "b.md", text: "two", comment: "follow up" },
       ]),
-    ).toBe("From `a.md`:\n\n> one\n\nFrom `b.md`:\n\n> two");
+    ).toBe("From `a.md`:\n\n> one\n\nFrom `b.md`:\n\n> two\n\nNote: follow up");
   });
 });

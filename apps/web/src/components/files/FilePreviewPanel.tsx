@@ -104,6 +104,7 @@ import { breadcrumbPathOf, retainedBreadcrumbTrail, trailChildOf } from "./fileP
 import { FileMarkdownPreview, type MarkdownFileHighlightReveal } from "./FileMarkdownPreview";
 import { consumeFileHighlightReveal, useFileHighlightReveal } from "~/fileHighlightRevealStore";
 import type { MarkdownFileHighlightExcerpt } from "~/highlightStore";
+import type { HighlightInsert } from "~/lib/highlightCitation";
 import {
   type FileCommentAnnotationEntry,
   type FileCommentAnnotationGroup,
@@ -169,7 +170,7 @@ interface FilePreviewPanelProps {
   selectedFilePending: boolean;
   workspaceMutationId: string | null;
   onInsertMarkdownFileHighlights?:
-    | ((excerpts: readonly MarkdownFileHighlightExcerpt[]) => boolean)
+    | HighlightInsert<readonly MarkdownFileHighlightExcerpt[]>
     | undefined;
 }
 
@@ -1173,7 +1174,7 @@ function RenderedMarkdownSurface({
   revealHighlight: MarkdownFileHighlightReveal | null;
   onHighlightRevealHandled: (id: number) => void;
   onInsertMarkdownFileHighlights?:
-    | ((excerpts: readonly MarkdownFileHighlightExcerpt[]) => boolean)
+    | HighlightInsert<readonly MarkdownFileHighlightExcerpt[]>
     | undefined;
 }) {
   const saveTarget = { environmentId, cwd, relativePath };

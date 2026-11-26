@@ -1414,18 +1414,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     addComposerFilesToDraft,
   });
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the shared prompt ref in step with the committed draft prompt for imperative handlers
+  const showingPendingAnswer = activePendingProgress !== null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- syncs the draft ref only while the editor shows the draft, not a pending answer
   useEffect(() => {
-    if (isLiteralPendingAnswer) return;
+    if (showingPendingAnswer) return;
     promptRef.current = prompt;
-  }, [isLiteralPendingAnswer, prompt, promptRef]);
-  const [cursorClampedFor, setCursorClampedFor] = useState({ prompt, isLiteralPendingAnswer });
+  }, [showingPendingAnswer, prompt, promptRef]);
+  const [cursorClampedFor, setCursorClampedFor] = useState({ prompt, showingPendingAnswer });
   if (
     cursorClampedFor.prompt !== prompt ||
-    cursorClampedFor.isLiteralPendingAnswer !== isLiteralPendingAnswer
+    cursorClampedFor.showingPendingAnswer !== showingPendingAnswer
   ) {
-    setCursorClampedFor({ prompt, isLiteralPendingAnswer });
-    if (!isLiteralPendingAnswer) {
+    setCursorClampedFor({ prompt, showingPendingAnswer });
+    if (!showingPendingAnswer) {
       setComposerCursor((existing) => clampCollapsedComposerCursor(prompt, existing));
     }
   }

@@ -1,7 +1,6 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useGT } from "gt-react";
-import { QuoteIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -14,14 +13,22 @@ import {
   useHighlightStore,
   type HighlightColor,
   type MarkdownFileHighlightExcerpt,
-  type ThreadHighlight,
   type ThreadHighlightSource,
 } from "~/highlightStore";
+import { HighlightContextActions } from "../highlights/HighlightContextActions";
+import { HighlightNoteMarkers } from "../highlights/HighlightNoteMarkers";
+import {
+  HighlightNoteSurface,
+  highlightNoteTarget,
+  useHighlightNoteGuard,
+  type HighlightNoteTarget,
+} from "../highlights/HighlightNoteSurface";
 import { HighlightToolbarActions } from "../highlights/HighlightToolbarActions";
 import {
   captureViewportTextSelection,
   type AssistantTextSelector,
 } from "~/lib/assistantTextSelection";
+import { type HighlightInsert, markdownHighlightExcerpt } from "~/lib/highlightCitation";
 import { topmostHighlightHitAt } from "~/lib/highlightHitTargets";
 import { observeResize } from "~/lib/observeResize";
 import {
@@ -30,26 +37,27 @@ import {
   resolveSelectionActionPosition,
   type SelectionActionPoint,
 } from "~/lib/selectionActions";
-import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 
 interface ClickedHighlight {
-  readonly highlight: ThreadHighlight;
+  readonly id: string;
   readonly position: SelectionActionPoint;
 }
 
 export function MarkdownFileHighlightToolbar({
   viewport,
+  container = viewport,
   threadRef,
   workspaceRoot,
   relativePath,
   onCite,
 }: {
   readonly viewport: HTMLElement | null;
+  readonly container?: HTMLElement | null;
   readonly threadRef: ScopedThreadRef;
   readonly workspaceRoot: string;
   readonly relativePath: string;
-  readonly onCite?: ((excerpt: MarkdownFileHighlightExcerpt) => boolean) | undefined;
+  readonly onCite?: HighlightInsert<MarkdownFileHighlightExcerpt> | undefined;
 }) {
   const gt = useGT();
   const [selection, setSelection] = useState<{
@@ -58,10 +66,18 @@ export function MarkdownFileHighlightToolbar({
     existingHighlightId: string | null;
   } | null>(null);
   const [clickedHighlight, setClickedHighlight] = useState<ClickedHighlight | null>(null);
+  const noteGuard = useHighlightNoteGuard();
+  const [noteTarget, setNoteTarget] = useState<HighlightNoteTarget | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<ReturnType<typeof observeSelectionActions> | null>(null);
   const { environmentId, threadId } = threadRef;
   const threadKey = scopedThreadKey(threadRef);
+  const activeId = noteTarget?.id ?? clickedHighlight?.id;
+  const activeHighlight = useHighlightStore((state) =>
+    activeId === undefined
+      ? undefined
+      : state.byThreadKey[threadKey]?.find((highlight) => highlight.id === activeId),
+  );
   const source: ThreadHighlightSource = { kind: "markdown-file", workspaceRoot, relativePath };
   const position = selection?.position ?? clickedHighlight?.position ?? null;
 
@@ -92,14 +108,14 @@ export function MarkdownFileHighlightToolbar({
       setClickedHighlight(null);
     };
     // A plain click has no selection of its own, so it acts on the painted highlight under it.
-    const clickHighlight = (pointer: SelectionActionPoint): ThreadHighlight | null => {
+    const clickHighlight = (pointer: SelectionActionPoint): string | null => {
       const hit = topmostHighlightHitAt(viewport, pointer.x, pointer.y);
       if (hit === null) return null;
       return (
         readThreadHighlights({ environmentId, threadId }).find(
           (candidate) =>
             candidate.id === hit.id && sameHighlightSource(candidate.source, fileSource),
-        ) ?? null
+        )?.id ?? null
       );
     };
     const update = (
@@ -116,7 +132,7 @@ export function MarkdownFileHighlightToolbar({
         ) {
           setSelection(null);
           setClickedHighlight({
-            highlight: clicked,
+            id: clicked,
             position: resolveSelectionActionPosition({
               bounds: viewport.getBoundingClientRect(),
               selectionRect: null,
@@ -202,9 +218,6 @@ export function MarkdownFileHighlightToolbar({
     };
   }, [environmentId, relativePath, threadId, viewport, workspaceRoot]);
 
-  if (!selection && !clickedHighlight) return null;
-  const highlightTooLong =
-    selection !== null && selection.selector.text.length > MAX_HIGHLIGHT_TEXT_LENGTH;
   const highlightSupported =
     typeof CSS !== "undefined" && Boolean(CSS.highlights) && typeof Highlight !== "undefined";
   const dismiss = () => {
@@ -216,7 +229,9 @@ export function MarkdownFileHighlightToolbar({
     window.getSelection()?.removeAllRanges();
     dismiss();
   };
-  if (selection !== null) {
+  type Selection = NonNullable<typeof selection>;
+  const renderSelection = (selection: Selection) => {
+    const highlightTooLong = selection.selector.text.length > MAX_HIGHLIGHT_TEXT_LENGTH;
     const removeHighlight = () => {
       if (!selection.existingHighlightId) return;
       const selectionThreadRef: ScopedThreadRef = { environmentId, threadId };
@@ -245,7 +260,9 @@ export function MarkdownFileHighlightToolbar({
                     "Highlight limit reached ({count} per thread). Remove a highlight to add another.",
                     { count: MAX_HIGHLIGHTS_PER_THREAD },
                   )
-                : gt("This text is already highlighted"),
+                : result.reason === "storage"
+                  ? gt("Could not save this highlight")
+                  : gt("This text is already highlighted"),
         });
         return;
       }
@@ -279,61 +296,82 @@ export function MarkdownFileHighlightToolbar({
       </div>,
       document.body,
     );
-  }
-  const clicked = clickedHighlight!;
-  const citeClickedHighlight = () => {
-    const highlight = clicked.highlight;
-    if (onCite === undefined || highlight.source.kind !== "markdown-file") return false;
-    const inserted = onCite({
-      workspaceRoot: highlight.source.workspaceRoot,
-      relativePath: highlight.source.relativePath,
-      text: highlight.selector.text,
-    });
-    if (!inserted) return false;
-    dismiss();
-    return true;
   };
-  const removeClickedHighlight = () => {
-    useHighlightStore.getState().removeHighlights(threadRef, [clicked.highlight.id]);
+  const openNotes = (id: string, trigger: HTMLElement) => {
+    if (noteTarget?.id === id || !noteGuard.canLeave()) return;
     dismiss();
+    setNoteTarget(highlightNoteTarget(id, trigger));
   };
-  return createPortal(
-    <div
-      ref={toolbarRef}
-      role="group"
-      aria-label={gt("Highlight actions")}
-      className="fixed z-50 flex max-w-[calc(100vw-1rem)] items-center gap-1"
-      style={{ left: clicked.position.x, top: clicked.position.y }}
-      onPointerDown={(event) => event.preventDefault()}
-      onKeyDown={(event) => {
-        event.stopPropagation();
-        if (event.key === "Escape" && !event.nativeEvent.isComposing) {
-          event.preventDefault();
-          dismiss();
-        }
-      }}
-    >
-      {onCite !== undefined ? (
-        <Button
-          type="button"
-          size="xs"
-          variant="glass"
-          aria-label={gt("Cite highlight in composer")}
-          onClick={citeClickedHighlight}
-        >
-          <QuoteIcon aria-hidden="true" className="size-3.5" />
-          {gt("Cite", { $context: "verb, button that quotes the selected text" })}
-        </Button>
-      ) : null}
-      <HighlightToolbarActions
+  const renderClickedHighlight = () => {
+    const clicked = clickedHighlight;
+    if (!clicked || !activeHighlight) return null;
+    const cite = () => {
+      const excerpt = markdownHighlightExcerpt(activeHighlight);
+      if (!excerpt || !onCite?.(excerpt)) return false;
+      dismiss();
+      return true;
+    };
+    return createPortal(
+      <div
+        ref={toolbarRef}
+        role="group"
+        aria-label={gt("Highlight actions")}
+        className="fixed z-50 flex max-w-[calc(100vw-1rem)] flex-wrap items-center gap-1"
+        style={{ left: clicked.position.x, top: clicked.position.y }}
+        onPointerDown={(event) => event.preventDefault()}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.key === "Escape" && !event.nativeEvent.isComposing) {
+            event.preventDefault();
+            dismiss();
+          }
+        }}
+      >
+        <HighlightContextActions
+          key={clicked.id}
+          count={activeHighlight.notes?.length ?? 0}
+          onCite={onCite ? cite : undefined}
+          onNotes={(trigger) => openNotes(clicked.id, trigger)}
+          onRemove={() => {
+            useHighlightStore.getState().removeHighlights(threadRef, [clicked.id]);
+            dismiss();
+          }}
+        />
+      </div>,
+      document.body,
+    );
+  };
+
+  return (
+    <>
+      <HighlightNoteMarkers
+        container={container}
+        viewport={viewport}
         threadRef={threadRef}
-        supported={highlightSupported}
-        tooLong={false}
-        hasExistingHighlight={true}
-        onAdd={() => undefined}
-        onRemove={removeClickedHighlight}
+        onOpen={openNotes}
       />
-    </div>,
-    document.body,
+      {noteTarget && activeHighlight ? (
+        <HighlightNoteSurface
+          key={noteTarget.id}
+          threadRef={threadRef}
+          highlight={activeHighlight}
+          target={noteTarget}
+          noteGuard={noteGuard}
+          onClose={() => setNoteTarget(null)}
+          onInsert={
+            onCite
+              ? (highlight, note) => {
+                  const excerpt = markdownHighlightExcerpt(highlight, note.text);
+                  return excerpt !== null && onCite(excerpt, "chat-draft");
+                }
+              : undefined
+          }
+        />
+      ) : selection ? (
+        renderSelection(selection)
+      ) : (
+        renderClickedHighlight()
+      )}
+    </>
   );
 }

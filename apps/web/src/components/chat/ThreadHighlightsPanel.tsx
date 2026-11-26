@@ -5,17 +5,22 @@ import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { AssistantCitation, ScopedThreadRef } from "@t3tools/contracts";
 import { msg, useGT, useMessages } from "gt-react";
-import { HighlighterIcon, MessageCircleMoreIcon, StickyNoteIcon, Trash2Icon } from "lucide-react";
+import { HighlighterIcon, StickyNoteIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
 import { requestFileHighlightReveal } from "~/fileHighlightRevealStore";
 import {
-  MAX_HIGHLIGHT_NOTE_LENGTH,
   useHighlightStore,
   useThreadHighlights,
+  type HighlightNote,
   type MarkdownFileHighlightExcerpt,
   type ThreadHighlight,
 } from "~/highlightStore";
+import {
+  type HighlightInsert,
+  markdownHighlightExcerpt,
+  messageHighlightCitation,
+} from "~/lib/highlightCitation";
 import { assistantCitationNavigation } from "~/lib/assistantCitationNavigation";
 import {
   HIGHLIGHT_COLORS,
@@ -28,6 +33,8 @@ import { selectedSmalltalkAtom, smalltalkEnvironment } from "../../state/smallta
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { HighlightColorPicker } from "../highlights/HighlightColorPicker";
+import { useHighlightNoteGuard } from "../highlights/HighlightNoteSurface";
+import { HighlightNotes } from "../highlights/HighlightNotes";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import {
@@ -49,20 +56,6 @@ interface HighlightGroup {
   readonly key: string;
   readonly label: string;
   readonly highlights: ThreadHighlight[];
-}
-
-function messageCitationOf(
-  threadRef: ScopedThreadRef,
-  highlight: ThreadHighlight,
-): AssistantCitation | null {
-  if (highlight.source.kind !== "assistant-message") return null;
-  return {
-    version: 1,
-    ...threadRef,
-    messageId: highlight.source.messageId,
-    ...highlight.selector,
-    ...(highlight.note !== undefined ? { comment: highlight.note } : {}),
-  };
 }
 
 function highlightGroupIdentity(
@@ -166,10 +159,8 @@ export function ThreadHighlightsPanel({
   onInsertMarkdownFileHighlights,
 }: {
   readonly threadRef: ScopedThreadRef;
-  readonly onInsertHighlights: (citations: readonly AssistantCitation[]) => boolean;
-  readonly onInsertMarkdownFileHighlights: (
-    excerpts: readonly MarkdownFileHighlightExcerpt[],
-  ) => boolean;
+  readonly onInsertHighlights: HighlightInsert<readonly AssistantCitation[]>;
+  readonly onInsertMarkdownFileHighlights: HighlightInsert<readonly MarkdownFileHighlightExcerpt[]>;
 }) {
   const gt = useGT();
   const m = useMessages();
@@ -196,7 +187,8 @@ export function ThreadHighlightsPanel({
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [colorFilter, setColorFilter] = useState<ReadonlySet<HighlightColor>>(() => new Set());
   const [colorPopoverId, setColorPopoverId] = useState<string | null>(null);
-  const [noteEditor, setNoteEditor] = useState<{ id: string; draft: string } | null>(null);
+  const noteGuard = useHighlightNoteGuard();
+  const [expandedNotesId, setExpandedNotesId] = useState<string | null>(null);
 
   const messageHighlights = highlights.filter(
     (highlight) => highlight.source.kind === "assistant-message",
@@ -223,12 +215,12 @@ export function ThreadHighlightsPanel({
   const someSelected = selected.length > 0 && !allSelected;
 
   const selectTab = (next: HighlightTab) => {
-    if (next === tab) return;
+    if (next === tab || !noteGuard.canLeave()) return;
     setTab(next);
     setSelectedIds(new Set());
     setConfirmDeleteOpen(false);
     setColorPopoverId(null);
-    setNoteEditor(null);
+    setExpandedNotesId(null);
   };
   const setSelected = (id: string, checked: boolean) => {
     setSelectedIds((current) => {
@@ -244,16 +236,20 @@ export function ThreadHighlightsPanel({
     );
   };
   const toggleColorFilter = (color: HighlightColor) => {
-    setColorFilter((current) => {
-      const next = new Set(current);
-      if (next.has(color)) next.delete(color);
-      else next.add(color);
-      return next;
-    });
+    const next = new Set(colorFilter);
+    if (next.has(color)) next.delete(color);
+    else next.add(color);
+    const expanded = activeHighlights.find((highlight) => highlight.id === expandedNotesId);
+    if (expanded && next.size > 0 && !next.has(expanded.color) && !noteGuard.canLeave()) return;
+    setColorFilter(next);
+  };
+  const toggleNotes = (id: string) => {
+    if (noteGuard.canLeave()) setExpandedNotesId(expandedNotesId === id ? null : id);
   };
   const jumpTo = (highlight: ThreadHighlight) => {
+    if (!noteGuard.canLeave()) return;
     if (highlight.source.kind === "assistant-message") {
-      const citation = messageCitationOf(threadRef, highlight);
+      const citation = messageHighlightCitation(threadRef, highlight);
       if (citation) void navigate(assistantCitationNavigation(citation, null));
       return;
     }
@@ -269,7 +265,7 @@ export function ThreadHighlightsPanel({
     if (selected.length === 0) return;
     if (tab === "messages") {
       const citations = selected.flatMap((highlight) => {
-        const citation = messageCitationOf(threadRef, highlight);
+        const citation = messageHighlightCitation(threadRef, highlight);
         return citation === null ? [] : [citation];
       });
       if (citations.length > 0 && onInsertHighlights(citations)) {
@@ -277,17 +273,7 @@ export function ThreadHighlightsPanel({
       }
       return;
     }
-    const excerpts = selected.flatMap((highlight) =>
-      highlight.source.kind === "markdown-file"
-        ? [
-            {
-              workspaceRoot: highlight.source.workspaceRoot,
-              relativePath: highlight.source.relativePath,
-              text: highlight.selector.text,
-            },
-          ]
-        : [],
-    );
+    const excerpts = selected.flatMap((highlight) => markdownHighlightExcerpt(highlight) ?? []);
     if (excerpts.length > 0 && onInsertMarkdownFileHighlights(excerpts)) {
       setSelectedIds(new Set());
     }
@@ -301,7 +287,11 @@ export function ThreadHighlightsPanel({
     setConfirmDeleteOpen(false);
   };
   const requestDelete = () => {
-    if (selected.length === 0) return;
+    if (
+      selected.length === 0 ||
+      (expandedNotesId && selectedIds.has(expandedNotesId) && !noteGuard.canLeave())
+    )
+      return;
     if (selected.length === 1) {
       removeSelected();
       return;
@@ -309,27 +299,34 @@ export function ThreadHighlightsPanel({
     setConfirmDeleteOpen(true);
   };
   const recolor = (highlight: ThreadHighlight, color: HighlightColor) => {
+    if (
+      highlight.id === expandedNotesId &&
+      colorFilter.size > 0 &&
+      !colorFilter.has(color) &&
+      !noteGuard.canLeave()
+    )
+      return;
     useHighlightStore.getState().recolorHighlight(threadRef, highlight.id, color);
   };
   const removeOne = (highlight: ThreadHighlight) => {
+    if (highlight.id === expandedNotesId && !noteGuard.canLeave()) return;
     useHighlightStore.getState().removeHighlights(threadRef, [highlight.id]);
   };
-  const noteTooLong = (noteEditor?.draft.length ?? 0) > MAX_HIGHLIGHT_NOTE_LENGTH;
-  const saveNote = () => {
-    if (noteEditor === null || noteTooLong) return;
-    useHighlightStore.getState().setHighlightNote(threadRef, noteEditor.id, noteEditor.draft);
-    setNoteEditor(null);
+  const insertNote = (highlight: ThreadHighlight, note: HighlightNote) => {
+    const citation = messageHighlightCitation(threadRef, highlight, note.text);
+    if (citation) return onInsertHighlights([citation], "chat-draft");
+    const excerpt = markdownHighlightExcerpt(highlight, note.text);
+    return excerpt !== null && onInsertMarkdownFileHighlights([excerpt], "chat-draft");
   };
-  const cancelNote = () => setNoteEditor(null);
-  const explainNote = (highlight: ThreadHighlight) => {
-    if (highlight.note === undefined || creatingNoteExplanation) return;
+  const explainNote = (note: HighlightNote) => {
+    if (creatingNoteExplanation) return;
     setCreatingNoteExplanation(true);
     void smalltalkMutate({
       environmentId: threadRef.environmentId,
       input: {
         action: "create",
         threadId: threadRef.threadId,
-        source: { kind: "highlight-note", noteId: highlight.id, text: highlight.note },
+        source: { kind: "highlight-note", noteId: note.id, text: note.text },
       },
     })
       .then((result) => {
@@ -469,7 +466,9 @@ export function ThreadHighlightsPanel({
               </div>
               {group.highlights.map((highlight) => {
                 const position = positionById.get(highlight.id) ?? 0;
-                const editing = noteEditor?.id === highlight.id;
+                const expanded = expandedNotesId === highlight.id;
+                const preview = highlight.notes?.[0];
+                const count = highlight.notes?.length ?? 0;
                 return (
                   <div
                     key={highlight.id}
@@ -501,103 +500,58 @@ export function ThreadHighlightsPanel({
                           {highlight.selector.text}
                         </span>
                       </button>
-                      {editing ? (
-                        <div className="mt-1.5">
-                          <textarea
-                            autoFocus
-                            aria-label={gt("Note editor for highlight {position}", { position })}
-                            placeholder={gt("Add a note for this highlight...")}
-                            rows={2}
-                            className="field-sizing-content max-h-32 min-h-9 w-full resize-none rounded-md border border-border bg-background/50 px-2 py-1.5 text-xs text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring"
-                            value={noteEditor.draft}
-                            onChange={(event) =>
-                              setNoteEditor({ id: highlight.id, draft: event.currentTarget.value })
-                            }
-                            onKeyDown={(event) => {
-                              event.stopPropagation();
-                              if (event.nativeEvent.isComposing) return;
-                              if (event.key === "Enter" && !event.shiftKey) {
-                                event.preventDefault();
-                                saveNote();
-                              } else if (event.key === "Escape") {
-                                event.preventDefault();
-                                cancelNote();
-                              }
-                            }}
+                      {expanded ? (
+                        <div
+                          className="mt-2 border-s-2 ps-2"
+                          style={{
+                            borderColor: `var(${highlightColorDefinition(highlight.color).cssVariable})`,
+                          }}
+                        >
+                          <HighlightNotes
+                            threadRef={threadRef}
+                            highlight={highlight}
+                            onDirtyChange={noteGuard.setDirty}
+                            onInsert={(note) => insertNote(highlight, note)}
+                            onExplain={noteSmalltalkSupported ? explainNote : undefined}
+                            explainBusy={creatingNoteExplanation}
                           />
-                          {noteTooLong ? (
-                            <p role="status" className="pt-1 text-xs text-destructive">
-                              {gt("Notes can contain up to {count, number} characters.", {
-                                count: MAX_HIGHLIGHT_NOTE_LENGTH,
-                              })}
-                            </p>
-                          ) : null}
-                          <div className="mt-1 flex items-center justify-end gap-1">
-                            <Button size="xs" variant="ghost" onClick={cancelNote}>
-                              {gt("Cancel")}
-                            </Button>
-                            <Button size="xs" onClick={saveNote} disabled={noteTooLong}>
-                              {noteTooLong ? gt("Shorten note") : gt("Save note")}
-                            </Button>
-                          </div>
                         </div>
-                      ) : highlight.note !== undefined ? (
-                        <div className="mt-1 flex items-start gap-1">
-                          <span
-                            className="min-w-0 flex-1 whitespace-pre-wrap break-words border-l-2 pl-2 text-xs text-muted-foreground"
-                            style={{
-                              borderColor: `var(${highlightColorDefinition(highlight.color).cssVariable})`,
-                            }}
-                          >
-                            {highlight.note}
+                      ) : null}
+                      {preview ? (
+                        <button
+                          type="button"
+                          aria-expanded={expanded}
+                          className="mt-1 flex w-full min-w-0 cursor-pointer items-start gap-1.5 rounded-sm text-start text-xs text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+                          onClick={() => toggleNotes(highlight.id)}
+                        >
+                          <StickyNoteIcon aria-hidden className="mt-px size-3 shrink-0" />
+                          <span className="shrink-0">
+                            {gt("Notes ({count, number})", { count })}
                           </span>
-                          {noteSmalltalkSupported ? (
-                            <Tooltip>
-                              <TooltipTrigger
-                                render={
-                                  <Button
-                                    type="button"
-                                    aria-label={gt("Explain note in plain language")}
-                                    size="icon-xs"
-                                    variant="ghost"
-                                    disabled={creatingNoteExplanation}
-                                    onClick={() => explainNote(highlight)}
-                                  />
-                                }
-                              >
-                                <MessageCircleMoreIcon aria-hidden className="size-3.5" />
-                              </TooltipTrigger>
-                              <TooltipPopup>{gt("Explain note in plain language")}</TooltipPopup>
-                            </Tooltip>
-                          ) : null}
-                        </div>
+                          {!expanded ? <span className="truncate">{preview.text}</span> : null}
+                        </button>
                       ) : null}
                     </div>
                     <div className="flex shrink-0 items-center gap-0.5">
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <Button
-                              type="button"
-                              aria-label={
-                                highlight.note === undefined
-                                  ? gt("Add note for highlight {position}", { position })
-                                  : gt("Edit note for highlight {position}", { position })
-                              }
-                              size="icon-xs"
-                              variant="ghost"
-                              onClick={() =>
-                                setNoteEditor({ id: highlight.id, draft: highlight.note ?? "" })
-                              }
-                            />
-                          }
-                        >
-                          <StickyNoteIcon aria-hidden className="size-3.5" />
-                        </TooltipTrigger>
-                        <TooltipPopup>
-                          {highlight.note === undefined ? gt("Add note") : gt("Edit note")}
-                        </TooltipPopup>
-                      </Tooltip>
+                      {!preview ? (
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                type="button"
+                                aria-label={gt("Add note for highlight {position}", { position })}
+                                aria-expanded={expanded}
+                                size="icon-xs"
+                                variant="ghost"
+                                onClick={() => toggleNotes(highlight.id)}
+                              />
+                            }
+                          >
+                            <StickyNoteIcon aria-hidden className="size-3.5" />
+                          </TooltipTrigger>
+                          <TooltipPopup>{gt("Add note")}</TooltipPopup>
+                        </Tooltip>
+                      ) : null}
                       <Tooltip>
                         <TooltipTrigger
                           render={

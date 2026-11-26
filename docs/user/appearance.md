@@ -57,15 +57,15 @@ Under **Settings → Appearance → Highlight colors**, pick how new highlights 
 - **Per selection** shows a palette of swatches beside the selection, and each highlight uses
   the color you click.
 
-Click highlighted text and choose **Cite** to insert it into the composer, or **Remove highlight**
-to delete the highlight and its note.
+Click highlighted text to **Cite** the original passage or **Add note** beside it. A highlight
+can have several notes. Use its note marker to reopen them, or choose **Add to chat draft** on
+a note to append it and its source without sending. If you’re answering a question, your answer
+stays unchanged and the note is waiting in your regular chat draft. Editing the draft does not
+change the saved note.
 
-Open **Highlights** in the thread details card to manage highlights in **Messages** and
-**Markdown files**. Use the note and trash icons on each row to add or edit a note or delete the
-highlight. A saved note also shows an icon that explains that note in plain language; see
-[Smalltalk](smalltalk.md). Click a highlight's color dot to change its color. You can also filter
-by color and insert selected highlights into the composer. A message highlight's note is included
-as a citation comment. A Markdown file excerpt is inserted with its file path.
+Open **Highlights** in the thread details card to browse your highlights and notes, jump to the
+source, or filter by color. In a note’s menu, choose **Explain note in plain language** to open
+[Smalltalk](smalltalk.md). Removing a highlight also removes its notes.
 
 ## Conversation navigation
 
