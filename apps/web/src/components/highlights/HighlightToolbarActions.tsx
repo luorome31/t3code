@@ -125,34 +125,20 @@ export function HighlightToolbarActions({
           <TooltipPopup>{gt("Thread highlight color")}</TooltipPopup>
         </Tooltip>
         {paletteOpen ? (
-          <div
-            role="group"
-            aria-label={gt("Thread highlight palette")}
-            className="flex flex-col items-start gap-1 border-l border-border/60 pl-1"
-          >
+          <div className="border-l border-border/60 pl-1">
             <HighlightColorPicker
               size="sm"
-              ariaLabel={gt("One-off highlight colors")}
-              swatchAriaLabel={(color) => gt("Highlight selection as {color}", { color })}
+              value={threadDefaultColor}
+              ariaLabel={gt("Thread highlight palette")}
+              swatchAriaLabel={(color) =>
+                gt("Highlight selection as {color} and set the thread default", { color })
+              }
               onChange={(color) => {
-                // One-time: the choice applies to this selection and changes nothing else.
-                setPaletteOpen(false);
+                setThreadDefaultColor(threadRef, color);
                 onAdd(color);
+                setPaletteOpen(false);
               }}
             />
-            <div className="flex items-center gap-1.5 border-t border-border/60 pt-1">
-              <span className="text-2xs text-muted-foreground">{gt("Thread default")}</span>
-              <HighlightColorPicker
-                size="sm"
-                value={threadDefaultColor}
-                ariaLabel={gt("Thread default highlight color")}
-                swatchAriaLabel={(color) => gt("Set thread default to {color}", { color })}
-                onChange={(color) => {
-                  setThreadDefaultColor(threadRef, color);
-                  setPaletteOpen(false);
-                }}
-              />
-            </div>
           </div>
         ) : null}
       </div>

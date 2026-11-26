@@ -328,7 +328,7 @@ export function AppearanceSettingsPanel() {
           description={
             highlightColorMode === "thread"
               ? gt(
-                  "Highlight applies the thread's default color. Use the selection palette to apply a color once or to set the thread default. New threads start with the color shown here.",
+                  "Highlight applies the thread's default color. Picking a swatch in the selection palette highlights the current selection and makes that color the thread default. New threads start with the color shown here.",
                 )
               : gt("Pick one of these swatches beside the selection each time you highlight.")
           }

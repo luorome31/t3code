@@ -50,10 +50,9 @@ devices.
 
 Under **Settings → Appearance → Highlight colors**, pick how new highlights get their color:
 
-- **Thread default** makes **Highlight** apply the thread's default color. Pick a swatch in the
-  first row of the palette to apply a color to the current selection. Use the **Thread default**
-  row to change the thread's default color. The swatch in settings is the starting color for new
-  threads.
+- **Thread default** makes **Highlight** apply the thread's default color. Picking a swatch in the
+  palette highlights the current selection and makes that color the thread's default. The swatch in
+  settings is the starting color for new threads.
 - **Per selection** shows a palette of swatches beside the selection, and each highlight uses
   the color you click.
 

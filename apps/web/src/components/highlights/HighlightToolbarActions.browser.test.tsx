@@ -66,7 +66,7 @@ function setup() {
 }
 
 describe("HighlightToolbarActions", () => {
-  it("expands the thread palette inline and sets a default color", async () => {
+  it("expands the thread palette inline, where one swatch click colors the selection and sets the thread default", async () => {
     setup();
     const onAdd = vi.fn();
     await using _screen = await render(<Harness onAdd={onAdd} onRemove={() => {}} />);
@@ -75,45 +75,36 @@ describe("HighlightToolbarActions", () => {
     await expect
       .element(page.getByRole("group", { name: "Thread highlight palette" }))
       .toBeVisible();
-    await userEvent.click(page.getByRole("button", { name: "Set thread default to Purple" }));
+    await userEvent.click(
+      page.getByRole("button", {
+        name: "Highlight selection as Purple and set the thread default",
+      }),
+    );
 
+    expect(onAdd).toHaveBeenCalledWith("purple");
     expect(useHighlightStore.getState().threadDefaultColors["environment-1:thread-1"]).toBe(
       "purple",
     );
     await expect
       .element(page.getByRole("group", { name: "Thread highlight palette" }))
       .not.toBeInTheDocument();
-
-    await userEvent.click(page.getByRole("button", { name: "Highlight selection" }));
-    expect(onAdd).toHaveBeenCalledWith("purple");
   });
 
-  it("applies a palette color to the selection once without changing the thread default", async () => {
-    setup();
-    const onAdd = vi.fn();
-    await using _screen = await render(<Harness onAdd={onAdd} onRemove={() => {}} />);
-
-    await userEvent.click(page.getByRole("button", { name: "Thread highlight color" }));
-    await userEvent.click(page.getByRole("button", { name: "Highlight selection as Green" }));
-
-    expect(onAdd).toHaveBeenCalledWith("green");
-    expect(useHighlightStore.getState().threadDefaultColors["environment-1:thread-1"]).toBe(
-      undefined,
-    );
-    await expect
-      .element(page.getByRole("group", { name: "Thread highlight palette" }))
-      .not.toBeInTheDocument();
-  });
-
-  it("marks the current thread default in the palette's default row", async () => {
+  it("marks the current thread default in the palette", async () => {
     setup();
     await using _screen = await render(<Harness onAdd={() => {}} onRemove={() => {}} />);
 
     await userEvent.click(page.getByRole("button", { name: "Thread highlight color" }));
-    const setDefault = page.getByRole("button", { name: "Set thread default to Amber" });
-    await expect.element(setDefault).toHaveAttribute("aria-pressed", "true");
+    const amber = page.getByRole("button", {
+      name: "Highlight selection as Amber and set the thread default",
+    });
+    await expect.element(amber).toHaveAttribute("aria-pressed", "true");
     await expect
-      .element(page.getByRole("button", { name: "Set thread default to Blue" }))
+      .element(
+        page.getByRole("button", {
+          name: "Highlight selection as Blue and set the thread default",
+        }),
+      )
       .toHaveAttribute("aria-pressed", "false");
   });
 
@@ -151,6 +142,9 @@ describe("HighlightToolbarActions", () => {
 
     await userEvent.click(page.getByRole("button", { name: "Highlight selection as Blue" }));
     expect(onAdd).toHaveBeenCalledWith("blue");
+    expect(useHighlightStore.getState().threadDefaultColors["environment-1:thread-1"]).toBe(
+      undefined,
+    );
 
     await expect.element(page.getByRole("button", { name: "Remove highlight" })).toBeVisible();
     await userEvent.click(page.getByRole("button", { name: "Remove highlight" }));
