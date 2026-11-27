@@ -216,15 +216,17 @@ describe("highlightStore", () => {
     if (!first.ok) throw new Error("expected a highlight");
     const id = first.highlight.id;
     const { saveHighlightNote, removeHighlightNote } = useHighlightStore.getState();
-    expect(saveHighlightNote(threadRef, id, " why this ")).toBe(true);
-    expect(saveHighlightNote(threadRef, id, "Follow up separately")).toBe(true);
+    const firstNoteId = saveHighlightNote(threadRef, id, " why this ");
+    const secondNoteId = saveHighlightNote(threadRef, id, "Follow up separately");
     const notes = () =>
       useHighlightStore.getState().byThreadKey["environment-1:thread-1"]?.[0]?.notes;
     const [one, two] = notes() ?? [];
     if (!one || !two) throw new Error("expected two notes");
-    expect(one.text).toBe("why this");
+    expect(one).toEqual({ id: firstNoteId, text: "why this" });
+    expect(two.id).toBe(secondNoteId);
 
-    expect(saveHighlightNote(threadRef, id, "updated", one.id)).toBe(true);
+    expect(saveHighlightNote(threadRef, id, "updated", one.id)).toBe(one.id);
+    expect(saveHighlightNote(threadRef, id, "updated", one.id)).toBe(one.id);
     expect(notes()).toEqual([{ ...one, text: "updated" }, two]);
     removeHighlightNote(threadRef, id, one.id);
     expect(notes()).toEqual([two]);

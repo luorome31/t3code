@@ -464,7 +464,8 @@ describe("DesktopShellEnvironment", () => {
             NODE_EXTRA_CA_CERTS: "/cached/ca.pem",
             SSL_CERT_FILE: "/cached/cert.pem",
             SSL_CERT_DIR: "/cached/certs",
-            T3CODE_TELEMETRY_ENABLED: "false",
+            T3CODE_TELEMETRY_ENABLED: "true",
+            DO_NOT_TRACK: "1",
             SSH_AUTH_SOCK: "/stale.sock",
             NODE_OPTIONS: "--bad",
           },
@@ -505,7 +506,8 @@ describe("DesktopShellEnvironment", () => {
         assert.equal(env.NODE_EXTRA_CA_CERTS, "/launcher/ca.pem");
         assert.equal(env.SSL_CERT_FILE, "");
         assert.equal(env.SSL_CERT_DIR, "/cached/certs");
-        assert.equal(env.T3CODE_TELEMETRY_ENABLED, "false");
+        assert.isUndefined(env.T3CODE_TELEMETRY_ENABLED);
+        assert.isUndefined(env.DO_NOT_TRACK);
         assert.equal(env.SSH_AUTH_SOCK, "/current.sock");
         assert.isUndefined(env.NODE_OPTIONS);
         assert.equal(yield* fs.readFileString(cachePath), contents);
@@ -814,7 +816,8 @@ describe("DesktopShellEnvironment", () => {
         handler: (command) => {
           if (command._tag !== "StandardCommand") return "";
           commands.push(command.command);
-          if (command.command !== "/usr/bin/fish") return envOutput({ PATH: "/usr/bin" });
+          if (command.command !== "/usr/bin/fish")
+            return envOutput({ PATH: "/usr/bin", T3CODE_TELEMETRY_ENABLED: "true" });
           return fishReady
             ? envOutput({ PATH: "/fish/bin:/usr/bin" })
             : { output: "", exitCode: 7 };
@@ -825,6 +828,7 @@ describe("DesktopShellEnvironment", () => {
             assert.equal(env.PATH, "/usr/bin");
             // The user's shell may still opt out of telemetry, so discovery has not settled.
             assert.isFalse(yield* service.discoveryFinished);
+            assert.isUndefined(env.T3CODE_TELEMETRY_ENABLED);
             // The Linux probe checks the D-Bus socket on the real filesystem, which the clock does not await.
             const published = yield* service.updates.pipe(
               Stream.filter((snapshot) => snapshot.environment.PATH === "/fish/bin:/usr/bin"),
@@ -1075,6 +1079,29 @@ describe("DesktopShellEnvironment", () => {
       yield* TestClock.adjust("5 seconds");
       yield* Fiber.join(fiber);
       assert.deepEqual([...new Set(commands)], ["pwsh.exe", "powershell.exe"]);
+    }),
+  );
+
+  it.effect("applies saved Windows user telemetry opt-outs missing from the launcher", () =>
+    Effect.gen(function* () {
+      const env: NodeJS.ProcessEnv = { PATH: "C:\\Windows\\System32" };
+
+      yield* runShellEnvironment({
+        env,
+        platform: "win32",
+        handler: (command) =>
+          command._tag === "StandardCommand" &&
+          String(command.args.at(-1)).includes("T3CODE_TELEMETRY_ENABLED")
+            ? envOutput({
+                PATH: "C:\\Windows\\System32",
+                T3CODE_TELEMETRY_ENABLED: "false",
+                DO_NOT_TRACK: "1",
+              })
+            : envOutput({ PATH: "C:\\Windows\\System32" }),
+      });
+
+      assert.equal(env.T3CODE_TELEMETRY_ENABLED, "false");
+      assert.equal(env.DO_NOT_TRACK, "1");
     }),
   );
 

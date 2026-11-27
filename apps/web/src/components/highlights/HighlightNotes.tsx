@@ -6,7 +6,6 @@ import { useRef, useState, type ReactNode } from "react";
 import {
   MAX_HIGHLIGHT_NOTE_LENGTH,
   useHighlightStore,
-  readThreadHighlights,
   type HighlightNote,
   type ThreadHighlight,
 } from "~/highlightStore";
@@ -49,19 +48,20 @@ export function HighlightNotes({
   const editor = inlineEditor && !inlineEditor.active ? null : editorState;
   const root = useRef<HTMLDivElement>(null);
   const addButton = useRef<HTMLButtonElement>(null);
+  const insertButtons = useRef(new Map<string, HTMLButtonElement>());
   const noteTooLong = (editor?.draft.length ?? 0) > MAX_HIGHLIGHT_NOTE_LENGTH;
   const openEditor = (original?: HighlightNote) => {
     if (inlineEditor && !inlineEditor.start()) return;
     setEditor(original ? { original, draft: original.text } : { draft: "" });
   };
-  const closeEditor = (savedId?: string) => {
+  const closeEditor = (saved: boolean) => {
     setEditor(null);
     onDirtyChange?.(false);
-    inlineEditor?.finish(savedId !== undefined);
+    inlineEditor?.finish(saved);
   };
   const cancel = () => {
     const originalId = editor?.original?.id;
-    flushSync(() => closeEditor());
+    flushSync(() => closeEditor(false));
     const trigger =
       originalId &&
       root.current?.querySelector<HTMLElement>(`[data-note-actions="${CSS.escape(originalId)}"]`);
@@ -69,29 +69,20 @@ export function HighlightNotes({
   };
   const save = () => {
     if (!editor || noteTooLong || !editor.draft.trim()) return;
-    let savedId: string | undefined;
-    flushSync(() => {
-      if (
-        !useHighlightStore
-          .getState()
-          .saveHighlightNote(threadRef, highlight.id, editor.draft, editor.original?.id)
-      )
-        return;
-      savedId =
-        editor.original?.id ??
-        readThreadHighlights(threadRef)
-          .find((item) => item.id === highlight.id)
-          ?.notes?.at(-1)?.id;
-      closeEditor(savedId);
+    const savedNoteId = flushSync(() => {
+      const id = useHighlightStore
+        .getState()
+        .saveHighlightNote(threadRef, highlight.id, editor.draft, editor.original?.id);
+      if (id) closeEditor(true);
+      return id;
     });
-    if (!savedId) {
+    if (!savedNoteId) {
       toastManager.add({ type: "warning", title: gt("Could not save this note") });
       return;
     }
-    const insert = root.current?.querySelector<HTMLElement>(
-      `[data-note-insert="${CSS.escape(savedId)}"]`,
-    );
-    (insert ?? addButton.current)?.focus({ preventScroll: true });
+    const insertButton = insertButtons.current.get(savedNoteId);
+    if (insertButton) insertButton.focus();
+    else addButton.current?.focus({ preventScroll: true });
   };
 
   const renderEditor = () =>
@@ -166,6 +157,10 @@ export function HighlightNotes({
                   <div className="flex flex-wrap items-center justify-between gap-1">
                     {onInsert ? (
                       <Button
+                        ref={(button) => {
+                          if (button) insertButtons.current.set(note.id, button);
+                          else insertButtons.current.delete(note.id);
+                        }}
                         size="sm"
                         variant={inlineEditor ? "outline" : "ghost"}
                         data-note-insert={note.id}

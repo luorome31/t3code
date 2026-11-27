@@ -88,7 +88,12 @@ interface HighlightStoreState {
     index: number,
   ) => boolean;
   recolorHighlight: (ref: ScopedThreadRef, id: string, color: HighlightColor) => void;
-  saveHighlightNote: (ref: ScopedThreadRef, id: string, text: string, noteId?: string) => boolean;
+  saveHighlightNote: (
+    ref: ScopedThreadRef,
+    id: string,
+    text: string,
+    noteId?: string,
+  ) => string | false;
   removeHighlightNote: (ref: ScopedThreadRef, id: string, noteId: string) => boolean;
   setDefaultColor: (color: HighlightColor) => void;
   setColorMode: (mode: HighlightColorMode) => void;
@@ -477,13 +482,14 @@ export const useHighlightStore = create<HighlightStoreState>()((set, get) => {
       if (noteId !== undefined) {
         const note = notes.find((note) => note.id === noteId);
         if (!note) return false;
-        if (note.text === trimmed) return true;
+        if (note.text === trimmed) return noteId;
       }
+      const savedNote = { id: noteId ?? randomUUID(), text: trimmed };
       const nextNotes =
         noteId === undefined
-          ? [...notes, { id: randomUUID(), text: trimmed }]
-          : notes.map((note) => (note.id === noteId ? { ...note, text: trimmed } : note));
-      return commit((state) => ({
+          ? [...notes, savedNote]
+          : notes.map((note) => (note.id === noteId ? savedNote : note));
+      const saved = commit((state) => ({
         byThreadKey: {
           ...state.byThreadKey,
           [threadKey]: existing.map((item) =>
@@ -491,6 +497,7 @@ export const useHighlightStore = create<HighlightStoreState>()((set, get) => {
           ),
         },
       }));
+      return saved ? savedNote.id : false;
     },
     removeHighlightNote: (ref, id, noteId) => {
       const threadKey = scopedThreadKey(ref);

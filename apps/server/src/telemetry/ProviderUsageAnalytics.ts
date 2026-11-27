@@ -24,7 +24,6 @@ import {
   getModelSelectionBooleanOptionValue,
   getModelSelectionStringOptionValue,
 } from "@t3tools/shared/model";
-import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as AnalyticsService from "./AnalyticsService.ts";
 import { catalogModelLabel } from "./ProviderDimensions.ts";
 
@@ -296,6 +295,10 @@ export class RequestUsageLedger {
     });
   }
 
+  discard(runId: RunId): void {
+    this.open.delete(runId);
+  }
+
   settle(report: RunSettledReport, label: ModelLabeler): Properties | undefined {
     if (this.settled.has(report.runId)) return undefined;
     this.settled.add(report.runId);
@@ -397,27 +400,27 @@ export const layer = Layer.effect(
   ProviderTurnAnalytics,
   Effect.gen(function* () {
     const analytics = yield* AnalyticsService.AnalyticsService;
-    const registry = yield* ProviderRegistry.ProviderRegistry;
     const ledger = new RequestUsageLedger();
-    const labeler = Effect.map(
-      registry.getProviders,
-      (providers): ModelLabeler =>
-        (model) =>
-          catalogModelLabel(providers, model),
-    );
     return {
       runStarted: Effect.fn("ProviderTurnAnalytics.runStarted")((input) =>
-        Effect.sync(() => ledger.start(input.runId, input.driver, input.context)),
+        Effect.gen(function* () {
+          if (yield* analytics.isEnabled) ledger.start(input.runId, input.driver, input.context);
+        }),
       ),
       turnCompleted: Effect.fn("ProviderTurnAnalytics.turnCompleted")(function* (report) {
+        if (!(yield* analytics.isEnabled)) return;
         ledger.add(report);
         yield* analytics.record(
           "provider.turn.completed",
-          providerTurnProperties(report, yield* labeler),
+          providerTurnProperties(report, catalogModelLabel),
         );
       }),
       runSettled: Effect.fn("ProviderTurnAnalytics.runSettled")(function* (report) {
-        const properties = ledger.settle(report, yield* labeler);
+        if (!(yield* analytics.isEnabled)) {
+          ledger.discard(report.runId);
+          return;
+        }
+        const properties = ledger.settle(report, catalogModelLabel);
         if (properties !== undefined) {
           yield* analytics.record("provider.request.completed", properties);
         }

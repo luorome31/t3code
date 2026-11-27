@@ -501,6 +501,7 @@ describe("AssistantSelectionToolbar on painted highlights", () => {
     await userEvent.type(editor, "second note");
     await userEvent.keyboard("{Enter}");
     const second = dialog.getByRole("listitem").filter({ hasText: "second note" });
+    await expect.element(second.getByRole("button", { name: "Add to chat draft" })).toHaveFocus();
     await userEvent.click(second.getByRole("button", { name: "Note actions" }));
     await userEvent.click(page.getByRole("menuitem", { name: "Edit note" }));
     const edit = dialog.getByRole("textbox", { name: "Edit note" });

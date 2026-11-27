@@ -93,11 +93,13 @@ export class DesktopShellEnvironment extends Context.Service<
     readonly awaitDiscovery: Effect.Effect<boolean>;
     /** Whether the user's own login shell, not a fallback, gave the PATH a new terminal gets. */
     readonly awaitUserShellDiscovery: Effect.Effect<boolean>;
-    /** Whether discovery has settled (the user's shell answered or retries ran out), without waiting. */
+    /** Whether the applicable shell answered, without waiting. A fallback PATH is not enough. */
     readonly discoveryFinished: Effect.Effect<boolean>;
     readonly updates: Stream.Stream<DesktopShellEnvironmentSnapshot>;
   }
 >()("@t3tools/desktop/shell/DesktopShellEnvironment") {}
+
+const TELEMETRY_ENV_NAMES = ["T3CODE_TELEMETRY_ENABLED", "DO_NOT_TRACK"] as const;
 
 const LOGIN_SHELL_ENV_NAMES = [
   "PATH",
@@ -122,14 +124,19 @@ const LOGIN_SHELL_ENV_NAMES = [
   "SSL_CERT_FILE",
   "SSL_CERT_DIR",
   "NODE_EXTRA_CA_CERTS",
-  "T3CODE_TELEMETRY_ENABLED",
+  ...TELEMETRY_ENV_NAMES,
   "T3CODE_GITHUB_APP_CLIENT_ID",
   "T3CODE_RELEASE_BASE_URL",
   "__MISE_DIFF",
   "JAVA_HOME",
   "PNPM_HOME",
 ] as const;
-const WINDOWS_PROFILE_ENV_NAMES = ["PATH", "FNM_DIR", "FNM_MULTISHELL_PATH"] as const;
+const WINDOWS_PROFILE_ENV_NAMES = [
+  "PATH",
+  "FNM_DIR",
+  "FNM_MULTISHELL_PATH",
+  ...TELEMETRY_ENV_NAMES,
+] as const;
 const LOCALE_ENV_NAMES = ["LANG", "LC_ALL", "LC_CTYPE"] as const;
 const ANDROID_SDK_ENV_NAMES = ["ANDROID_HOME", "ANDROID_SDK_ROOT"] as const;
 const FALLBACK_LC_CTYPE = "en_US.UTF-8";
@@ -452,6 +459,9 @@ const installWindowsEnvironment = Effect.fn("desktop.shellEnvironment.installWin
     if (!config.env.FNM_MULTISHELL_PATH && profile.FNM_MULTISHELL_PATH) {
       config.env.FNM_MULTISHELL_PATH = profile.FNM_MULTISHELL_PATH;
     }
+    for (const name of TELEMETRY_ENV_NAMES) {
+      if (!config.env[name] && profile[name]) config.env[name] = profile[name];
+    }
     return Boolean(noProfile.PATH && profile.PATH);
   },
 );
@@ -551,7 +561,7 @@ const installPosixEnvironment = Effect.fn("desktop.shellEnvironment.installPosix
       "NODE_EXTRA_CA_CERTS",
       "JAVA_HOME",
       "PNPM_HOME",
-      "T3CODE_TELEMETRY_ENABLED",
+      ...TELEMETRY_ENV_NAMES,
       "T3CODE_GITHUB_APP_CLIENT_ID",
       "T3CODE_RELEASE_BASE_URL",
     ] as const) {
@@ -658,7 +668,6 @@ const CACHED_ENV_NAMES = [
   "SSL_CERT_FILE",
   "SSL_CERT_DIR",
   "NODE_EXTRA_CA_CERTS",
-  "T3CODE_TELEMETRY_ENABLED",
 ] as const;
 
 /** @public */
@@ -695,7 +704,10 @@ export const make = Effect.gen(function* () {
   const changes = yield* PubSub.unbounded<DesktopShellEnvironmentSnapshot>();
   const latest = yield* Ref.make<Option.Option<DesktopShellEnvironmentSnapshot>>(Option.none());
   const discovered = yield* Deferred.make<ShellDiscovery>();
-  const settledDiscovery = yield* Deferred.make<void>();
+  const confirmedDiscovery = yield* Deferred.make<void>();
+  const awaitsUserShell = listUserShells(inherited).length > 0;
+  const settled = ({ prepared, fromUserShell }: ShellDiscovery) =>
+    fromUserShell || (prepared && !awaitsUserShell);
   const publish = Effect.fn("desktop.shellEnvironment.publish")(function* (
     patch: ShellEnvironmentPatch,
     discovered = false,
@@ -725,7 +737,11 @@ export const make = Effect.gen(function* () {
       const patch = Object.fromEntries(
         Object.keys(ShellEnvironmentPatch.fields).map((name) => [name, fresh[name] ?? null]),
       );
+      const confirmed = settled(discovery);
+      // A fallback shell may update PATH, but cannot establish consent for the user's shell.
+      if (!confirmed) patch.T3CODE_TELEMETRY_ENABLED = null;
       if (prepared || Option.isNone(yield* Ref.get(latest))) yield* publish(patch, prepared);
+      if (confirmed) yield* Deferred.succeed(confirmedDiscovery, undefined);
       if (prepared) {
         const cached = Object.fromEntries(
           CACHED_ENV_NAMES.flatMap((name) => (fresh[name] ? [[name, fresh[name]]] : [])),
@@ -745,10 +761,6 @@ export const make = Effect.gen(function* () {
     Effect.provideService(FileSystem.FileSystem, fileSystem),
     Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
   );
-  // A fallback shell's PATH can miss folders the user's own shell adds, so keep asking that shell.
-  const awaitsUserShell = listUserShells(inherited).length > 0;
-  const settled = ({ prepared, fromUserShell }: ShellDiscovery) =>
-    fromUserShell || (prepared && !awaitsUserShell);
   const refresh = probe(STARTUP_PROBE).pipe(
     Effect.onExit((exit) => Deferred.done(discovered, exit)),
     Effect.flatMap((discovery) =>
@@ -766,7 +778,6 @@ export const make = Effect.gen(function* () {
             ),
           ),
     ),
-    Effect.onExit(() => Deferred.succeed(settledDiscovery, undefined)),
   );
   const installIntoProcess = yield* Effect.cached(
     Effect.gen(function* () {
@@ -823,7 +834,7 @@ export const make = Effect.gen(function* () {
       Effect.andThen(Deferred.await(discovered)),
       Effect.map(({ fromUserShell }) => fromUserShell),
     ),
-    discoveryFinished: Deferred.isDone(settledDiscovery),
+    discoveryFinished: Deferred.isDone(confirmedDiscovery),
     updates,
   });
 });

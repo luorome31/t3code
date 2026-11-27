@@ -1124,7 +1124,7 @@ const withToolAnalytics =
           const outcome = toolOutcome(result);
           // Agents call status, read, and preview tools in tight loops, so an
           // event per successful call floods analytics. Only failures count there.
-          if (!handoff && outcome.outcome === "ok") return;
+          if ((!handoff && outcome.outcome === "ok") || !(yield* analytics.value.isEnabled)) return;
           // Client credentials (no calling thread) report an unknown caller.
           const invocation = Option.getOrUndefined(
             yield* Effect.serviceOption(McpInvocationContext.McpInvocationContext),
