@@ -16,6 +16,7 @@ export const HIGHLIGHT_STORAGE_KEY = "t3code:thread-highlights:v2";
 const LEGACY_HIGHLIGHT_STORAGE_KEY = "t3code:thread-highlights:v1";
 export const HIGHLIGHT_COLOR_STORAGE_KEY = "t3code:highlight-color:v1";
 export const HIGHLIGHT_COLOR_MODE_STORAGE_KEY = "t3code:highlight-color-mode:v1";
+const EXISTING_HIGHLIGHT_PALETTE_STORAGE_KEY = "t3code:existing-highlight-palette-expanded:v1";
 export const MAX_HIGHLIGHTS_PER_THREAD = 500;
 export const MAX_HIGHLIGHT_TEXT_LENGTH = 4000;
 export const MAX_HIGHLIGHT_NOTE_LENGTH = 2000;
@@ -76,10 +77,15 @@ interface HighlightStoreState {
   byThreadKey: Record<string, ThreadHighlight[]>;
   defaultColor: HighlightColor;
   colorMode: HighlightColorMode;
+  existingPaletteExpanded: boolean;
   threadDefaultColors: Record<string, HighlightColor>;
   addHighlight: (ref: ScopedThreadRef, input: AddHighlightInput) => AddHighlightResult;
   removeHighlights: (ref: ScopedThreadRef, ids: readonly string[]) => boolean;
-  recolorHighlights: (ref: ScopedThreadRef, ids: readonly string[], color: HighlightColor) => void;
+  recolorHighlights: (
+    ref: ScopedThreadRef,
+    ids: readonly string[],
+    color: HighlightColor,
+  ) => boolean;
   restoreHighlights: (ref: ScopedThreadRef, entries: readonly RemovedHighlight[]) => boolean;
   restoreHighlightNote: (
     ref: ScopedThreadRef,
@@ -87,7 +93,7 @@ interface HighlightStoreState {
     note: HighlightNote,
     index: number,
   ) => boolean;
-  recolorHighlight: (ref: ScopedThreadRef, id: string, color: HighlightColor) => void;
+  recolorHighlight: (ref: ScopedThreadRef, id: string, color: HighlightColor) => boolean;
   saveHighlightNote: (
     ref: ScopedThreadRef,
     id: string,
@@ -97,6 +103,7 @@ interface HighlightStoreState {
   removeHighlightNote: (ref: ScopedThreadRef, id: string, noteId: string) => boolean;
   setDefaultColor: (color: HighlightColor) => void;
   setColorMode: (mode: HighlightColorMode) => void;
+  setExistingPaletteExpanded: (expanded: boolean) => void;
   setThreadDefaultColor: (ref: ScopedThreadRef, color: HighlightColor) => void;
   clearThread: (ref: ScopedThreadRef) => void;
 }
@@ -135,6 +142,15 @@ function persistColorMode(mode: HighlightColorMode): void {
   try {
     window.localStorage.setItem(HIGHLIGHT_COLOR_MODE_STORAGE_KEY, mode);
   } catch {}
+}
+
+function readExistingPaletteExpanded(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(EXISTING_HIGHLIGHT_PALETTE_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
 }
 
 function sanitizeThreadDefaultColors(value: unknown): Record<string, HighlightColor> {
@@ -342,6 +358,7 @@ function readHighlightState() {
     ...readHighlightData(),
     defaultColor: readPersistedDefaultColor(),
     colorMode: readPersistedColorMode(),
+    existingPaletteExpanded: readExistingPaletteExpanded(),
   };
 }
 
@@ -411,14 +428,14 @@ export const useHighlightStore = create<HighlightStoreState>()((set, get) => {
     },
     recolorHighlight: (ref, id, color) => get().recolorHighlights(ref, [id], color),
     recolorHighlights: (ref, ids, color) => {
-      if (!isHighlightColor(color)) return;
+      if (!isHighlightColor(color)) return false;
       const threadKey = scopedThreadKey(ref);
       const existing = get().byThreadKey[threadKey];
       const selected = new Set(ids);
       if (!existing?.some((highlight) => selected.has(highlight.id) && highlight.color !== color)) {
-        return;
+        return false;
       }
-      commit((state) => ({
+      return commit((state) => ({
         byThreadKey: {
           ...state.byThreadKey,
           [threadKey]: existing.map((highlight) =>
@@ -522,6 +539,14 @@ export const useHighlightStore = create<HighlightStoreState>()((set, get) => {
       if (!isHighlightColorMode(mode) || get().colorMode === mode) return;
       set({ colorMode: mode });
       persistColorMode(mode);
+    },
+    setExistingPaletteExpanded: (expanded) => {
+      if (get().existingPaletteExpanded === expanded) return;
+      set({ existingPaletteExpanded: expanded });
+      if (typeof window === "undefined") return;
+      try {
+        window.localStorage.setItem(EXISTING_HIGHLIGHT_PALETTE_STORAGE_KEY, String(expanded));
+      } catch {}
     },
     setThreadDefaultColor: (ref, color) => {
       if (!isHighlightColor(color)) return;

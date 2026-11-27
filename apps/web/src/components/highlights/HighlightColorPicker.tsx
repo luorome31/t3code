@@ -14,6 +14,7 @@ export function HighlightColorPicker({
   size = "md",
   ariaLabel,
   swatchAriaLabel,
+  wrap = false,
 }: {
   /** The currently chosen color; omit when the swatches act without a chosen state. */
   readonly value?: HighlightColor;
@@ -22,12 +23,13 @@ export function HighlightColorPicker({
   readonly ariaLabel?: string;
   /** Swatch-level accessible name and tooltip; defaults to the color's own label. */
   readonly swatchAriaLabel?: (color: string) => string;
+  readonly wrap?: boolean;
 }) {
   const gt = useGT();
   const m = useMessages();
   return (
     <div
-      className="flex items-center gap-1.5"
+      className={cn("flex items-center gap-1.5", wrap && "flex-wrap")}
       role="group"
       aria-label={ariaLabel ?? gt("Highlight color")}
     >
@@ -47,6 +49,7 @@ export function HighlightColorPicker({
                   className={cn(
                     "cursor-pointer rounded-full border-2 outline-none transition-[box-shadow,scale] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                     swatchSizeClassName[size],
+                    wrap && "shrink-0",
                     chosen ? "border-foreground/70" : "border-border hover:scale-105",
                   )}
                   style={{ backgroundColor: `var(${color.cssVariable})` }}

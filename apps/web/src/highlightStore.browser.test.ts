@@ -32,6 +32,7 @@ function resetStore() {
     byThreadKey: {},
     defaultColor: DEFAULT_HIGHLIGHT_COLOR,
     colorMode: DEFAULT_HIGHLIGHT_COLOR_MODE,
+    existingPaletteExpanded: false,
     threadDefaultColors: {},
   });
   localStorage.clear();
@@ -107,15 +108,26 @@ describe("highlightStore persistence", () => {
     }
   });
 
-  it("does not rewrite the highlight blob when the default color changes", () => {
+  it("persists highlight preferences separately from the highlight blob", () => {
     resetStore();
     try {
       expect(useHighlightStore.getState().addHighlight(threadRef, validHighlight).ok).toBe(true);
       const before = localStorage.getItem(HIGHLIGHT_STORAGE_KEY);
       expect(before).not.toBeNull();
 
+      expect(useHighlightStore.getState().existingPaletteExpanded).toBe(false);
       useHighlightStore.getState().setDefaultColor("green");
+      useHighlightStore.getState().setExistingPaletteExpanded(true);
+      expect(useHighlightStore.getState().existingPaletteExpanded).toBe(true);
 
+      useHighlightStore.setState({ existingPaletteExpanded: false });
+      rehydrateHighlights();
+      expect(useHighlightStore.getState().existingPaletteExpanded).toBe(true);
+
+      useHighlightStore.getState().setExistingPaletteExpanded(false);
+      useHighlightStore.setState({ existingPaletteExpanded: true });
+      rehydrateHighlights();
+      expect(useHighlightStore.getState().existingPaletteExpanded).toBe(false);
       expect(localStorage.getItem(HIGHLIGHT_STORAGE_KEY)).toBe(before);
       expect(localStorage.getItem(HIGHLIGHT_COLOR_STORAGE_KEY)).toBe("green");
       expect(JSON.parse(before ?? "{}").state.defaultColor).toBeUndefined();

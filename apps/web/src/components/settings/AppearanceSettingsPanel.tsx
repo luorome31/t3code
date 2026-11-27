@@ -116,6 +116,9 @@ export function AppearanceSettingsPanel() {
   const setDefaultHighlightColor = useHighlightStore((state) => state.setDefaultColor);
   const highlightColorMode = useHighlightColorMode();
   const setHighlightColorMode = useHighlightStore((state) => state.setColorMode);
+  const existingPaletteExpanded = useHighlightStore((state) => state.existingPaletteExpanded);
+  const setExistingPaletteExpanded = useHighlightStore((state) => state.setExistingPaletteExpanded);
+  const existingPaletteSetting = searchableSetting("existing-highlight-palette");
   const environmentStageLabel = useEnvironmentStageLabel();
   const environmentStageVariant = resolveSidebarStageBackdropVariant(environmentStageLabel);
   const environmentIdentificationOptionList =
@@ -383,7 +386,36 @@ export function AppearanceSettingsPanel() {
               )}
             </div>
           }
-        />
+        >
+          <SettingsRow
+            {...existingPaletteSetting}
+            description={gt("Choose whether the palette opens when you click highlighted text.")}
+            control={
+              <Select
+                value={existingPaletteExpanded ? "expanded" : "collapsed"}
+                onValueChange={(value) => {
+                  if (value === "expanded" || value === "collapsed") {
+                    setExistingPaletteExpanded(value === "expanded");
+                  }
+                }}
+              >
+                <SelectTrigger
+                  size="sm"
+                  className="w-full sm:w-56"
+                  aria-label={existingPaletteSetting.title}
+                >
+                  <SelectValue>
+                    {existingPaletteExpanded ? gt("Default expanded") : gt("Default collapsed")}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  <SelectItem value="collapsed">{gt("Default collapsed")}</SelectItem>
+                  <SelectItem value="expanded">{gt("Default expanded")}</SelectItem>
+                </SelectPopup>
+              </Select>
+            }
+          />
+        </SettingsRow>
         <SettingsRow
           {...searchableSetting("effort-display")}
           description={gt(

@@ -429,6 +429,7 @@ describe("AssistantSelectionToolbar on painted highlights", () => {
       defaultColor: DEFAULT_HIGHLIGHT_COLOR,
       colorMode: DEFAULT_HIGHLIGHT_COLOR_MODE,
       threadDefaultColors: {},
+      existingPaletteExpanded: false,
     });
     window.getSelection()?.removeAllRanges();
   }
@@ -469,6 +470,57 @@ describe("AssistantSelectionToolbar on painted highlights", () => {
     await userEvent.click(page.getByRole("button", { name: "Remove highlight" }));
 
     expect(readThreadHighlights(threadRef)).toHaveLength(0);
+  });
+
+  it("recolors only the clicked highlight using the keyboard and keeps its actions open", async () => {
+    const other = messageHighlight({
+      id: "highlight-2",
+      start: 10,
+      end: 12,
+      text: "me",
+      prefix: "highlight ",
+      suffix: "",
+      color: "green",
+      createdAt: "2026-01-01T00:00:00Z",
+    });
+    seedPainted([plainHighlight, other]);
+    await page.viewport(900, 700);
+    await using screen = await render(<PainterHarness onCite={() => true} width={680} />);
+    const paragraph = screen.getByText("highlight me").element() as HTMLElement;
+    await userEvent.click(paragraph, { position: clickPositionIn(paragraph, 0, 9) });
+
+    const actions = page.getByRole("group", { name: "Highlight actions" });
+    const trigger = actions.getByRole("button", { name: "Change highlight color: Amber" });
+    await expect.element(trigger).toHaveAttribute("aria-expanded", "false");
+    await userEvent.tab();
+    await userEvent.tab();
+    await userEvent.tab();
+    await expect.element(trigger).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+
+    const palette = actions.getByRole("group", { name: "Highlight color" });
+    await expect
+      .element(palette.getByRole("button", { name: "Amber" }))
+      .toHaveAttribute("aria-pressed", "true");
+    expect(palette.element().getBoundingClientRect().left).toBeGreaterThan(
+      actions.element().getBoundingClientRect().right,
+    );
+    await userEvent.tab();
+    await userEvent.tab();
+    await expect.element(palette.getByRole("button", { name: "Red" })).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+
+    const recoloredTrigger = actions.getByRole("button", { name: "Change highlight color: Red" });
+    await expect.element(recoloredTrigger).toHaveFocus();
+    await expect.element(palette).not.toBeInTheDocument();
+    expect(readThreadHighlights(threadRef)).toEqual([{ ...plainHighlight, color: "red" }, other]);
+    expect(CSS.highlights.get(highlightRegistryName("red"))?.size).toBe(1);
+    expect(CSS.highlights.get(highlightRegistryName("green"))?.size).toBe(1);
+
+    await userEvent.keyboard("{Enter}{Escape}");
+    await expect.element(recoloredTrigger).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(paragraph, { position: { x: 400, y: 8 } });
+    await expect.element(actions).not.toBeInTheDocument();
   });
 
   it("adds and edits notes next to the highlight, and only inserts the selected note", async () => {

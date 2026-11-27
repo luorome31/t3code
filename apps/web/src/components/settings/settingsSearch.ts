@@ -386,6 +386,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "existing-highlight-palette",
+    title: msg("Palette for existing highlights"),
+    to: "/settings/appearance",
+    searchTerms: ["highlight color swatch recolor default expand collapse open closed"],
+  },
+  {
     id: "effort-display",
     title: msg("Effort display"),
     to: "/settings/appearance",

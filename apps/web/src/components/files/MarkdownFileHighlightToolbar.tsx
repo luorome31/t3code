@@ -79,7 +79,7 @@ export function MarkdownFileHighlightToolbar({
       : state.byThreadKey[threadKey]?.find((highlight) => highlight.id === activeId),
   );
   const source: ThreadHighlightSource = { kind: "markdown-file", workspaceRoot, relativePath };
-  const position = selection?.position ?? clickedHighlight?.position ?? null;
+  const position = selection?.position ?? null;
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the toolbar DOM node and clamps its position inside the window before paint, and re-clamps when its own width changes (the thread palette expands inline)
   useLayoutEffect(() => {
@@ -304,41 +304,29 @@ export function MarkdownFileHighlightToolbar({
   };
   const renderClickedHighlight = () => {
     const clicked = clickedHighlight;
-    if (!clicked || !activeHighlight) return null;
+    if (!clicked || !activeHighlight || !viewport) return null;
     const cite = () => {
       const excerpt = markdownHighlightExcerpt(activeHighlight);
       if (!excerpt || !onCite?.(excerpt)) return false;
       dismiss();
       return true;
     };
-    return createPortal(
-      <div
-        ref={toolbarRef}
-        role="group"
-        aria-label={gt("Highlight actions")}
-        className="fixed z-50 flex max-w-[calc(100vw-1rem)] flex-wrap items-center gap-1"
-        style={{ left: clicked.position.x, top: clicked.position.y }}
-        onPointerDown={(event) => event.preventDefault()}
-        onKeyDown={(event) => {
-          event.stopPropagation();
-          if (event.key === "Escape" && !event.nativeEvent.isComposing) {
-            event.preventDefault();
-            dismiss();
-          }
+    return (
+      <HighlightContextActions
+        key={clicked.id}
+        highlight={activeHighlight}
+        threadRef={threadRef}
+        position={clicked.position}
+        viewport={viewport}
+        toolbarRef={toolbarRef}
+        onCite={onCite ? cite : undefined}
+        onNotes={(trigger) => openNotes(clicked.id, trigger)}
+        onRemove={() => {
+          useHighlightStore.getState().removeHighlights(threadRef, [clicked.id]);
+          dismiss();
         }}
-      >
-        <HighlightContextActions
-          key={clicked.id}
-          count={activeHighlight.notes?.length ?? 0}
-          onCite={onCite ? cite : undefined}
-          onNotes={(trigger) => openNotes(clicked.id, trigger)}
-          onRemove={() => {
-            useHighlightStore.getState().removeHighlights(threadRef, [clicked.id]);
-            dismiss();
-          }}
-        />
-      </div>,
-      document.body,
+        onDismiss={dismiss}
+      />
     );
   };
 

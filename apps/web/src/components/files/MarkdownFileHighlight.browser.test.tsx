@@ -30,7 +30,11 @@ const threadRef: ScopedThreadRef = scopeThreadRef(
 );
 
 function reset() {
-  useHighlightStore.setState({ byThreadKey: {}, defaultColor: DEFAULT_HIGHLIGHT_COLOR });
+  useHighlightStore.setState({
+    byThreadKey: {},
+    defaultColor: DEFAULT_HIGHLIGHT_COLOR,
+    existingPaletteExpanded: false,
+  });
   localStorage.clear();
   if (typeof CSS !== "undefined" && CSS.highlights) {
     for (const color of HIGHLIGHT_COLORS) CSS.highlights.delete(highlightRegistryName(color.id));
@@ -222,6 +226,64 @@ describe("MarkdownFileHighlightToolbar", () => {
     await userEvent.click(page.getByRole("button", { name: "Remove highlight" }));
 
     expect(readThreadHighlights(threadRef)).toHaveLength(0);
+  });
+
+  it("reopens the default-expanded palette below the swatch in a narrow workspace sheet", async () => {
+    reset();
+    await page.viewport(390, 750);
+    const highlight = fileHighlight("sheet-highlight", "docs/design.md", "beta", 6, "amber");
+    const other = fileHighlight("other-highlight", "docs/design.md", "gamma", 11, "green");
+    useHighlightStore.setState({
+      byThreadKey: { [`${threadRef.environmentId}:${threadRef.threadId}`]: [highlight, other] },
+      existingPaletteExpanded: true,
+    });
+    const onClose = vi.fn();
+    await using _screen = await render(
+      <RightPanelSheet open onClose={onClose} animationDurationMs={0}>
+        <PaintedToolbarHarness text="alpha beta gamma" onCite={() => true} />
+      </RightPanelSheet>,
+    );
+    const workspace = page.getByRole("dialog", { name: "Workspace panel" });
+    const paragraph = workspace.getByText("alpha beta gamma").element() as HTMLElement;
+    const actions = workspace.getByRole("group", { name: "Highlight actions" });
+    const trigger = actions.getByRole("button", { name: "Change highlight color: Amber" });
+    const palette = actions.getByRole("group", { name: "Highlight color" });
+
+    await userEvent.click(paragraph, { position: clickPositionIn(paragraph, 6, 10) });
+    await expect.element(trigger).toHaveAttribute("aria-expanded", "true");
+    const bounds = palette.element().getBoundingClientRect();
+    expect(bounds.top).toBeGreaterThan(actions.element().getBoundingClientRect().bottom);
+    expect(bounds.right).toBeLessThan(workspace.element().getBoundingClientRect().right);
+
+    const viewport = paragraph.parentElement!;
+    viewport.style.width = "170px";
+    const firstSwatch = palette.getByRole("button", { name: "Amber" });
+    const lastSwatch = palette.getByRole("button", { name: "Slate" });
+    await vi.waitFor(() => {
+      expect(lastSwatch.element().getBoundingClientRect().top).toBeGreaterThan(
+        firstSwatch.element().getBoundingClientRect().top,
+      );
+      const rect = palette.element().getBoundingClientRect();
+      expect(rect.right).toBeLessThanOrEqual(viewport.getBoundingClientRect().right);
+      expect(rect.top).toBeGreaterThan(actions.element().getBoundingClientRect().bottom);
+    });
+
+    await userEvent.keyboard("{Escape}");
+    await expect.element(trigger).toHaveFocus();
+    await expect.element(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(onClose).not.toHaveBeenCalled();
+    await userEvent.keyboard("{Escape}");
+    await expect.element(actions).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await userEvent.click(paragraph, { position: clickPositionIn(paragraph, 6, 10) });
+    await expect.element(trigger).toHaveAttribute("aria-expanded", "true");
+    await userEvent.click(palette.getByRole("button", { name: "Blue" }));
+    await expect.element(palette).not.toBeInTheDocument();
+    await expect
+      .element(actions.getByRole("button", { name: "Change highlight color: Blue" }))
+      .toBeVisible();
+    expect(readThreadHighlights(threadRef)).toEqual([{ ...highlight, color: "blue" }, other]);
   });
 
   it("cites Markdown excerpts with a note only when explicitly inserted, and removes the highlight", async () => {

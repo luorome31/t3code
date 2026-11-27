@@ -56,8 +56,12 @@ Under **Settings → Appearance → Highlight colors**, pick how new highlights 
 - **Per selection** shows a palette of swatches beside the selection, and each highlight uses
   the color you click.
 
-Click highlighted text to **Cite** the original passage or **Add note** beside it. A highlight
-can have several notes. Use its note marker to reopen them, or choose **Add to chat draft** on
+Click highlighted text to **Cite** the original passage, **Add note**, or pick a new color from
+its current-color swatch. This recolors only that passage. Under **Highlight colors**, set
+**Palette for existing highlights** to **Default expanded** to show the swatches every time you
+click a highlight.
+
+A highlight can have several notes. Use its note marker to reopen them, or choose **Add to chat draft** on
 a note to append it and its source without sending. If you’re answering a question, your answer
 stays unchanged and the note is waiting in your regular chat draft. Editing the draft does not
 change the saved note.

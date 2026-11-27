@@ -91,7 +91,7 @@ export function AssistantSelectionToolbar({
       ? undefined
       : state.byThreadKey[threadKey]?.find((highlight) => highlight.id === activeId),
   );
-  const position = selection?.position ?? clickedHighlight?.position ?? null;
+  const position = selection?.position ?? null;
   const smalltalkConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const smalltalkAllowed = useAtomValue(smalltalkEnvironment.mutate.permissionAtom(environmentId));
   const smalltalkMutate = useAtomCommand(smalltalkEnvironment.mutate);
@@ -435,34 +435,22 @@ export function AssistantSelectionToolbar({
       dismiss();
       return true;
     };
-    return createPortal(
-      <div
-        ref={toolbarRef}
-        role="group"
-        aria-label={gt("Highlight actions")}
-        className="fixed z-50 flex max-w-[calc(100vw-1rem)] flex-wrap items-center gap-1"
-        style={{ left: clicked.position.x, top: clicked.position.y }}
-        onPointerDown={(event) => event.preventDefault()}
-        onKeyDown={(event) => {
-          event.stopPropagation();
-          if (event.key === "Escape" && !event.nativeEvent.isComposing) {
-            event.preventDefault();
-            dismiss();
-          }
+    return (
+      <HighlightContextActions
+        key={clicked.id}
+        highlight={activeHighlight}
+        threadRef={threadRef}
+        position={clicked.position}
+        viewport={viewport}
+        toolbarRef={toolbarRef}
+        onCite={cite}
+        onNotes={(trigger) => openNotes(clicked.id, trigger)}
+        onRemove={() => {
+          useHighlightStore.getState().removeHighlights(threadRef, [clicked.id]);
+          dismiss();
         }}
-      >
-        <HighlightContextActions
-          key={clicked.id}
-          count={activeHighlight.notes?.length ?? 0}
-          onCite={cite}
-          onNotes={(trigger) => openNotes(clicked.id, trigger)}
-          onRemove={() => {
-            useHighlightStore.getState().removeHighlights(threadRef, [clicked.id]);
-            dismiss();
-          }}
-        />
-      </div>,
-      document.body,
+        onDismiss={dismiss}
+      />
     );
   };
 
