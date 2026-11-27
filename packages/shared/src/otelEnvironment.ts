@@ -318,14 +318,15 @@ export const load: Effect.Effect<OtelEnvironment> = Config.all({
   Effect.orDie,
 );
 
+export const isProductTelemetryEnabled = (env: Readonly<Record<string, string | undefined>>) =>
+  env.T3CODE_DESKTOP_SHELL_DISCOVERY_PENDING !== "1" &&
+  T3CODE_TRUE.includes(env.T3CODE_TELEMETRY_ENABLED?.trim().toLowerCase() ?? "") &&
+  !T3CODE_TRUE.includes(env.DO_NOT_TRACK?.trim().toLowerCase() ?? "");
+
 export const isRelayTracingEnabled = (env: Readonly<Record<string, string | undefined>>) =>
-  Config.all({
-    ...sdkFlags,
-    telemetry: flag("T3CODE_TELEMETRY_ENABLED", T3CODE_TRUE, T3CODE_FALSE, String),
-  }).pipe(
-    Effect.map(
-      ({ telemetry, t3, spec }) => telemetry.value !== false && !(t3.value ?? spec.value ?? false),
-    ),
+  isProductTelemetryEnabled(env) &&
+  Config.all(sdkFlags).pipe(
+    Effect.map(({ t3, spec }) => !(t3.value ?? spec.value ?? false)),
     Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnvRecord(env))),
     Effect.orDie,
     Effect.runSync,

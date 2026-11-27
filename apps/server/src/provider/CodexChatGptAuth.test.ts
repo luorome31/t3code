@@ -236,7 +236,7 @@ const makeHarnessFor = Effect.fnUntraced(function* (
             analyticsEvents.push({ event, properties });
           }),
     flush: Effect.void,
-    recordOwners: () => Effect.void,
+    isEnabled: Effect.succeed(true),
   });
   const auth = yield* makeCodexChatGptAuth({
     instanceId,

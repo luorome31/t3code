@@ -209,8 +209,7 @@ it.effect.each([
         prepareTrial: () => Effect.undefined,
       }),
       Layer.mock(GitVcsDriver.GitVcsDriver)({}),
-      Layer.mock(AnalyticsService.AnalyticsService)({}),
-      // No provider logins or Connect link, so startup records no owners.
+      Layer.mock(AnalyticsService.AnalyticsService)({ isEnabled: Effect.succeed(false) }),
       FileSystem.layerNoop({}),
       Layer.mock(ServerSecretStore.ServerSecretStore)({ get: () => Effect.succeedNone }),
       Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),

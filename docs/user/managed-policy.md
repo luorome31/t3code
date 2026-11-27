@@ -256,8 +256,8 @@ so restart T3 Code after that.
   unavailable. This wins over the user's
   [Preview tunnel setting](./remote-access.md#browser-on-a-remote-environment).
 - `telemetry: false`: the server and desktop app send no [product usage data](./telemetry.md) or
-  relay connection traces. A policy cannot turn them on. A browser that opens the server, such as
-  app.t3.codes, still sends its own relay traces.
+  relay connection traces, even when explicitly enabled. The bundled web app also follows its
+  current host’s policy. The official hosted app and mobile app manage their own diagnostics.
 
 ### Providers
 

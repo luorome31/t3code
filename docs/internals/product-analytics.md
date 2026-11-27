@@ -1,36 +1,12 @@
 # Product analytics
 
-The server owns analytics delivery, opt-out, and identity for every connected client.
-Clients do not load the PostHog browser SDK. Client-use events require an
-authenticated connection, so visiting the hosted app without connecting does not
-count as product use.
+The server owns analytics delivery and consent for connected clients. The fork requires an explicit
+host opt-in before creating an analysis identity or queuing events. The browser does not load the
+PostHog SDK.
 
-## Installs and owners
-
-`distinct_id` keeps the rule every build has used: the hashed Codex workspace,
-else the Claude machine id, else the install's anonymous id. It can change when
-someone logs in, and a Codex Team shares one, but keeping it means PostHog charts
-and history never break. Do not change it; add a field instead.
-
-Every event also carries `installId` when the server can save its state: the hash
-of a random id in the state directory, which never changes for the install. If
-that file cannot be written, events still go out under `distinct_id`, as before. Count installs
-with it. Who an install belongs to is a separate fact, sent as
-`install.owner_observed`. Owners are resolved at query time in our own store, so
-a rule can change and apply to all history.
-
-[Owner sources](../../apps/server/src/telemetry/Identify.ts), strongest first:
-T3 Connect, then the OpenAI and Claude person ids, then the client device. The
-server reports what it can read itself: the linked Connect account and provider
-logins. A connecting client reports its signed-in Connect account and its device,
-which links every environment opened from one phone, browser, or desktop. Use the
-OpenAI `user_id` claim, not the Codex `account_id` (the ChatGPT workspace, which a
-whole Team shares) or the token `sub` (one per login method). Two Connect accounts are never the same person, whatever
-weaker ids they share.
-
-Every id is SHA-256 hashed with [one helper](../../packages/shared/src/telemetryId.ts)
-on both sides, so a Connect account hashes the same on the client and the server.
-The server accepts only hashes from clients.
+`distinct_id` and `installId` are the same hash of a random ID in the state directory. Analytics
+never opens provider sign-in files and does not send owner observations. The Connect account and
+relay device keys used for authentication and notifications are separate from analytics.
 
 ## Attribution boundaries
 
@@ -90,9 +66,10 @@ Claude's fast mode, and is absent when the selection does not set one. `observed
 `mixedModels` appear only when the provider reported the models for the counted
 work (Codex thread settings and reroutes, Claude root messages, OpenCode steps).
 `mixedModels: false` without `reportVersion` was never checked. Model labels
-come from the bundled model manifest and the Cursor and Grok catalogs, also for
-routed ids such as `anthropic/claude-opus-5-5`, and efforts come from a closed
-list, so user-configured names stay out.
+come only from the bundled model manifest, including for routed ids such as
+`anthropic/claude-opus-5-5`. Live catalogs are not trusted for analytics: they
+can contain private deployment names without marking them as custom. Efforts
+come from a closed list.
 
 Status and counters answer different questions. `usageReported: false` means
 the adapter attached no usage; a harness where every row says so is unsupported,
@@ -123,9 +100,8 @@ itself, with no `surface`.
 Agent tool events report driver kinds, never instance ids: users name
 instances, so an instance id can identify an account or employer.
 [Provider dimensions](../../apps/server/src/telemetry/ProviderDimensions.ts)
-report a model only when it is a non-custom entry in a vendor catalog. OpenCode,
-Pi, and ACP agents list models from user configuration, such as local Ollama
-tags, so their models stay out. Handoff settings come from closed enums and
+report a model only for a non-custom selection matching the bundled manifest
+for that driver. Handoff settings come from closed enums and
 booleans in tool arguments; prompts, titles, and ids are never read. Thread ids
 are used only to look up the threads on each side and never leave the server,
 which is also why tool events carry no per-thread sequence. A handoff to several
@@ -149,6 +125,5 @@ send prompts, authentication material, raw provider payloads, user-assigned devi
 names, or conversation identifiers. Client metadata is best effort; invalid values
 must not reject a connection. PostHog person profiles remain disabled.
 
-Dev-runner servers and the CI archive smoke test turn telemetry off, which also
-stops relay tracing, because each would count as a new install. Set
-`T3CODE_TELEMETRY_ENABLED=true` to test analytics or relay tracing from a dev server.
+Set `T3CODE_TELEMETRY_ENABLED=true` when testing analytics with a local collector. Development and
+CI smoke runs do not send product events.

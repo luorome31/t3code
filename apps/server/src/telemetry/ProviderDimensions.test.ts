@@ -15,7 +15,10 @@ const provider = (
   }) as unknown as ServerProvider;
 
 const providers = [
-  provider("work-codex", "codex", [{ slug: "gpt-5.5", isCustom: false }]),
+  provider("work-codex", "codex", [
+    { slug: "gpt-5.5", isCustom: false },
+    { slug: "private-azure-deployment", isCustom: false },
+  ]),
   provider("claudeAgent", "claudeAgent", [
     { slug: "claude-opus-5-5", isCustom: false },
     { slug: "my-private-finetune", isCustom: true },
@@ -43,7 +46,12 @@ it("omits custom, user-configured, and unknown models and instance names", () =>
       tool: "t3_thread_send",
       providers,
       caller: thread("claudeAgent", "my-private-finetune"),
-      targets: [thread("opencode", "ollama/acme-internal"), thread("removed-instance", "gpt-5.5")],
+      targets: [
+        thread("opencode", "ollama/acme-internal"),
+        thread("removed-instance", "gpt-5.5"),
+        thread("work-codex", "private-azure-deployment"),
+        thread("work-codex", "gpt-5.5"),
+      ],
       outcome: { outcome: "ok" },
     }).map(({ callerProvider, callerModel, targetProvider, targetModel }) => ({
       callerProvider,
@@ -63,6 +71,18 @@ it("omits custom, user-configured, and unknown models and instance names", () =>
       callerModel: undefined,
       targetProvider: "unknown",
       targetModel: undefined,
+    },
+    {
+      callerProvider: "claudeAgent",
+      callerModel: undefined,
+      targetProvider: "codex",
+      targetModel: undefined,
+    },
+    {
+      callerProvider: "claudeAgent",
+      callerModel: undefined,
+      targetProvider: "codex",
+      targetModel: "gpt-5.5",
     },
   ]);
 });

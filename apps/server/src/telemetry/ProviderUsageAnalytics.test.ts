@@ -5,7 +5,6 @@ import {
   ProviderTurnId,
   RunId,
   type OrchestrationV2ProviderTurn,
-  type ServerProvider,
   type TurnTokenUsage,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
@@ -13,7 +12,6 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as AnalyticsService from "./AnalyticsService.ts";
 import { catalogModelLabel } from "./ProviderDimensions.ts";
 import {
@@ -25,20 +23,7 @@ import {
   type ProviderTurnSegment,
 } from "./ProviderUsageAnalytics.ts";
 
-const providers = [
-  // Codex lists whatever its configured model provider serves, including private deployments.
-  { driver: "codex", models: [{ slug: "gpt-6-sol" }, { slug: "acme-azure-deployment" }] },
-  { driver: "claudeAgent", models: [{ slug: "claude-opus-5-5" }, { slug: "claude-haiku-4-5" }] },
-  { driver: "opencode", models: [{ slug: "ollama/acme-internal" }] },
-].map(
-  ({ driver, models }) =>
-    ({
-      instanceId: ProviderInstanceId.make(driver),
-      driver,
-      models: models.map((model) => ({ ...model, isCustom: false })),
-    }) as unknown as ServerProvider,
-);
-const label = (model: string) => catalogModelLabel(providers, model);
+const label = catalogModelLabel;
 
 const at = (ms: number) => DateTime.makeUnsafe(ms);
 const complete = (input: number, output: number, extra: Partial<TurnTokenUsage> = {}) =>
@@ -102,15 +87,11 @@ describe("provider usage reporting", () => {
       const recorded: Array<readonly [string, unknown]> = [];
       const layerTest = layer.pipe(
         Layer.provide(
-          Layer.mergeAll(
-            Layer.mock(AnalyticsService.AnalyticsService)({
-              record: (event, properties) =>
-                Effect.sync(() => void recorded.push([event, properties])),
-            }),
-            Layer.mock(ProviderRegistry.ProviderRegistry)({
-              getProviders: Effect.succeed(providers),
-            }),
-          ),
+          Layer.mock(AnalyticsService.AnalyticsService)({
+            isEnabled: Effect.succeed(true),
+            record: (event, properties) =>
+              Effect.sync(() => void recorded.push([event, properties])),
+          }),
         ),
       );
       return Effect.gen(function* () {
