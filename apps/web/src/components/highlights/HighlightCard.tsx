@@ -19,6 +19,7 @@ import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { toastManager } from "../ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { HighlightColorPicker } from "./HighlightColorPicker";
 import { HighlightNotes } from "./HighlightNotes";
 import { HighlightSwatch } from "./HighlightsFilterControls";
@@ -101,6 +102,7 @@ export function HighlightCard({
   const [contextOpen, setContextOpen] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
   const definition = highlightColorDefinition(highlight.color);
+  const jumpLabel = gt("Jump to source");
   const canExplain =
     canJump &&
     config?.environment.capabilities.smalltalk === true &&
@@ -219,12 +221,22 @@ export function HighlightCard({
             <QuoteIcon />
             {gt("Cite")}
           </Button>
-          {showSource && (
-            <Button size="xs" variant="ghost-muted" disabled={!canJump} onClick={onJump}>
-              <ArrowUpRightIcon />
-              {gt("Jump to source")}
-            </Button>
-          )}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon-xs"
+                  variant="ghost-muted"
+                  aria-label={jumpLabel}
+                  disabled={!canJump}
+                  onClick={onJump}
+                />
+              }
+            >
+              <ArrowUpRightIcon aria-hidden />
+            </TooltipTrigger>
+            <TooltipPopup>{jumpLabel}</TooltipPopup>
+          </Tooltip>
           <Button
             size="icon-xs"
             variant="ghost-destructive"

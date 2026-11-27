@@ -1,7 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useGT, useMessages } from "gt-react";
-import { ArrowUpRightIcon, FileTextIcon, HighlighterIcon, MessageSquareIcon } from "lucide-react";
+import { FileTextIcon, HighlighterIcon, MessageSquareIcon } from "lucide-react";
 import { useRef, useState, type KeyboardEvent } from "react";
 
 import { requestFileHighlightReveal } from "~/fileHighlightRevealStore";
@@ -379,41 +379,28 @@ export function HighlightsWorkbench({
               : null;
           return (
             <section key={group.key} className="flex min-w-0 flex-col gap-2">
-              <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 px-1">
-                <div className="flex min-w-0 flex-1 items-center gap-2">
-                  {group.color ? (
-                    <HighlightSwatch color={group.color} />
-                  ) : file ? (
-                    <FileTextIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-                  ) : (
-                    <MessageSquareIcon
-                      aria-hidden
-                      className="size-4 shrink-0 text-muted-foreground"
-                    />
-                  )}
-                  <h2 className="min-w-0 text-xs font-semibold wrap-anywhere">
-                    <HighlightSearchText text={label} query={query} />
-                  </h2>
-                  {badge && (
-                    <span className="min-w-0 rounded-full border bg-muted/45 px-2 text-xs text-muted-foreground wrap-anywhere">
-                      <HighlightSearchText text={badge} query={query} />
-                    </span>
-                  )}
-                  <span className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
-                    {group.items.length}
-                  </span>
-                </div>
-                {!group.color && (
-                  <Button
-                    size="xs"
-                    variant="ghost-muted"
-                    disabled={!canJump(first)}
-                    onClick={() => void jump(first)}
-                  >
-                    {file ? gt("Open file") : gt("Jump to source")}
-                    <ArrowUpRightIcon />
-                  </Button>
+              <div className="flex min-w-0 items-center gap-2 px-1">
+                {group.color ? (
+                  <HighlightSwatch color={group.color} />
+                ) : file ? (
+                  <FileTextIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                ) : (
+                  <MessageSquareIcon
+                    aria-hidden
+                    className="size-4 shrink-0 text-muted-foreground"
+                  />
                 )}
+                <h2 className="min-w-0 text-xs font-semibold wrap-anywhere">
+                  <HighlightSearchText text={label} query={query} />
+                </h2>
+                {badge && (
+                  <span className="min-w-0 rounded-full border bg-muted/45 px-2 text-xs text-muted-foreground wrap-anywhere">
+                    <HighlightSearchText text={badge} query={query} />
+                  </span>
+                )}
+                <span className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
+                  {group.items.length}
+                </span>
               </div>
               {group.items.map((item, index) => (
                 <HighlightCard

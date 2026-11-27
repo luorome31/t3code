@@ -5,6 +5,7 @@ import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
 
+import { consumeFileHighlightReveal, useFileHighlightReveal } from "~/fileHighlightRevealStore";
 import {
   DEFAULT_HIGHLIGHT_COLOR_MODE,
   readThreadHighlights,
@@ -302,11 +303,32 @@ describe("ThreadHighlightsPanel", () => {
     ]);
   });
 
-  it("switches to Markdown file highlights and inserts excerpts", async () => {
+  it("inserts Markdown excerpts and jumps to the selected highlight in a shared file", async () => {
     setup([...entries, ...fileEntries]);
     const onInsert = vi.fn((_content: HighlightDraftContent) => true);
+    const file = {
+      environmentId: threadRef.environmentId,
+      workspaceRoot: "/repo",
+      relativePath: "docs/design.md",
+    };
+    function FileReveal() {
+      const reveal = useFileHighlightReveal(file);
+      return (
+        <>
+          <output aria-label="Revealed quote">{reveal?.selector.text}</output>
+          {reveal && (
+            <button onClick={() => consumeFileHighlightReveal({ ...file, id: reveal.id })}>
+              Clear reveal
+            </button>
+          )}
+        </>
+      );
+    }
     await using _screen = await render(
-      <ThreadHighlightsPanel threadRef={threadRef} onInsert={onInsert} />,
+      <>
+        <ThreadHighlightsPanel threadRef={threadRef} onInsert={onInsert} />
+        <FileReveal />
+      </>,
     );
 
     await select(entries[0]!);
@@ -328,6 +350,14 @@ describe("ThreadHighlightsPanel", () => {
         text: "rendered quote",
       },
     ]);
+
+    const second = page.getByRole("article").filter({ hasText: "second quote" });
+    await userEvent.click(second.getByRole("button", { name: "Jump to source" }));
+    await expect.element(page.getByLabelText("Revealed quote")).toHaveTextContent("second quote");
+    await expect
+      .element(page.getByRole("button", { name: "Open file", exact: true }))
+      .not.toBeInTheDocument();
+    await userEvent.click(page.getByRole("button", { name: "Clear reveal" }));
   });
 
   it("drops the selection when a keyed panel moves to another thread and back", async () => {
