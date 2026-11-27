@@ -1,11 +1,12 @@
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useGT } from "gt-react";
 import { EllipsisIcon, PlusIcon, QuoteIcon } from "lucide-react";
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 
 import {
   MAX_HIGHLIGHT_NOTE_LENGTH,
   useHighlightStore,
+  readThreadHighlights,
   type HighlightNote,
   type ThreadHighlight,
 } from "~/highlightStore";
@@ -21,6 +22,9 @@ export function HighlightNotes({
   onExplain,
   explainBusy,
   onDirtyChange,
+  inlineEditor,
+  onRequestDeleteNote,
+  renderNoteText,
 }: {
   threadRef: ScopedThreadRef;
   highlight: ThreadHighlight;
@@ -28,32 +32,66 @@ export function HighlightNotes({
   onExplain?: ((note: HighlightNote) => void) | undefined;
   explainBusy?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
+  inlineEditor?: {
+    active: boolean;
+    position: number;
+    start: () => boolean;
+    finish: (saved: boolean) => void;
+  };
+  onRequestDeleteNote?: (note: HighlightNote) => boolean;
+  renderNoteText?: (text: string) => ReactNode;
 }) {
   const gt = useGT();
   const notes = highlight.notes ?? [];
-  const [editor, setEditor] = useState<{ original?: HighlightNote; draft: string } | null>(() =>
-    notes.length === 0 ? { draft: "" } : null,
+  const [editorState, setEditor] = useState<{ original?: HighlightNote; draft: string } | null>(
+    () => (!inlineEditor && notes.length === 0 ? { draft: "" } : null),
   );
+  const editor = inlineEditor && !inlineEditor.active ? null : editorState;
+  const root = useRef<HTMLDivElement>(null);
   const addButton = useRef<HTMLButtonElement>(null);
   const noteTooLong = (editor?.draft.length ?? 0) > MAX_HIGHLIGHT_NOTE_LENGTH;
-  const closeEditor = () => {
-    flushSync(() => {
-      setEditor(null);
-      onDirtyChange?.(false);
-    });
-    addButton.current?.focus({ preventScroll: true });
+  const openEditor = (original?: HighlightNote) => {
+    if (inlineEditor && !inlineEditor.start()) return;
+    setEditor(original ? { original, draft: original.text } : { draft: "" });
+  };
+  const closeEditor = (savedId?: string) => {
+    setEditor(null);
+    onDirtyChange?.(false);
+    inlineEditor?.finish(savedId !== undefined);
+  };
+  const cancel = () => {
+    const originalId = editor?.original?.id;
+    flushSync(() => closeEditor());
+    const trigger =
+      originalId &&
+      root.current?.querySelector<HTMLElement>(`[data-note-actions="${CSS.escape(originalId)}"]`);
+    (trigger || addButton.current)?.focus({ preventScroll: true });
   };
   const save = () => {
     if (!editor || noteTooLong || !editor.draft.trim()) return;
-    if (
-      !useHighlightStore
-        .getState()
-        .saveHighlightNote(threadRef, highlight.id, editor.draft, editor.original?.id)
-    ) {
+    let savedId: string | undefined;
+    flushSync(() => {
+      if (
+        !useHighlightStore
+          .getState()
+          .saveHighlightNote(threadRef, highlight.id, editor.draft, editor.original?.id)
+      )
+        return;
+      savedId =
+        editor.original?.id ??
+        readThreadHighlights(threadRef)
+          .find((item) => item.id === highlight.id)
+          ?.notes?.at(-1)?.id;
+      closeEditor(savedId);
+    });
+    if (!savedId) {
       toastManager.add({ type: "warning", title: gt("Could not save this note") });
       return;
     }
-    closeEditor();
+    const insert = root.current?.querySelector<HTMLElement>(
+      `[data-note-insert="${CSS.escape(savedId)}"]`,
+    );
+    (insert ?? addButton.current)?.focus({ preventScroll: true });
   };
 
   const renderEditor = () =>
@@ -72,7 +110,7 @@ export function HighlightNotes({
             onDirtyChange?.(draft !== (editor.original?.text ?? ""));
           }}
           onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing) {
+            if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
               event.stopPropagation();
               return;
             }
@@ -83,7 +121,7 @@ export function HighlightNotes({
             } else if (event.key === "Escape") {
               event.preventDefault();
               event.stopPropagation();
-              closeEditor();
+              cancel();
             }
           }}
         />
@@ -95,7 +133,7 @@ export function HighlightNotes({
           </p>
         ) : null}
         <div className="flex justify-end gap-1.5">
-          <Button size="sm" variant="ghost" onClick={closeEditor}>
+          <Button size="sm" variant="ghost" onClick={cancel}>
             {gt("Cancel")}
           </Button>
           <Button size="sm" onClick={save} disabled={noteTooLong || !editor.draft.trim()}>
@@ -106,28 +144,52 @@ export function HighlightNotes({
     );
 
   return (
-    <div className="flex flex-col gap-2">
+    <div ref={root} className="flex flex-col gap-2">
       {notes.length > 0 ? (
-        <ul className="divide-y divide-border/60">
+        <ul className={inlineEditor ? "flex flex-col gap-2" : "divide-y divide-border/60"}>
           {notes.map((note) => (
-            <li key={note.id} className="py-2 first:pt-0 last:pb-0">
+            <li
+              key={note.id}
+              className={
+                inlineEditor
+                  ? "rounded-md border border-border/60 bg-muted/40 p-2.5"
+                  : "py-2 first:pt-0 last:pb-0"
+              }
+            >
               {editor?.original?.id === note.id ? (
                 renderEditor()
               ) : (
                 <div className="flex flex-col gap-1.5">
                   <p className="whitespace-pre-wrap wrap-anywhere text-sm text-foreground">
-                    {note.text}
+                    {renderNoteText?.(note.text) ?? note.text}
                   </p>
-                  <div className="flex items-center justify-between gap-1">
+                  <div className="flex flex-wrap items-center justify-between gap-1">
                     {onInsert ? (
                       <Button
                         size="sm"
-                        variant="ghost"
+                        variant={inlineEditor ? "outline" : "ghost"}
+                        data-note-insert={note.id}
+                        className="group/draft-insert"
                         disabled={editor !== null}
+                        onKeyDown={(event) => {
+                          if (
+                            event.key === "Enter" &&
+                            (event.repeat || event.nativeEvent.isComposing || event.keyCode === 229)
+                          )
+                            event.preventDefault();
+                        }}
                         onClick={() => onInsert(note)}
                       >
                         <QuoteIcon aria-hidden />
                         {gt("Add to chat draft")}
+                        {inlineEditor && (
+                          <kbd
+                            aria-hidden
+                            className="text-muted-foreground opacity-0 group-focus-visible/draft-insert:opacity-100"
+                          >
+                            ↵
+                          </kbd>
+                        )}
                       </Button>
                     ) : (
                       <span />
@@ -139,6 +201,7 @@ export function HighlightNotes({
                             size="icon-sm"
                             variant="ghost"
                             aria-label={gt("Note actions")}
+                            data-note-actions={note.id}
                             disabled={editor !== null}
                           />
                         }
@@ -146,9 +209,7 @@ export function HighlightNotes({
                         <EllipsisIcon aria-hidden />
                       </MenuTrigger>
                       <MenuPopup align="end">
-                        <MenuItem onClick={() => setEditor({ original: note, draft: note.text })}>
-                          {gt("Edit note")}
-                        </MenuItem>
+                        <MenuItem onClick={() => openEditor(note)}>{gt("Edit note")}</MenuItem>
                         {onExplain ? (
                           <MenuItem disabled={explainBusy} onClick={() => onExplain(note)}>
                             {gt("Explain note in plain language")}
@@ -158,9 +219,11 @@ export function HighlightNotes({
                           variant="destructive"
                           onClick={() => {
                             if (
-                              !useHighlightStore
-                                .getState()
-                                .removeHighlightNote(threadRef, highlight.id, note.id)
+                              !(onRequestDeleteNote
+                                ? onRequestDeleteNote(note)
+                                : useHighlightStore
+                                    .getState()
+                                    .removeHighlightNote(threadRef, highlight.id, note.id))
                             ) {
                               toastManager.add({
                                 type: "warning",
@@ -184,9 +247,20 @@ export function HighlightNotes({
       ) : null}
       {editor && !editor.original ? renderEditor() : null}
       <div hidden={editor !== null}>
-        <Button ref={addButton} size="sm" variant="ghost" onClick={() => setEditor({ draft: "" })}>
+        <Button
+          ref={addButton}
+          size="sm"
+          variant="ghost"
+          data-highlight-add-note=""
+          aria-label={
+            inlineEditor
+              ? gt("Add note for highlight {position}", { position: inlineEditor.position })
+              : undefined
+          }
+          onClick={() => openEditor()}
+        >
           <PlusIcon aria-hidden />
-          {gt("Add note")}
+          {inlineEditor && notes.length > 0 ? gt("Add another note") : gt("Add note")}
         </Button>
       </div>
     </div>

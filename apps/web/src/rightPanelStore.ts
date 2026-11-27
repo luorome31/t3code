@@ -401,6 +401,16 @@ const upsertSurface = (
   activeSurfaceId: activate ? surface.id : current.activeSurfaceId,
 });
 
+const highlightsLeaveGuards = new Map<string, () => boolean>();
+
+export function guardHighlightsPanelExit(ref: ScopedThreadRef, canLeave: () => boolean) {
+  const key = scopedThreadKey(ref);
+  highlightsLeaveGuards.set(key, canLeave);
+  return () => {
+    if (highlightsLeaveGuards.get(key) === canLeave) highlightsLeaveGuards.delete(key);
+  };
+}
+
 const updateThreadStateMap = (
   byThreadKey: Record<string, ThreadRightPanelState>,
   threadKey: string,
@@ -408,6 +418,13 @@ const updateThreadStateMap = (
 ): Record<string, ThreadRightPanelState> => {
   const current = byThreadKey[threadKey] ?? EMPTY_THREAD_STATE;
   const next = updater(current);
+  if (
+    current.isOpen &&
+    current.activeSurfaceId === "highlights" &&
+    (!next.isOpen || next.activeSurfaceId !== "highlights") &&
+    highlightsLeaveGuards.get(threadKey)?.() === false
+  )
+    return byThreadKey;
   if (
     !next.isOpen &&
     next.activeSurfaceId === null &&

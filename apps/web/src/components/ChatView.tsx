@@ -52,6 +52,12 @@ import { useLogicalProjectEnvironments } from "../hooks/useLogicalProjectEnviron
 import { useStableCallback } from "../hooks/useStableCallback";
 import type { MarkdownFileHighlightExcerpt } from "../highlightStore";
 import { formatMarkdownFileHighlightExcerpts } from "../lib/highlightExcerpt";
+import {
+  appendAssistantCitationsToThreadDraft,
+  appendHighlightsToThreadDraft,
+  appendMarkdownExcerptsToThreadDraft,
+  type HighlightDraftContent,
+} from "../lib/highlightDraftInsert";
 import { useProjectScriptEditing } from "./chat/useProjectScriptEditing";
 import { RightPanelSurfaceContent } from "./chat/RightPanelSurfaceContent";
 import { usePendingThreadRequests } from "./chat/usePendingThreadRequests";
@@ -161,7 +167,7 @@ import {
 import { AsyncResult } from "effect/reactivity";
 import { isElectron } from "../env";
 import { useActiveThreadRef } from "../hooks/useActiveThreadRef";
-import { composerRequiresModifier, formatAssistantCitationForComposer } from "../composer-logic";
+import { composerRequiresModifier } from "../composer-logic";
 import {
   derivePhase,
   deriveActiveWorkStartedAt,
@@ -1454,12 +1460,8 @@ export default function ChatView(props: ChatViewProps) {
     composerRef,
     setThreadError,
   });
-  const appendHighlightToChatDraft = (text: string, separator: " " | "\n\n") => {
-    if (!text) return false;
-    const drafts = useComposerDraftStore.getState();
-    const current = drafts.getComposerDraft(baseComposerDraftTarget)?.prompt ?? "";
-    const boundary = separator === " " && /\s$/.test(current) ? "" : separator;
-    drafts.setPrompt(baseComposerDraftTarget, current ? `${current}${boundary}${text}` : text);
+  const reportHighlightDraftInsert = (inserted: boolean) => {
+    if (!inserted) return false;
     toastManager.add({
       type: "success",
       title: gt("Added to chat draft"),
@@ -1472,9 +1474,8 @@ export default function ChatView(props: ChatViewProps) {
     destination?: "chat-draft",
   ) => {
     if (destination === "chat-draft") {
-      return appendHighlightToChatDraft(
-        citations.map((citation) => formatAssistantCitationForComposer(citation)).join(""),
-        " ",
+      return reportHighlightDraftInsert(
+        appendAssistantCitationsToThreadDraft(baseComposerDraftTarget, citations),
       );
     }
     const inserted = composerRef.current?.insertAssistantCitations(citations) ?? false;
@@ -1492,8 +1493,12 @@ export default function ChatView(props: ChatViewProps) {
     excerpts: readonly MarkdownFileHighlightExcerpt[],
     destination?: "chat-draft",
   ) => {
+    if (destination === "chat-draft") {
+      return reportHighlightDraftInsert(
+        appendMarkdownExcerptsToThreadDraft(baseComposerDraftTarget, excerpts),
+      );
+    }
     const text = formatMarkdownFileHighlightExcerpts(excerpts);
-    if (destination === "chat-draft") return appendHighlightToChatDraft(text, "\n\n");
     const inserted =
       composerRef.current?.insertTextAtEnd(text, {
         ensureLeadingBoundary: true,
@@ -3378,6 +3383,20 @@ export default function ChatView(props: ChatViewProps) {
     (folders: Parameters<ChatComposerHandle["addDroppedFolders"]>[0]) =>
       composerRef.current?.addDroppedFolders(folders),
   );
+  const insertWorkbenchHighlights = useStableCallback((content: HighlightDraftContent) => {
+    const inserted = reportHighlightDraftInsert(
+      appendHighlightsToThreadDraft(baseComposerDraftTarget, content),
+    );
+    if (
+      inserted &&
+      pendingUserInputs.length === 0 &&
+      composerDraftTarget === baseComposerDraftTarget
+    ) {
+      scheduleComposerFocusStable();
+    }
+    return inserted;
+  });
+
   // Above the early return, where React Compiler can cache it for the side chat pane.
   const sideChatParentPanel = {
     openToolDiff: onOpenToolDiffStable,
@@ -3401,7 +3420,7 @@ export default function ChatView(props: ChatViewProps) {
       workspaceMutationId={workspaceMutationId}
       getShortcutContext={getShortcutContextStable}
       onSendAnnotation={sendPreviewAnnotationStable}
-      onInsertHighlights={insertAssistantHighlightsStable}
+      onInsertWorkbenchHighlights={insertWorkbenchHighlights}
       onInsertMarkdownFileHighlights={insertMarkdownFileHighlightsStable}
       onCloseSurface={closeRightPanelSurface}
       sideChatParentPanel={sideChatParentPanel}

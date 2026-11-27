@@ -1,6 +1,6 @@
+import type { HighlightDraftContent } from "~/lib/highlightDraftInsert";
 import { useGT } from "gt-react";
 import type {
-  AssistantCitation,
   EditorId,
   EnvironmentId,
   IssueTrackerKind,
@@ -84,7 +84,7 @@ export function RightPanelSurfaceContent(props: {
     annotation: PreviewAnnotationPayload,
     image: ComposerImageAttachment | null,
   ) => void;
-  readonly onInsertHighlights: HighlightInsert<readonly AssistantCitation[]>;
+  readonly onInsertWorkbenchHighlights: (content: HighlightDraftContent) => boolean;
   readonly onInsertMarkdownFileHighlights: HighlightInsert<readonly MarkdownFileHighlightExcerpt[]>;
   readonly onCloseSurface: (surface: RightPanelSurface) => void;
   readonly terminal: RightPanelTerminalProps;
@@ -228,8 +228,7 @@ export function RightPanelSurfaceContent(props: {
         <ThreadHighlightsPanel
           key={scopedThreadKey(threadRef)}
           threadRef={threadRef}
-          onInsertHighlights={props.onInsertHighlights}
-          onInsertMarkdownFileHighlights={props.onInsertMarkdownFileHighlights}
+          onInsert={props.onInsertWorkbenchHighlights}
         />
       );
     case "outline":

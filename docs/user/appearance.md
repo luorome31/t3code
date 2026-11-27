@@ -62,9 +62,16 @@ a note to append it and its source without sending. If you’re answering a ques
 stays unchanged and the note is waiting in your regular chat draft. Editing the draft does not
 change the saved note.
 
-Open **Highlights** in the thread details card to browse your highlights and notes, jump to the
-source, or filter by color. In a note’s menu, choose **Explain note in plain language** to open
-[Smalltalk](smalltalk.md). Removing a highlight also removes its notes.
+Open **Highlights** in the thread details card for the current conversation, or use **Highlights**
+next to **Usage** in the sidebar (or **Open highlights** in the command palette) to browse across
+conversations and projects. Search passages and notes, filter by source or color, and use **Context**
+to read the surrounding text. Select multiple highlights to merge their notes and quotes into the
+chat draft for the target thread shown at the bottom of the overview.
+
+While writing a note, press **Enter** to save and focus **Add to chat draft**, then press **Enter**
+again to add it without sending. **Shift+Enter** adds a line break. Use **Esc** to return to the
+conversation from the overview. A note’s menu can open [Smalltalk](smalltalk.md) with **Explain note
+in plain language**. Removing a highlight also removes its notes; use **Undo** to restore them.
 
 ## Conversation navigation
 

@@ -5,6 +5,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 
 import type { HighlightNote, ThreadHighlight } from "~/highlightStore";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
+import { useStableCallback } from "~/hooks/useStableCallback";
 import { Button } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTitle } from "../ui/popover";
 import { Sheet, SheetHeader, SheetPopup, SheetTitle } from "../ui/sheet";
@@ -23,12 +24,17 @@ export function highlightNoteTarget(id: string, trigger: HTMLElement): Highlight
 
 export function useHighlightNoteGuard() {
   const gt = useGT();
-  const [dirty, setDirty] = useState(false);
-  const canLeave = () => {
-    if (!dirty) return true;
+  const [dirty, setDirtyState] = useState(false);
+  const dirtyRef = useRef(false);
+  const setDirty = (value: boolean) => {
+    dirtyRef.current = value;
+    setDirtyState(value);
+  };
+  const canLeave = useStableCallback(() => {
+    if (!dirtyRef.current) return true;
     toastManager.add({ type: "warning", title: gt("Save or cancel your note first") });
     return false;
-  };
+  });
   return { dirty, setDirty, canLeave };
 }
 

@@ -1,11 +1,5 @@
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import {
-  EnvironmentId,
-  MessageId,
-  ThreadId,
-  type AssistantCitation,
-  type ScopedThreadRef,
-} from "@t3tools/contracts";
+import { EnvironmentId, MessageId, ThreadId, type ScopedThreadRef } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
@@ -15,10 +9,10 @@ import {
   DEFAULT_HIGHLIGHT_COLOR_MODE,
   readThreadHighlights,
   useHighlightStore,
-  type MarkdownFileHighlightExcerpt,
   type ThreadHighlight,
 } from "~/highlightStore";
 import { DEFAULT_HIGHLIGHT_COLOR } from "~/lib/highlightColors";
+import type { HighlightDraftContent } from "~/lib/highlightDraftInsert";
 import { render } from "../../../test/render";
 import { ThreadHighlightsPanel } from "./ThreadHighlightsPanel";
 
@@ -95,8 +89,7 @@ function KeyedPanel({ threadRef }: { threadRef: ScopedThreadRef }) {
     <ThreadHighlightsPanel
       key={scopedThreadKey(threadRef)}
       threadRef={threadRef}
-      onInsertHighlights={() => true}
-      onInsertMarkdownFileHighlights={() => true}
+      onInsert={() => true}
     />
   );
 }
@@ -104,28 +97,27 @@ function KeyedPanel({ threadRef }: { threadRef: ScopedThreadRef }) {
 describe("ThreadHighlightsPanel", () => {
   it("lists highlights and inserts the selected ones into the composer", async () => {
     setup();
-    const onInsertHighlights = vi.fn((_citations: readonly AssistantCitation[]) => true);
+    const onInsert = vi.fn((_content: HighlightDraftContent) => true);
     await using _screen = await render(
-      <ThreadHighlightsPanel
-        threadRef={threadRef}
-        onInsertHighlights={onInsertHighlights}
-        onInsertMarkdownFileHighlights={() => true}
-      />,
+      <ThreadHighlightsPanel threadRef={threadRef} onInsert={onInsert} />,
     );
 
     await expect.element(page.getByText("3 highlights")).toBeVisible();
     await expect.element(page.getByText("alpha")).toBeVisible();
     await expect.element(page.getByText("beta")).toBeVisible();
+    const first = page.getByRole("article").filter({ hasText: "alpha" });
+    await userEvent.click(first.getByRole("button", { name: "Context" }));
+    await expect.element(first.getByText("alpha beta")).toBeVisible();
     await expect.element(page.getByText("delta")).toBeVisible();
 
     await select(entries[0]!);
     await select(entries[1]!, 2);
     await expect.element(page.getByText("2 selected")).toBeVisible();
 
-    await userEvent.click(page.getByRole("button", { name: "Insert into chat" }));
+    await userEvent.click(page.getByRole("button", { name: "Merge into draft" }));
 
-    expect(onInsertHighlights).toHaveBeenCalledOnce();
-    const citations = onInsertHighlights.mock.calls[0]?.[0] ?? [];
+    expect(onInsert).toHaveBeenCalledOnce();
+    const citations = onInsert.mock.calls[0]?.[0].citations ?? [];
     expect(citations.map((citation) => citation.text)).toEqual(["alpha", "beta"]);
     expect(citations.map((citation) => citation.messageId)).toEqual([
       MessageId.make("message-1"),
@@ -135,13 +127,9 @@ describe("ThreadHighlightsPanel", () => {
 
   it("recolors one highlight from its color swatch popover", async () => {
     setup();
-    const onInsertHighlights = vi.fn(() => true);
+    const onInsert = vi.fn(() => true);
     await using _screen = await render(
-      <ThreadHighlightsPanel
-        threadRef={threadRef}
-        onInsertHighlights={onInsertHighlights}
-        onInsertMarkdownFileHighlights={() => true}
-      />,
+      <ThreadHighlightsPanel threadRef={threadRef} onInsert={onInsert} />,
     );
 
     await userEvent.click(page.getByRole("button", { name: "Set color for highlight 1" }));
@@ -155,11 +143,7 @@ describe("ThreadHighlightsPanel", () => {
   it("keeps a dirty editor open when a filter or another row would hide it", async () => {
     setup();
     await using _screen = await render(
-      <ThreadHighlightsPanel
-        threadRef={threadRef}
-        onInsertHighlights={() => true}
-        onInsertMarkdownFileHighlights={() => true}
-      />,
+      <ThreadHighlightsPanel threadRef={threadRef} onInsert={() => true} />,
     );
     await userEvent.click(page.getByRole("button", { name: "Add note for highlight 1" }));
     const editor = page.getByRole("textbox", { name: "Add note" });
@@ -188,26 +172,17 @@ describe("ThreadHighlightsPanel", () => {
           : entry,
       ),
     );
-    const onInsertHighlights = vi.fn((_citations: readonly AssistantCitation[]) => true);
+    const onInsert = vi.fn((_content: HighlightDraftContent) => true);
     await using _screen = await render(
-      <ThreadHighlightsPanel
-        threadRef={threadRef}
-        onInsertHighlights={onInsertHighlights}
-        onInsertMarkdownFileHighlights={() => true}
-      />,
+      <ThreadHighlightsPanel threadRef={threadRef} onInsert={onInsert} />,
     );
-    await expect
-      .element(page.getByRole("button", { name: "Notes (2) remember this" }))
-      .toBeVisible();
-    await expect.element(page.getByText("follow up")).not.toBeInTheDocument();
-    await select(entries[0]!);
-    await userEvent.click(page.getByRole("button", { name: "Insert into chat" }));
-    expect(onInsertHighlights.mock.calls[0]?.[0][0]?.comment).toBeUndefined();
-
-    await userEvent.click(page.getByRole("button", { name: "Notes (2) remember this" }));
+    await expect.element(page.getByText("follow up")).toBeVisible();
+    const card = page.getByRole("article").filter({ hasText: "remember this" });
+    await userEvent.click(card.getByRole("button", { name: "Cite" }));
+    expect(onInsert.mock.calls[0]?.[0].citations[0]?.comment).toBeUndefined();
     const note = page.getByRole("listitem").filter({ hasText: "follow up" });
     await userEvent.click(note.getByRole("button", { name: "Add to chat draft" }));
-    expect(onInsertHighlights.mock.calls[1]?.[0]).toEqual([
+    expect(onInsert.mock.calls[1]?.[0].citations).toEqual([
       expect.objectContaining({ text: "alpha", comment: "follow up" }),
     ]);
   });
@@ -215,11 +190,7 @@ describe("ThreadHighlightsPanel", () => {
   it("filters highlights by color", async () => {
     setup();
     await using _screen = await render(
-      <ThreadHighlightsPanel
-        threadRef={threadRef}
-        onInsertHighlights={() => true}
-        onInsertMarkdownFileHighlights={() => true}
-      />,
+      <ThreadHighlightsPanel threadRef={threadRef} onInsert={() => true} />,
     );
 
     await userEvent.click(page.getByRole("button", { name: "Filter Amber" }));
@@ -239,60 +210,44 @@ describe("ThreadHighlightsPanel", () => {
   it("lets a filtered color without highlights in the tab be turned off", async () => {
     setup([...entries, ...fileEntries]);
     await using _screen = await render(
-      <ThreadHighlightsPanel
-        threadRef={threadRef}
-        onInsertHighlights={() => true}
-        onInsertMarkdownFileHighlights={() => true}
-      />,
+      <ThreadHighlightsPanel threadRef={threadRef} onInsert={() => true} />,
     );
 
     await userEvent.click(page.getByRole("button", { name: "Filter Blue" }));
     await userEvent.click(page.getByRole("button", { name: "Markdown files" }));
 
-    await expect.element(page.getByText("0 of 2 highlights")).toBeVisible();
+    await expect.element(page.getByText("0 of 5 highlights")).toBeVisible();
     await expect.element(page.getByText("No highlights match the filter")).toBeVisible();
 
     const blueDot = page.getByRole("button", { name: "Filter Blue" });
     await expect.element(blueDot).not.toBeDisabled();
     await userEvent.click(blueDot);
 
-    await expect.element(page.getByText("2 highlights")).toBeVisible();
+    await expect.element(page.getByText("2 of 5 highlights")).toBeVisible();
     await expect.element(page.getByText("rendered quote")).toBeVisible();
   });
 
-  it("confirms and deletes multiple selected highlights", async () => {
+  it("deletes multiple selected highlights from the batch bar", async () => {
     setup();
-    const onInsertHighlights = vi.fn(() => true);
+    const onInsert = vi.fn(() => true);
     await using _screen = await render(
-      <ThreadHighlightsPanel
-        threadRef={threadRef}
-        onInsertHighlights={onInsertHighlights}
-        onInsertMarkdownFileHighlights={() => true}
-      />,
+      <ThreadHighlightsPanel threadRef={threadRef} onInsert={onInsert} />,
     );
 
     await select(entries[0]!);
     await select(entries[2]!, 3);
     await userEvent.click(page.getByRole("button", { name: "Delete" }));
 
-    await expect.element(page.getByText("Delete 2 highlights?")).toBeVisible();
-    const dialog = page.getByRole("dialog");
-    await userEvent.click(dialog.getByRole("button", { name: "Delete" }));
-
     expect(readThreadHighlights(threadRef).map((highlight) => highlight.id)).toEqual([
       "highlight-2",
     ]);
-    expect(onInsertHighlights).not.toHaveBeenCalled();
+    expect(onInsert).not.toHaveBeenCalled();
   });
 
   it("shows an empty state", async () => {
     setup([]);
     await using _screen = await render(
-      <ThreadHighlightsPanel
-        threadRef={threadRef}
-        onInsertHighlights={() => true}
-        onInsertMarkdownFileHighlights={() => true}
-      />,
+      <ThreadHighlightsPanel threadRef={threadRef} onInsert={() => true} />,
     );
 
     await expect.element(page.getByText("No highlights yet")).toBeVisible();
@@ -301,11 +256,7 @@ describe("ThreadHighlightsPanel", () => {
   it("keeps one group per message even when highlights interleave", async () => {
     setup([entries[0]!, { ...entries[2]!, createdAt: "2026-01-01T00:00:00.500Z" }, entries[1]!]);
     await using _screen = await render(
-      <ThreadHighlightsPanel
-        threadRef={threadRef}
-        onInsertHighlights={() => true}
-        onInsertMarkdownFileHighlights={() => true}
-      />,
+      <ThreadHighlightsPanel threadRef={threadRef} onInsert={() => true} />,
     );
 
     await expect.poll(() => page.getByText("Assistant message").elements().length).toBe(2);
@@ -314,11 +265,7 @@ describe("ThreadHighlightsPanel", () => {
   it("selects all highlights and clears the selection", async () => {
     setup();
     await using _screen = await render(
-      <ThreadHighlightsPanel
-        threadRef={threadRef}
-        onInsertHighlights={() => true}
-        onInsertMarkdownFileHighlights={() => true}
-      />,
+      <ThreadHighlightsPanel threadRef={threadRef} onInsert={() => true} />,
     );
 
     const selectAll = page.getByRole("checkbox", { name: "Select all highlights" });
@@ -332,15 +279,11 @@ describe("ThreadHighlightsPanel", () => {
   it("keeps the selection when the composer insert fails", async () => {
     setup();
     await using _screen = await render(
-      <ThreadHighlightsPanel
-        threadRef={threadRef}
-        onInsertHighlights={() => false}
-        onInsertMarkdownFileHighlights={() => true}
-      />,
+      <ThreadHighlightsPanel threadRef={threadRef} onInsert={() => false} />,
     );
 
     await select(entries[0]!);
-    await userEvent.click(page.getByRole("button", { name: "Insert into chat" }));
+    await userEvent.click(page.getByRole("button", { name: "Merge into draft" }));
 
     await expect.element(page.getByText("1 selected")).toBeVisible();
   });
@@ -348,11 +291,7 @@ describe("ThreadHighlightsPanel", () => {
   it("deletes a single highlight from its row button", async () => {
     setup();
     await using _screen = await render(
-      <ThreadHighlightsPanel
-        threadRef={threadRef}
-        onInsertHighlights={() => true}
-        onInsertMarkdownFileHighlights={() => true}
-      />,
+      <ThreadHighlightsPanel threadRef={threadRef} onInsert={() => true} />,
     );
 
     await userEvent.click(page.getByRole("button", { name: "Delete highlight 1" }));
@@ -365,15 +304,9 @@ describe("ThreadHighlightsPanel", () => {
 
   it("switches to Markdown file highlights and inserts excerpts", async () => {
     setup([...entries, ...fileEntries]);
-    const onInsertMarkdownFileHighlights = vi.fn(
-      (_excerpts: readonly MarkdownFileHighlightExcerpt[]) => true,
-    );
+    const onInsert = vi.fn((_content: HighlightDraftContent) => true);
     await using _screen = await render(
-      <ThreadHighlightsPanel
-        threadRef={threadRef}
-        onInsertHighlights={() => true}
-        onInsertMarkdownFileHighlights={onInsertMarkdownFileHighlights}
-      />,
+      <ThreadHighlightsPanel threadRef={threadRef} onInsert={onInsert} />,
     );
 
     await select(entries[0]!);
@@ -381,14 +314,14 @@ describe("ThreadHighlightsPanel", () => {
     await userEvent.click(page.getByRole("button", { name: "Markdown files" }));
 
     await expect.element(page.getByText("docs/design.md")).toBeVisible();
-    await expect.element(page.getByText("2 highlights")).toBeVisible();
+    await expect.element(page.getByText("2 of 5 highlights")).toBeVisible();
     await expect.element(page.getByText("1 selected")).not.toBeInTheDocument();
 
     await select(fileEntries[0]!);
-    await userEvent.click(page.getByRole("button", { name: "Insert into chat" }));
+    await userEvent.click(page.getByRole("button", { name: "Merge into draft" }));
 
-    expect(onInsertMarkdownFileHighlights).toHaveBeenCalledOnce();
-    expect(onInsertMarkdownFileHighlights.mock.calls[0]?.[0]).toEqual([
+    expect(onInsert).toHaveBeenCalledOnce();
+    expect(onInsert.mock.calls[0]?.[0].excerpts).toEqual([
       {
         workspaceRoot: "/repo",
         relativePath: "docs/design.md",

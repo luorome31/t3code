@@ -63,6 +63,7 @@ import {
   ArrowLeftIcon,
   BugIcon,
   ChartNoAxesColumnIcon,
+  HighlighterIcon,
   CheckIcon,
   ChevronRightIcon,
   CornerLeftUpIcon,
@@ -1758,6 +1759,18 @@ function OpenCommandPaletteDialog(props: {
     shortcutCommand: "usage.open",
     run: async () => {
       await navigate({ to: "/usage" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:highlights",
+    searchTerms: ["highlights", "notes", "annotations"],
+    title: gt("Open highlights"),
+    icon: <HighlighterIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "highlights.open",
+    run: async () => {
+      await navigate({ to: "/highlights" });
     },
   });
 

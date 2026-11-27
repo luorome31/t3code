@@ -23,6 +23,7 @@ import { METRIC_OPTIONS, WINDOW_OPTIONS } from "../usage/usageShortcuts";
 const usageCommandOrder = new Map<KeybindingCommand, number>(
   [
     "usage.open" as const,
+    "highlights.open" as const,
     ...[...METRIC_OPTIONS, ...WINDOW_OPTIONS].map((option) => option.command),
   ].map((command, index) => [command, index]),
 );
@@ -438,6 +439,7 @@ const COMMAND_LABELS: Partial<Record<KeybindingCommand, string>> = {
   "filePicker.toggle": msg("File Picker: Toggle"),
   "projectSearch.toggle": msg("Project Search: Toggle"),
   "usage.open": msg("Usage: Open"),
+  "highlights.open": msg("Highlights: Open"),
   "theme.select": msg("Theme: Select"),
   "appearance.cycle": msg("Appearance: Cycle"),
   "themeEditor.toggle": msg("Theme Editor: Toggle"),

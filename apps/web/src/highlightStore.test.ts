@@ -9,6 +9,7 @@ import {
   MAX_HIGHLIGHT_NOTE_LENGTH,
   MAX_HIGHLIGHT_TEXT_LENGTH,
   useHighlightStore,
+  readThreadHighlights,
 } from "./highlightStore";
 import type { AssistantTextSelector } from "./lib/assistantTextSelection";
 import { DEFAULT_HIGHLIGHT_COLOR } from "./lib/highlightColors";
@@ -62,6 +63,34 @@ describe("highlightStore", () => {
       messageId: MessageId.make("message-1"),
     });
     expect(useHighlightStore.getState().byThreadKey["environment-1:thread-1"]).toHaveLength(1);
+  });
+
+  it("recolors multiple highlights and restores deleted highlights and notes in place", () => {
+    for (const [index, text] of ["one", "two", "three"].entries())
+      expect(add(text, index * 10).ok).toBe(true);
+    const store = useHighlightStore.getState();
+    const [first, , third] = readThreadHighlights(threadRef);
+    store.recolorHighlights(threadRef, [first!.id, third!.id], "red");
+    expect(readThreadHighlights(threadRef).map(({ color }) => color)).toEqual([
+      "red",
+      DEFAULT_HIGHLIGHT_COLOR,
+      "red",
+    ]);
+    store.saveHighlightNote(threadRef, first!.id, "first note");
+    store.saveHighlightNote(threadRef, first!.id, "second note");
+    const before = readThreadHighlights(threadRef);
+    const note = before[0]!.notes![0]!;
+    expect(store.removeHighlightNote(threadRef, first!.id, note.id)).toBe(true);
+    expect(store.restoreHighlightNote(threadRef, first!.id, note, 0)).toBe(true);
+    expect(store.restoreHighlightNote(threadRef, first!.id, note, 0)).toBe(false);
+    expect(store.removeHighlights(threadRef, [first!.id, third!.id])).toBe(true);
+    const deleted = [
+      { highlight: before[2]!, index: 2 },
+      { highlight: before[0]!, index: 0 },
+    ];
+    expect(store.restoreHighlights(threadRef, deleted)).toBe(true);
+    expect(store.restoreHighlights(threadRef, deleted)).toBe(false);
+    expect(readThreadHighlights(threadRef)).toEqual(before);
   });
 
   it("rejects a duplicate selector on the same message", () => {

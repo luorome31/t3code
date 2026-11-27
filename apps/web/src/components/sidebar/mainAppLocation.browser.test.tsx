@@ -1,5 +1,5 @@
 import { EnvironmentId, MessageId, ThreadId, type AssistantCitation } from "@t3tools/contracts";
-import type { AnyRouter } from "@tanstack/react-router";
+import { createMemoryHistory, type AnyRouter } from "@tanstack/react-router";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
@@ -8,7 +8,9 @@ import {
   assistantCitationFromLocation,
   assistantCitationNavigation,
 } from "../../lib/assistantCitationNavigation";
+import { getRouter } from "../../router";
 import {
+  getAppModalReturnThreadTarget,
   startMainAppLocationTracking,
   useCloseAppModal,
   useNavigateToMainApp,
@@ -52,18 +54,30 @@ async function settled(router: AnyRouter, navigation: Promise<void>) {
 }
 
 describe("main app return location", () => {
-  it("closes Usage without leaving the current document when the app started with history", async () => {
-    await using screen = await render(<ReturnControls />, { router: "/" });
-    const router = screen.router!;
-    await settled(router, router.navigate({ href: THREAD_PATH }));
+  it("records a direct thread URL before the first route has loaded", () => {
+    const router = getRouter(createMemoryHistory({ initialEntries: [THREAD_PATH] }));
     using _tracking = { [Symbol.dispose]: startMainAppLocationTracking(router) };
-    using go = vi.spyOn(router.history, "go");
-
-    await settled(router, router.navigate({ href: "/usage" }));
-    await userEvent.click(screen.getByRole("button", { name: "Close modal" }));
-    await vi.waitFor(() => expect(router.state.location.pathname).toBe(THREAD_PATH));
-    expect(go).not.toHaveBeenCalled();
+    expect(getAppModalReturnThreadTarget()).toEqual({
+      kind: "server",
+      threadRef: { environmentId: citation.environmentId, threadId: citation.threadId },
+    });
   });
+
+  it.each(["/usage", "/highlights"])(
+    "closes %s without leaving the current document when the app started with history",
+    async (path) => {
+      await using screen = await render(<ReturnControls />, { router: "/" });
+      const router = screen.router!;
+      await settled(router, router.navigate({ href: THREAD_PATH }));
+      using _tracking = { [Symbol.dispose]: startMainAppLocationTracking(router) };
+      using go = vi.spyOn(router.history, "go");
+
+      await settled(router, router.navigate({ href: path }));
+      await userEvent.click(screen.getByRole("button", { name: "Close modal" }));
+      await vi.waitFor(() => expect(router.state.location.pathname).toBe(THREAD_PATH));
+      expect(go).not.toHaveBeenCalled();
+    },
+  );
 
   it("returns to the thread without re-opening the quote source it was opened at", async () => {
     await using screen = await render(<ReturnControls />, { router: THREAD_PATH });

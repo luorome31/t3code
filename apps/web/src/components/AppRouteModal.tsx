@@ -1,7 +1,13 @@
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { T, useGT } from "gt-react";
 import { XIcon } from "lucide-react";
-import { useRef, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEventHandler,
+  type ReactNode,
+} from "react";
 
 import { getCommandPaletteOpener } from "../commandPaletteStore";
 import { useNativeTitlebarHeight } from "../lib/windowControlsOverlay";
@@ -13,11 +19,23 @@ import { DialogBackdrop } from "./ui/dialog";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 /**
- * Large modal for the Settings and Usage routes. Esc, the close button, or a press on the
+ * Large modal for app routes. Esc, the close button, or a press on the
  * backdrop returns to the page that opened it. Keyboard guards that skip dialogs exempt
  * `[data-app-modal]`, because these pages own their shortcuts.
  */
-export function AppRouteModal({ label, children }: { label: string; children: ReactNode }) {
+export function AppRouteModal({
+  label,
+  children,
+  canClose,
+  onClose,
+  onKeyDown,
+}: {
+  label: string;
+  children: ReactNode;
+  canClose?: () => boolean;
+  onClose?: () => void | Promise<void>;
+  onKeyDown?: KeyboardEventHandler<HTMLDivElement>;
+}) {
   const closeAppModal = useCloseAppModal();
   const [open, setOpen] = useState(true);
   // Text selection that ends on the backdrop is not a dismissal.
@@ -36,6 +54,12 @@ export function AppRouteModal({ label, children }: { label: string; children: Re
   // 1.5rem inset is shorter than the strip.
   const nativeTitlebarHeight = useNativeTitlebarHeight();
 
+  const finishClose = () => {
+    const focused = document.activeElement;
+    if (focused instanceof HTMLElement && popupRef.current?.contains(focused)) focused.blur();
+    setOpen(false);
+  };
+
   return (
     <DialogPrimitive.Root
       open={open}
@@ -53,14 +77,20 @@ export function AppRouteModal({ label, children }: { label: string; children: Re
         ) {
           return eventDetails.cancel();
         }
-        // Closing unmounts a focused field without a blur, so commit-on-blur rows would
-        // drop what was typed. Blur first so they commit.
-        const focused = document.activeElement;
-        if (focused instanceof HTMLElement && popupRef.current?.contains(focused)) focused.blur();
-        setOpen(false);
+        if (
+          eventDetails.reason === "escape-key" &&
+          eventDetails.event instanceof KeyboardEvent &&
+          (eventDetails.event.isComposing ||
+            eventDetails.event.keyCode === 229 ||
+            eventDetails.event.defaultPrevented)
+        ) {
+          return eventDetails.cancel();
+        }
+        if (canClose && !canClose()) return eventDetails.cancel();
+        finishClose();
       }}
       onOpenChangeComplete={(nextOpen) => {
-        if (!nextOpen) void closeAppModal();
+        if (!nextOpen) void (onClose ?? closeAppModal)();
       }}
     >
       <DialogPrimitive.Portal>
@@ -80,12 +110,18 @@ export function AppRouteModal({ label, children }: { label: string; children: Re
             backdropPressRef.current = event.target === event.currentTarget;
           }}
           onClick={(event) => {
-            if (backdropPressRef.current && event.target === event.currentTarget) setOpen(false);
+            if (
+              backdropPressRef.current &&
+              event.target === event.currentTarget &&
+              (!canClose || canClose())
+            )
+              finishClose();
             backdropPressRef.current = false;
           }}
         >
           <DialogPrimitive.Popup
             ref={popupRef}
+            onKeyDown={onKeyDown}
             initialFocus={popupRef}
             finalFocus={(closeType) => {
               if (closeType !== "keyboard" || !opener?.isConnected) return false;

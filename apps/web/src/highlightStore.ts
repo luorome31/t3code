@@ -67,13 +67,26 @@ interface AddHighlightInput {
   readonly color?: HighlightColor;
 }
 
+export interface RemovedHighlight {
+  readonly highlight: ThreadHighlight;
+  readonly index: number;
+}
+
 interface HighlightStoreState {
   byThreadKey: Record<string, ThreadHighlight[]>;
   defaultColor: HighlightColor;
   colorMode: HighlightColorMode;
   threadDefaultColors: Record<string, HighlightColor>;
   addHighlight: (ref: ScopedThreadRef, input: AddHighlightInput) => AddHighlightResult;
-  removeHighlights: (ref: ScopedThreadRef, ids: readonly string[]) => void;
+  removeHighlights: (ref: ScopedThreadRef, ids: readonly string[]) => boolean;
+  recolorHighlights: (ref: ScopedThreadRef, ids: readonly string[], color: HighlightColor) => void;
+  restoreHighlights: (ref: ScopedThreadRef, entries: readonly RemovedHighlight[]) => boolean;
+  restoreHighlightNote: (
+    ref: ScopedThreadRef,
+    id: string,
+    note: HighlightNote,
+    index: number,
+  ) => boolean;
   recolorHighlight: (ref: ScopedThreadRef, id: string, color: HighlightColor) => void;
   saveHighlightNote: (ref: ScopedThreadRef, id: string, text: string, noteId?: string) => boolean;
   removeHighlightNote: (ref: ScopedThreadRef, id: string, noteId: string) => boolean;
@@ -380,30 +393,76 @@ export const useHighlightStore = create<HighlightStoreState>()((set, get) => {
     removeHighlights: (ref, ids) => {
       const threadKey = scopedThreadKey(ref);
       const existing = get().byThreadKey[threadKey];
-      if (!existing) return;
+      if (!existing) return false;
       const removed = new Set(ids);
       const next = existing.filter((highlight) => !removed.has(highlight.id));
-      if (next.length === existing.length) return;
-      commit((state) => {
+      if (next.length === existing.length) return false;
+      return commit((state) => {
         const byThreadKey = { ...state.byThreadKey };
         if (next.length === 0) delete byThreadKey[threadKey];
         else byThreadKey[threadKey] = next;
         return { byThreadKey };
       });
     },
-    recolorHighlight: (ref, id, color) => {
+    recolorHighlight: (ref, id, color) => get().recolorHighlights(ref, [id], color),
+    recolorHighlights: (ref, ids, color) => {
       if (!isHighlightColor(color)) return;
       const threadKey = scopedThreadKey(ref);
       const existing = get().byThreadKey[threadKey];
-      if (!existing?.some((highlight) => highlight.id === id && highlight.color !== color)) {
+      const selected = new Set(ids);
+      if (!existing?.some((highlight) => selected.has(highlight.id) && highlight.color !== color)) {
         return;
       }
       commit((state) => ({
         byThreadKey: {
           ...state.byThreadKey,
-          [threadKey]: (state.byThreadKey[threadKey] ?? []).map((highlight) =>
-            highlight.id === id ? { ...highlight, color } : highlight,
+          [threadKey]: existing.map((highlight) =>
+            selected.has(highlight.id) && highlight.color !== color
+              ? { ...highlight, color }
+              : highlight,
           ),
+        },
+      }));
+    },
+    restoreHighlights: (ref, entries) => {
+      const threadKey = scopedThreadKey(ref);
+      const { byThreadKey } = get();
+      const next = [...(byThreadKey[threadKey] ?? [])];
+      if (entries.length === 0 || next.length + entries.length > MAX_HIGHLIGHTS_PER_THREAD)
+        return false;
+      let textLength = totalHighlightTextLength(byThreadKey);
+      for (const { highlight, index } of entries.toSorted((a, b) => a.index - b.index)) {
+        textLength += highlight.selector.text.length;
+        if (
+          !Number.isInteger(index) ||
+          index < 0 ||
+          highlight.selector.text.length > MAX_HIGHLIGHT_TEXT_LENGTH ||
+          textLength > MAX_TOTAL_HIGHLIGHT_TEXT_LENGTH ||
+          next.some(
+            (other) =>
+              other.id === highlight.id ||
+              (sameHighlightSource(other.source, highlight.source) &&
+                sameHighlightSelector(other.selector, highlight.selector)),
+          )
+        )
+          return false;
+        next.splice(index, 0, highlight);
+      }
+      return commit(() => ({ byThreadKey: { ...byThreadKey, [threadKey]: next } }));
+    },
+    restoreHighlightNote: (ref, id, note, index) => {
+      if (!isNoteText(note.text) || !Number.isInteger(index) || index < 0) return false;
+      const threadKey = scopedThreadKey(ref);
+      const existing = get().byThreadKey[threadKey];
+      const highlight = existing?.find((item) => item.id === id);
+      if (!existing || !highlight || highlight.notes?.some((item) => item.id === note.id))
+        return false;
+      const notes = [...(highlight.notes ?? [])];
+      notes.splice(index, 0, note);
+      return commit((state) => ({
+        byThreadKey: {
+          ...state.byThreadKey,
+          [threadKey]: existing.map((item) => (item === highlight ? { ...item, notes } : item)),
         },
       }));
     },
