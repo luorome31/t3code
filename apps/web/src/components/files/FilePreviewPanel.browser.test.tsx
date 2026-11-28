@@ -4,7 +4,7 @@ import { AsyncResult } from "effect/reactivity";
 import { StrictMode, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { act, fakeTimers, render } from "../../../test/render";
-import { userEvent } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import appCss from "~/index.css?inline";
 import { isMacPlatform } from "~/lib/utils";
@@ -198,10 +198,19 @@ import { useRightPanelStore } from "~/rightPanelStore";
 const environmentId = EnvironmentId.make("markdown-preview-test");
 const threadRef = { environmentId, threadId: ThreadId.make("thread") };
 function setup() {
-  const keys = ["t3code.fileExplorerOpen", "t3code.renderMarkdown"];
+  const keys = [
+    "t3code.fileExplorerOpen",
+    "t3code.renderMarkdown",
+    "t3code.markdownOutlineMaximizedOpen",
+    "t3code.markdownOutlinePinned",
+    "t3code.markdownOutlineWidth",
+  ];
   const previous = keys.map((key) => localStorage.getItem(key));
   localStorage.setItem(keys[0]!, "false");
   localStorage.setItem(keys[1]!, "true");
+  localStorage.removeItem(keys[2]!);
+  localStorage.removeItem(keys[3]!);
+  localStorage.removeItem(keys[4]!);
   state.file = null;
   state.optimistic = null;
   state.smalltalk = false;
@@ -223,17 +232,25 @@ function setup() {
   };
 }
 
-function markdownPreview(truncated: boolean, contents = "- [ ] Keep the rest of this file\n") {
+function markdownPreview(
+  truncated: boolean,
+  contents = "- [ ] Keep the rest of this file\n",
+  maximized = false,
+) {
   state.file = {
     relativePath: "tasks.md",
     contents,
     byteLength: truncated ? 1_200_000 : contents.length,
     truncated,
   };
-  return filePreview("tasks.md");
+  return filePreview("tasks.md", null, maximized);
 }
 
-function filePreview(relativePath: string, workspaceMutationId: string | null = null) {
+function filePreview(
+  relativePath: string,
+  workspaceMutationId: string | null = null,
+  maximized = false,
+) {
   return (
     <FilePreviewPanel
       environmentId={environmentId}
@@ -253,6 +270,7 @@ function filePreview(relativePath: string, workspaceMutationId: string | null = 
       onPendingChange={vi.fn()}
       selectedFilePending={false}
       workspaceMutationId={workspaceMutationId}
+      maximized={maximized}
     />
   );
 }
@@ -580,5 +598,173 @@ describe("rendered Markdown select all", () => {
     // A toggled checkbox keeps focus on an input inside the preview.
     await userEvent.click(screen.getByRole("checkbox"));
     await expectFileOnlySelection();
+  });
+});
+
+function buildLongMarkdown(sectionCount: number): string {
+  return Array.from({ length: sectionCount }, (_, index) => {
+    const n = index + 1;
+    const filler = Array.from(
+      { length: 6 },
+      (__, p) => `Paragraph ${n}.${p + 1} with enough vertical content to require scrolling.`,
+    ).join("\n\n");
+    return `## Section ${n}\n\n${filler}`;
+  }).join("\n\n");
+}
+
+describe("rendered Markdown outline", () => {
+  it("disables the outline toggle when the Markdown file has no headings", async () => {
+    using _settings = setup();
+    await using screen = await render(
+      <div style={{ width: 480, height: 360, display: "flex", flexDirection: "column" }}>
+        {markdownPreview(false, "Just a plain paragraph without headings.\n")}
+      </div>,
+    );
+    await expect
+      .element(screen.getByRole("button", { name: "No headings in this file" }))
+      .toBeDisabled();
+  });
+
+  it("opens a searchable outline popover on narrow panels, jumps to headings, and closes", async () => {
+    using _settings = setup();
+    const style = document.createElement("style");
+    style.textContent = appCss;
+    document.head.append(style);
+    using _style = { [Symbol.dispose]: () => style.remove() };
+
+    const longMarkdown = buildLongMarkdown(10);
+    await using screen = await render(
+      <div style={{ width: 480, height: 360, display: "flex", flexDirection: "column" }}>
+        {markdownPreview(false, longMarkdown)}
+      </div>,
+    );
+
+    const toggle = screen.getByRole("button", { name: "Show outline" });
+    await expect.element(toggle).toBeEnabled();
+    await userEvent.click(toggle);
+
+    const filterInput = page.getByRole("searchbox", { name: "Filter headings" });
+    await expect.element(filterInput).toBeVisible();
+    await userEvent.type(filterInput, "Section 9");
+
+    const section9 = page.getByRole("button", { name: "Section 9" });
+    await expect.element(section9).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: "Section 1", exact: true }))
+      .not.toBeInTheDocument();
+
+    await userEvent.click(section9);
+
+    const viewport = screen.container.querySelector<HTMLElement>(
+      '[data-markdown-scroll-area] [data-slot="scroll-area-viewport"]',
+    )!;
+    await vi.waitFor(() => expect(viewport.scrollTop).toBeGreaterThan(100));
+    await expect.element(filterInput).not.toBeInTheDocument();
+  });
+
+  it("docks a Typora-style left outline sidebar by default when maximized on wide panels and toggles cleanly", async () => {
+    using _settings = setup();
+    const style = document.createElement("style");
+    style.textContent = appCss;
+    document.head.append(style);
+    using _style = { [Symbol.dispose]: () => style.remove() };
+
+    const markdown = "# Overview\n\nIntro\n\n## Details\n\nBody\n";
+    const renderView = (width: number, maximized: boolean) => (
+      <div style={{ width, height: 480, display: "flex", flexDirection: "column" }}>
+        {markdownPreview(false, markdown, maximized)}
+      </div>
+    );
+
+    await using screen = await render(renderView(820, true));
+    const sidebar = screen.getByRole("complementary", { name: "Document outline" });
+    await expect.element(sidebar).toBeVisible();
+
+    const sidebarRect = sidebar.element().getBoundingClientRect();
+    const viewportRect = screen.container
+      .querySelector<HTMLElement>('[data-markdown-scroll-area] [data-slot="scroll-area-viewport"]')!
+      .getBoundingClientRect();
+    expect(sidebarRect.right).toBeLessThanOrEqual(viewportRect.left + 1);
+
+    await userEvent.click(screen.getByRole("button", { name: "Hide outline" }).first());
+    await expect.element(sidebar).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Show outline" }));
+    await expect
+      .element(screen.getByRole("complementary", { name: "Document outline" }))
+      .toBeVisible();
+
+    await screen.rerender(renderView(480, false));
+    await expect
+      .element(screen.getByRole("complementary", { name: "Document outline" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("allows pinning and unpinning the left outline sidebar on wide non-maximized panels", async () => {
+    using _settings = setup();
+    const style = document.createElement("style");
+    style.textContent = appCss;
+    document.head.append(style);
+    using _style = { [Symbol.dispose]: () => style.remove() };
+
+    const markdown = "# Overview\n\nIntro\n\n## Details\n\nBody\n";
+    await using screen = await render(
+      <div style={{ width: 820, height: 480, display: "flex", flexDirection: "column" }}>
+        {markdownPreview(false, markdown, false)}
+      </div>,
+    );
+
+    expect(screen.container.querySelector("[data-markdown-outline-sidebar]")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Show outline" }));
+
+    const pinButton = page.getByRole("button", { name: "Pin outline" });
+    await expect.element(pinButton).toBeVisible();
+    await userEvent.click(pinButton);
+
+    const sidebar = screen.getByRole("complementary", { name: "Document outline" });
+    await expect.element(sidebar).toBeVisible();
+    await expect.element(pinButton).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Unpin outline" }));
+    await expect.element(sidebar).not.toBeInTheDocument();
+  });
+
+  it("shows top 3 relative heading levels by default, expands deeper levels with capped indentation, and collapses back", async () => {
+    using _settings = setup();
+    const style = document.createElement("style");
+    style.textContent = appCss;
+    document.head.append(style);
+    using _style = { [Symbol.dispose]: () => style.remove() };
+
+    const deepMarkdown = [
+      "# Level 1",
+      "## Level 2",
+      "### Level 3",
+      "#### Level 4",
+      "##### Level 5",
+    ].join("\n\n");
+    await using screen = await render(
+      <div style={{ width: 820, height: 480, display: "flex", flexDirection: "column" }}>
+        {markdownPreview(false, deepMarkdown, true)}
+      </div>,
+    );
+
+    const sidebar = screen.getByRole("complementary", { name: "Document outline" });
+    await expect.element(sidebar).toBeVisible();
+    await expect.element(sidebar.getByRole("button", { name: "Level 1" })).toBeVisible();
+    await expect.element(sidebar.getByRole("button", { name: "Level 3" })).toBeVisible();
+    await expect.element(sidebar.getByRole("button", { name: "Level 4" })).not.toBeInTheDocument();
+    await expect.element(sidebar.getByRole("button", { name: "Level 5" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Show all heading levels" }));
+    const level4 = sidebar.getByRole("button", { name: "Level 4" });
+    const level5 = sidebar.getByRole("button", { name: "Level 5" });
+    await expect.element(level4).toBeVisible();
+    await expect.element(level5).toBeVisible();
+    expect((level5.element() as HTMLElement).style.paddingLeft).toBe("46px");
+
+    await userEvent.click(screen.getByRole("button", { name: "Show top 3 levels" }));
+    await expect.element(sidebar.getByRole("button", { name: "Level 4" })).not.toBeInTheDocument();
+    await expect.element(sidebar.getByRole("button", { name: "Level 5" })).not.toBeInTheDocument();
   });
 });
