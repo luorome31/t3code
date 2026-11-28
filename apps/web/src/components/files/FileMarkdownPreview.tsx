@@ -38,8 +38,13 @@ export function FileMarkdownPreview(props: {
   readonly onTaskListChange?:
     | ((input: { readonly markerOffset: number; readonly checked: boolean }) => void)
     | undefined;
+  readonly onContainerChange?: ((container: HTMLDivElement | null) => void) | undefined;
 }) {
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
+  const handleContainerRef = useStableCallback((node: HTMLDivElement | null) => {
+    setContainer(node);
+    props.onContainerChange?.(node);
+  });
   const viewport = container
     ? (container.closest<HTMLElement>('[data-slot="scroll-area-viewport"]') ?? container)
     : null;
@@ -77,7 +82,7 @@ export function FileMarkdownPreview(props: {
   }, [container, onRevealHandled, reveal]);
 
   return (
-    <div ref={setContainer}>
+    <div ref={handleContainerRef}>
       <ChatMarkdown
         text={maskMarkdownFrontmatter(props.text)}
         cwd={props.cwd}

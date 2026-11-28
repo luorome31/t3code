@@ -1,3 +1,6 @@
+import { msg } from "gt-react";
+import { m } from "~/i18n/messages";
+
 export interface MessageOutlineHeading {
   /** Position among the message's rendered headings, used as the jump target. */
   readonly index: number;
@@ -44,6 +47,18 @@ function headingText(heading: HTMLElement): string {
 }
 
 /**
+ * Reads all Markdown headings inside a rendered `.chat-markdown` root,
+ * excluding embedded nested Markdown documents and KaTeX's hidden MathML copy.
+ */
+export function readMarkdownOutline(markdownRoot: HTMLElement): readonly MessageOutlineHeading[] {
+  return outlineHeadingElements(markdownRoot).map((heading, index) => ({
+    index,
+    level: Number.parseInt(heading.tagName.slice(1), 10),
+    text: headingText(heading) || m(msg("Untitled section")),
+  }));
+}
+
+/**
  * Reads the headings from a message's rendered DOM. The active reply is mounted
  * while it is on screen, so the DOM is the exact set of targets the outline shows.
  */
@@ -59,11 +74,7 @@ export function readMessageOutline(
     if (markdownRoot !== null) break;
   }
   if (markdownRoot === null) return null;
-  const headings = outlineHeadingElements(markdownRoot).map((heading, index) => ({
-    index,
-    level: Number.parseInt(heading.tagName.slice(1), 10),
-    text: headingText(heading) || "Untitled section",
-  }));
+  const headings = readMarkdownOutline(markdownRoot);
   outlineCache.set(messageId, { version, headings });
   if (outlineCache.size > OUTLINE_CACHE_LIMIT) {
     const oldest = outlineCache.keys().next().value;
