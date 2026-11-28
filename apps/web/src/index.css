@@ -1938,6 +1938,30 @@ code {
   color: var(--contrast-foreground);
 }
 
+.chat-markdown :is(h1, h2, h3, h4, h5, h6) {
+  scroll-margin-top: 1.25rem;
+}
+
+@keyframes markdown-outline-jump-highlight {
+  0% {
+    background-color: color-mix(in srgb, var(--primary) 16%, transparent);
+    border-radius: 0.25rem;
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.markdown-outline-jump-target {
+  animation: markdown-outline-jump-highlight 1.2s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .markdown-outline-jump-target {
+    animation: none;
+  }
+}
+
 :is(.chat-markdown, .composer-tiptap) h1 {
   font-size: 1.25rem;
 }
