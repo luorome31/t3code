@@ -41,6 +41,8 @@ import { PreviewImage } from "./PreviewImage";
 import { AudioPreview } from "./AudioPreview";
 import { BrowserDocumentFrame } from "./BrowserDocumentFrame";
 import { DelimitedTablePreview } from "./DelimitedTablePreview";
+import { MarkdownOutlineSidebar, MarkdownOutlineTrigger } from "./MarkdownOutline";
+import { useMarkdownOutline } from "./useMarkdownOutline";
 import {
   FILE_SURFACE_SUBHEADER_CLASS,
   FileSurfaceAction,
@@ -111,6 +113,7 @@ export function AttachmentFilePreview(props: {
   htmlRender?: boolean;
   threadRef?: ScopedThreadRef;
   origin?: string;
+  maximized?: boolean;
   onRemove?: () => void;
   onClose?: () => void;
 }) {
@@ -251,6 +254,34 @@ export function AttachmentFilePreview(props: {
     (content !== null || streamsText) &&
     !(delimiter && rendered) &&
     !((kind === "markdown" || kind === "mermaid") && rendered);
+  const showingRenderedMarkdown =
+    failure === null &&
+    !streamsText &&
+    Boolean(url) &&
+    content !== null &&
+    kind === "markdown" &&
+    rendered;
+  const [markdownSurfaceContainer, setMarkdownSurfaceContainer] = useState<HTMLDivElement | null>(
+    null,
+  );
+  const [markdownContentContainer, setMarkdownContentContainer] = useState<HTMLDivElement | null>(
+    null,
+  );
+  const outlineDocumentKey =
+    props.asset && "attachmentId" in props.asset
+      ? props.asset.attachmentId
+      : props.asset && "resource" in props.asset
+        ? JSON.stringify(props.asset.resource)
+        : props.file
+          ? blobKey(props.file)
+          : props.name;
+  const markdownOutline = useMarkdownOutline({
+    enabled: showingRenderedMarkdown,
+    documentKey: outlineDocumentKey,
+    maximized: props.maximized ?? false,
+    surfaceContainer: markdownSurfaceContainer,
+    markdownContainer: markdownContentContainer,
+  });
 
   const save = () => {
     setSaving(true);
@@ -315,13 +346,18 @@ export function AttachmentFilePreview(props: {
         <MermaidFilePreview text={content.text} />
       </Suspense>
     ) : kind === "markdown" && rendered ? (
-      <ScrollArea className="min-h-0 flex-1">
-        <ChatMarkdown
-          text={maskMarkdownFrontmatter(content.text)}
-          cwd={undefined}
-          className="mx-auto max-w-4xl px-6 py-5"
-        />
-      </ScrollArea>
+      <div ref={setMarkdownSurfaceContainer} className="flex min-h-0 flex-1 overflow-hidden">
+        <MarkdownOutlineSidebar outline={markdownOutline} />
+        <ScrollArea className="min-h-0 flex-1">
+          <div ref={setMarkdownContentContainer}>
+            <ChatMarkdown
+              text={maskMarkdownFrontmatter(content.text)}
+              cwd={undefined}
+              className="mx-auto max-w-4xl px-6 py-5"
+            />
+          </div>
+        </ScrollArea>
+      </div>
     ) : (
       <ReadOnlySourcePreview name={props.name} text={content.text} wordWrap={wordWrap} />
     )
@@ -439,6 +475,7 @@ export function AttachmentFilePreview(props: {
             )}
           </FileSurfaceAction>
         ) : null}
+        {showingRenderedMarkdown ? <MarkdownOutlineTrigger outline={markdownOutline} /> : null}
         {showsRawText ? (
           <FileSurfaceAction
             label={wordWrap ? gt("Disable word wrap") : gt("Enable word wrap")}

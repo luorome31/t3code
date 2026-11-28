@@ -12353,5 +12353,19 @@
   "27d76249d09eb69f": "Review guide ready",
   "faa3bb26abb39c93": "Review guide failed",
   "b7df38b7d8792d78": "Open guide",
-  "9e91e9a77b664e4e": "Could not start a review guide"
+  "9e91e9a77b664e4e": "Could not start a review guide",
+  "6211452cca49f534": "Untitled section",
+  "7b94912576bcbcf5": "Show top 3 levels",
+  "2f6e708b68dcf369": "Show all heading levels",
+  "5c8bc5927858edb7": "Filter headings",
+  "060a6f0e3778018c": "Filter headings…",
+  "b8dffbd33a3336b8": "Document outline",
+  "4ea63316d979ff2b": "No matching headings",
+  "b013a67c9135ac5f": "No headings in this file",
+  "3ae184e3445af378": "Hide outline",
+  "ec4cb3bb2e86efd0": "Show outline",
+  "9e6edd810dd7f75b": "Outline",
+  "d80f81a744fade06": "Pin outline",
+  "a48ea461a34dbf35": "Unpin outline",
+  "482080c294f2759a": "Resize outline"
 }

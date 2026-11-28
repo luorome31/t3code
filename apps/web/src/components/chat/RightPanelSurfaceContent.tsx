@@ -75,6 +75,7 @@ export function RightPanelSurfaceContent(props: {
   readonly threadRef: ScopedThreadRef;
   readonly environmentId: EnvironmentId;
   readonly visible: boolean;
+  readonly maximized?: boolean;
   readonly composerDraftTarget: ScopedThreadRef | DraftId;
   readonly keybindings: ResolvedKeybindingsConfig;
   readonly configuredPreviewUrls: ReadonlyArray<string>;
@@ -303,6 +304,7 @@ export function RightPanelSurfaceContent(props: {
             onInsertMarkdownFileHighlights={props.onInsertMarkdownFileHighlights}
             selectedFilePending={surface.kind === "file" && files.pendingSurfaceIds.has(surface.id)}
             workspaceMutationId={props.workspaceMutationId}
+            {...(props.maximized !== undefined ? { maximized: props.maximized } : {})}
           />
         </Suspense>
       );

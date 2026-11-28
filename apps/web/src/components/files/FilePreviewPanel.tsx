@@ -53,6 +53,7 @@ import { FolderTree, Globe2, WrapTextIcon } from "lucide-react";
 import * as Schema from "effect/Schema";
 import {
   lazy,
+  type ReactNode,
   Suspense,
   useEffect,
   useRef,
@@ -102,6 +103,8 @@ import { FileExplorerPane } from "./FileExplorerPane";
 import { FileBreadcrumbs } from "./FileBreadcrumbs";
 import { breadcrumbPathOf, retainedBreadcrumbTrail, trailChildOf } from "./filePath";
 import { FileMarkdownPreview, type MarkdownFileHighlightReveal } from "./FileMarkdownPreview";
+import { MarkdownOutlineSidebar, MarkdownOutlineTrigger } from "./MarkdownOutline";
+import { useMarkdownOutline } from "./useMarkdownOutline";
 import { consumeFileHighlightReveal, useFileHighlightReveal } from "~/fileHighlightRevealStore";
 import type { MarkdownFileHighlightExcerpt } from "~/highlightStore";
 import type { HighlightInsert } from "~/lib/highlightCitation";
@@ -169,6 +172,7 @@ interface FilePreviewPanelProps {
   onPendingChange: (relativePath: string, pending: boolean) => void;
   selectedFilePending: boolean;
   workspaceMutationId: string | null;
+  maximized?: boolean;
   onInsertMarkdownFileHighlights?:
     | HighlightInsert<readonly MarkdownFileHighlightExcerpt[]>
     | undefined;
@@ -1158,6 +1162,9 @@ function RenderedMarkdownSurface({
   onHighlightRevealHandled,
   onInsertMarkdownFileHighlights,
   onPendingChange,
+  onSurfaceContainerChange,
+  onMarkdownContainerChange,
+  outlineSidebar,
 }: Omit<
   EditableFileSurfaceProps,
   | "resolvedTheme"
@@ -1176,36 +1183,51 @@ function RenderedMarkdownSurface({
   onInsertMarkdownFileHighlights?:
     | HighlightInsert<readonly MarkdownFileHighlightExcerpt[]>
     | undefined;
+  onSurfaceContainerChange: (container: HTMLDivElement | null) => void;
+  onMarkdownContainerChange: (container: HTMLDivElement | null) => void;
+  outlineSidebar?: ReactNode;
 }) {
   const saveTarget = { environmentId, cwd, relativePath };
   useFileSaveSession(saveTarget, onPendingChange);
 
   return (
-    <ScrollArea className="min-h-0 flex-1" onKeyDown={selectRenderedContentOnSelectAll}>
-      <FileMarkdownPreview
-        text={contents}
-        cwd={cwd}
-        relativePath={relativePath}
-        threadRef={threadRef}
-        workspaceMutationId={workspaceMutationId}
-        revealHighlight={revealHighlight}
-        onHighlightRevealHandled={onHighlightRevealHandled}
-        onInsertMarkdownFileHighlights={onInsertMarkdownFileHighlights}
-        onTaskListChange={
-          readOnly
-            ? undefined
-            : ({ markerOffset, checked }) => {
-                const currentContents =
-                  getOptimisticProjectFileQueryData(environmentId, cwd, relativePath)?.contents ??
-                  contents;
-                const nextContents = setMarkdownTaskChecked(currentContents, markerOffset, checked);
-                if (nextContents === currentContents) return;
-                setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
-                changeFileSaveSession(saveTarget, nextContents);
-              }
-        }
-      />
-    </ScrollArea>
+    <div ref={onSurfaceContainerChange} className="flex min-h-0 flex-1 overflow-hidden">
+      {outlineSidebar}
+      <ScrollArea
+        data-markdown-scroll-area
+        className="min-h-0 flex-1"
+        onKeyDown={selectRenderedContentOnSelectAll}
+      >
+        <FileMarkdownPreview
+          text={contents}
+          cwd={cwd}
+          relativePath={relativePath}
+          threadRef={threadRef}
+          workspaceMutationId={workspaceMutationId}
+          revealHighlight={revealHighlight}
+          onHighlightRevealHandled={onHighlightRevealHandled}
+          onInsertMarkdownFileHighlights={onInsertMarkdownFileHighlights}
+          onContainerChange={onMarkdownContainerChange}
+          onTaskListChange={
+            readOnly
+              ? undefined
+              : ({ markerOffset, checked }) => {
+                  const currentContents =
+                    getOptimisticProjectFileQueryData(environmentId, cwd, relativePath)?.contents ??
+                    contents;
+                  const nextContents = setMarkdownTaskChecked(
+                    currentContents,
+                    markerOffset,
+                    checked,
+                  );
+                  if (nextContents === currentContents) return;
+                  setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
+                  changeFileSaveSession(saveTarget, nextContents);
+                }
+          }
+        />
+      </ScrollArea>
+    </div>
   );
 }
 
@@ -1251,6 +1273,7 @@ export default function FilePreviewPanel({
   onPendingChange,
   selectedFilePending,
   workspaceMutationId,
+  maximized = false,
   onInsertMarkdownFileHighlights,
 }: FilePreviewPanelProps) {
   const relativePath =
@@ -1385,6 +1408,29 @@ export default function FilePreviewPanel({
           : null;
   const canToggleRendered =
     previewPath !== null && attachment === undefined && renderedMode !== null;
+  const [markdownSurfaceContainer, setMarkdownSurfaceContainer] = useState<HTMLDivElement | null>(
+    null,
+  );
+  const [markdownContentContainer, setMarkdownContentContainer] = useState<HTMLDivElement | null>(
+    null,
+  );
+  const showingRenderedWorkspaceMarkdown =
+    attachment === undefined &&
+    previewPath !== null &&
+    isMarkdown &&
+    renderMarkdown &&
+    file.data !== null &&
+    !isMedia &&
+    !isDocument &&
+    !renderBrowserFile &&
+    !renderMermaid;
+  const markdownOutline = useMarkdownOutline({
+    enabled: showingRenderedWorkspaceMarkdown,
+    documentKey: `${environmentId}:${cwd}:${relativePath ?? ""}`,
+    maximized,
+    surfaceContainer: markdownSurfaceContainer,
+    markdownContainer: markdownContentContainer,
+  });
   const showsRawText =
     previewPath !== null &&
     file.data !== null &&
@@ -1621,6 +1667,9 @@ export default function FilePreviewPanel({
               )}
             </FileSurfaceAction>
           ) : null}
+          {showingRenderedWorkspaceMarkdown ? (
+            <MarkdownOutlineTrigger outline={markdownOutline} />
+          ) : null}
           {isMarkdown && previewPath !== null && file.data !== null ? (
             <MarkdownSmalltalkButton
               threadRef={threadRef}
@@ -1701,6 +1750,7 @@ export default function FilePreviewPanel({
               asset={{ environmentId, attachmentId: attachment.id }}
               htmlRender={attachment.htmlRender === true}
               threadRef={threadRef}
+              maximized={maximized}
             />
           ) : relativePath && isVideo && absolutePath ? (
             <WorkspaceVideoPreview
@@ -1843,6 +1893,9 @@ export default function FilePreviewPanel({
                 }}
                 onInsertMarkdownFileHighlights={onInsertMarkdownFileHighlights}
                 onPendingChange={onPendingChange}
+                onSurfaceContainerChange={setMarkdownSurfaceContainer}
+                onMarkdownContainerChange={setMarkdownContentContainer}
+                outlineSidebar={<MarkdownOutlineSidebar outline={markdownOutline} />}
               />
             ) : tableDelimiter && renderTable ? (
               <DelimitedTablePreview
